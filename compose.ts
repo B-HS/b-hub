@@ -1,5 +1,4 @@
 import { S3Client } from '@aws-sdk/client-s3'
-import { GoogleGenAI } from '@google/genai'
 import sharp from 'sharp'
 import { getDb } from './db/index'
 import * as schema from './db/schema'
@@ -821,11 +820,20 @@ export const compose = () => {
         },
     }
 
-    const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' })
+    let genai: InstanceType<typeof import('@google/genai').GoogleGenAI> | null = null
+
+    const getGenAI = async () => {
+        if (!genai) {
+            const { GoogleGenAI } = await import('@google/genai')
+            genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' })
+        }
+        return genai
+    }
 
     const hnAi = {
         summarize: async (prompt: string) => {
-            const response = await genai.models.generateContent({
+            const ai = await getGenAI()
+            const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash-lite',
                 contents: prompt,
             })
