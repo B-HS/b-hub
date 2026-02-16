@@ -10,24 +10,22 @@ import type { AuthContext } from './lib/hono-types'
 
 const app = new Hono<AuthContext>()
 
-const ALLOWED_ORIGINS = [
-    'https://blog.gumyo.net',
-    'https://hub.gumyo.net',
-    'https://gumyo.net',
-    'https://www.gumyo.net',
-    'https://hn.gumyo.net',
-    'https://better.gumyo.net',
-]
+const isAllowedOrigin = (origin: string) => {
+    try {
+        const { hostname } = new URL(origin)
+        if (hostname === 'gumyo.net' || hostname.endsWith('.gumyo.net')) return true
+        if (hostname === 'hyns.dev' || hostname.endsWith('.hyns.dev')) return true
+        if (process.env.NODE_ENV !== 'production' && hostname === 'localhost') return true
+        return false
+    } catch {
+        return false
+    }
+}
 
 app.use(
     '*',
     cors({
-        origin: (origin) => {
-            if (!origin) return ''
-            if (ALLOWED_ORIGINS.includes(origin)) return origin
-            if (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost')) return origin
-            return ''
-        },
+        origin: (origin) => (origin && isAllowedOrigin(origin) ? origin : ''),
         credentials: true,
     }),
 )
