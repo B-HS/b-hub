@@ -1,0 +1,246 @@
+const BASE_URL = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0'
+const MAX_RETRIES = 3
+const RETRY_DELAY = 1000
+
+type KMAResponseHeader = {
+    resultCode: string
+    resultMsg: string
+}
+
+type KMAResponse<T> = {
+    response: {
+        header: KMAResponseHeader
+        body: {
+            items: { item: T[] }
+        }
+    }
+}
+
+export type KMAWeatherItem = {
+    baseDate: string
+    baseTime: string
+    category: string
+    fcstDate?: string
+    fcstTime?: string
+    nx: number
+    ny: number
+    obsrValue?: string
+    fcstValue?: string
+}
+
+export type KMAVersionItem = {
+    filetype: string
+    version: string
+}
+
+type KmaApiResult<T> = { success: true; data: T } | { success: false; error: { code: string; message: string } }
+
+type KmaApiDeps = {
+    apiKey: string
+    fetchFn?: typeof fetch
+}
+
+const formatDate = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}${month}${day}`
+}
+
+const formatTime = (date: Date) => {
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${hours}${minutes}`
+}
+
+const getBaseDateTime = (type: 'ncst' | 'fcst' | 'vilage') => {
+    const now = new Date()
+    const minutes = now.getMinutes()
+
+    if (type === 'ncst') {
+        if (minutes < 40) {
+            now.setHours(now.getHours() - 1)
+        }
+        now.setMinutes(0)
+    } else if (type === 'fcst') {
+        if (minutes < 45) {
+            now.setHours(now.getHours() - 1)
+        }
+        now.setMinutes(30)
+    } else {
+        const baseTimes = [2, 5, 8, 11, 14, 17, 20, 23]
+        const currentHour = now.getHours()
+        const currentMinutes = now.getMinutes()
+
+        let baseTime = baseTimes[0]
+        for (const bt of baseTimes) {
+            if (currentHour > bt || (currentHour === bt && currentMinutes >= 10)) {
+                baseTime = bt
+            }
+        }
+
+        if (currentHour < 2 || (currentHour === 2 && currentMinutes < 10)) {
+            now.setDate(now.getDate() - 1)
+            baseTime = 23
+        }
+
+        now.setHours(baseTime)
+        now.setMinutes(0)
+    }
+
+    return {
+        baseDate: formatDate(now),
+        baseTime: formatTime(now),
+    }
+}
+
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+const mapKmaErrorCode = (kmaCode: string) => {
+    const errorMap: Record<string, string> = {
+        '01': 'WEATHER_KMA_API_ERROR',
+        '02': 'WEATHER_KMA_API_ERROR',
+        '03': 'WEATHER_DATA_NOT_FOUND',
+        '04': 'WEATHER_KMA_API_ERROR',
+        '05': 'WEATHER_KMA_API_ERROR',
+        '10': 'WEATHER_KMA_API_ERROR',
+        '11': 'WEATHER_KMA_API_ERROR',
+        '12': 'WEATHER_KMA_API_ERROR',
+        '20': 'WEATHER_KMA_API_ERROR',
+        '21': 'WEATHER_KMA_API_ERROR',
+        '22': 'WEATHER_KMA_API_ERROR',
+        '30': 'WEATHER_KMA_API_ERROR',
+        '31': 'WEATHER_KMA_API_ERROR',
+        '32': 'WEATHER_KMA_API_ERROR',
+        '99': 'WEATHER_KMA_API_ERROR',
+    }
+    return errorMap[kmaCode] || 'WEATHER_KMA_API_ERROR'
+}
+
+export const createKmaApiService = (deps: KmaApiDeps) => {
+    const fetchFn = deps.fetchFn ?? fetch
+
+    const fetchWithRetry = async <T>(url: string): Promise<KmaApiResult<T>> => {
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                const response = await fetchFn(url)
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`)
+                }
+
+                const data = (await response.json()) as KMAResponse<T>
+                const header = data.response?.header
+
+                if (!header) {
+                    throw new Error('Invalid response structure')
+                }
+
+                if (header.resultCode !== '00') {
+                    return {
+                        success: false,
+                        error: {
+                            code: mapKmaErrorCode(header.resultCode),
+                            message: header.resultMsg,
+                        },
+                    }
+                }
+
+                return {
+                    success: true,
+                    data: data.response.body.items.item as T,
+                }
+            } catch (error) {
+                if (attempt < MAX_RETRIES) {
+                    await delay(RETRY_DELAY * attempt)
+                    continue
+                }
+
+                return {
+                    success: false,
+                    error: {
+                        code: 'WEATHER_KMA_API_ERROR',
+                        message: error instanceof Error ? error.message : 'External API request failed',
+                    },
+                }
+            }
+        }
+
+        return {
+            success: false,
+            error: {
+                code: 'WEATHER_KMA_API_ERROR',
+                message: 'Weather service temporarily unavailable',
+            },
+        }
+    }
+
+    const getUltraSrtNcst = async (nx: number, ny: number) => {
+        const { baseDate, baseTime } = getBaseDateTime('ncst')
+        const params = new URLSearchParams({
+            serviceKey: deps.apiKey,
+            numOfRows: '10',
+            pageNo: '1',
+            dataType: 'JSON',
+            base_date: baseDate,
+            base_time: baseTime,
+            nx: String(nx),
+            ny: String(ny),
+        })
+
+        return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getUltraSrtNcst?${params}`)
+    }
+
+    const getUltraSrtFcst = async (nx: number, ny: number) => {
+        const { baseDate, baseTime } = getBaseDateTime('fcst')
+        const params = new URLSearchParams({
+            serviceKey: deps.apiKey,
+            numOfRows: '60',
+            pageNo: '1',
+            dataType: 'JSON',
+            base_date: baseDate,
+            base_time: baseTime,
+            nx: String(nx),
+            ny: String(ny),
+        })
+
+        return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getUltraSrtFcst?${params}`)
+    }
+
+    const getVilageFcst = async (nx: number, ny: number) => {
+        const { baseDate, baseTime } = getBaseDateTime('vilage')
+        const params = new URLSearchParams({
+            serviceKey: deps.apiKey,
+            numOfRows: '1000',
+            pageNo: '1',
+            dataType: 'JSON',
+            base_date: baseDate,
+            base_time: baseTime,
+            nx: String(nx),
+            ny: String(ny),
+        })
+
+        return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getVilageFcst?${params}`)
+    }
+
+    const getFcstVersion = async (ftype: string) => {
+        const { baseDate, baseTime } = getBaseDateTime('vilage')
+        const params = new URLSearchParams({
+            serviceKey: deps.apiKey,
+            numOfRows: '1',
+            pageNo: '1',
+            dataType: 'JSON',
+            ftype,
+            basedatetime: `${baseDate}${baseTime}`,
+        })
+
+        const result = await fetchWithRetry<KMAVersionItem[]>(`${BASE_URL}/getFcstVersion?${params}`)
+        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+            return { success: true as const, data: result.data[0] }
+        }
+        return result as KmaApiResult<KMAVersionItem>
+    }
+
+    return { getUltraSrtNcst, getUltraSrtFcst, getVilageFcst, getFcstVersion }
+}
+
+export type KmaApiService = ReturnType<typeof createKmaApiService>

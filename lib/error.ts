@@ -1,0 +1,60 @@
+import type { ErrorCode } from './error-code'
+import { ERROR_MESSAGE } from './error-message'
+
+export type AppError = {
+    code: ErrorCode
+    message: string
+    statusCode: number
+    details?: Record<string, unknown>
+}
+
+const STATUS_MAP: Record<string, number> = {
+    VALIDATION_ERROR: 400,
+    NOT_FOUND: 404,
+    UNAUTHORIZED: 401,
+    FORBIDDEN: 403,
+    RATE_LIMIT_EXCEEDED: 429,
+    INTERNAL_ERROR: 500,
+    EXTERNAL_API_ERROR: 502,
+
+    STORAGE_UPLOAD_FAILED: 500,
+    STORAGE_DELETE_FAILED: 500,
+    IMAGE_PROCESS_FAILED: 422,
+    IMAGE_GENERATE_FAILED: 500,
+    FONT_NOT_FOUND: 404,
+    ICON_LOAD_FAILED: 422,
+    NOTIFICATION_SEND_FAILED: 502,
+    AI_SUMMARIZE_FAILED: 502,
+    API_TOKEN_INVALID: 401,
+
+    BADGE_INVALID_DIMENSIONS: 400,
+    BADGE_INVALID_COLOR: 400,
+
+    BLOG_POST_NOT_FOUND: 404,
+    BLOG_COMMENT_NOT_FOUND: 404,
+    BLOG_CATEGORY_NOT_FOUND: 404,
+    BLOG_NOT_COMMENT_OWNER: 403,
+    BLOG_IMAGE_TOO_LARGE: 413,
+    BLOG_IMAGE_INVALID_TYPE: 422,
+
+    WEATHER_KMA_API_ERROR: 502,
+    WEATHER_INVALID_GRID: 400,
+    WEATHER_DATA_NOT_FOUND: 404,
+
+    HN_STORY_NOT_FOUND: 404,
+    HN_FETCH_FAILED: 502,
+    HN_CRON_SECRET_INVALID: 401,
+    HN_WEBHOOK_REGISTER_FAILED: 500,
+}
+
+export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500
+
+export const createAppError = (code: ErrorCode, details?: Record<string, unknown>): AppError => ({
+    code,
+    message: ERROR_MESSAGE[code],
+    statusCode: getStatusCode(code),
+    details,
+})
+
+export const isAppError = (error: unknown): error is AppError =>
+    typeof error === 'object' && error !== null && 'code' in error && 'message' in error && 'statusCode' in error

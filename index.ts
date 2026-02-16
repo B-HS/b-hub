@@ -1,0 +1,79 @@
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { generateSpecs } from 'hono-openapi'
+import { swaggerUI } from '@hono/swagger-ui'
+import { securityHeaders } from './middleware/security-headers'
+import { errorHandler } from './middleware/error-handler'
+import { createRouter } from './route/index'
+import { compose } from './compose'
+import type { AuthContext } from './lib/hono-types'
+
+const app = new Hono<AuthContext>()
+
+const ALLOWED_ORIGINS = [
+    'https://blog.gumyo.net',
+    'https://hub.gumyo.net',
+    'https://gumyo.net',
+    'https://www.gumyo.net',
+]
+
+app.use(
+    '*',
+    cors({
+        origin: (origin) => {
+            if (!origin) return ''
+            if (ALLOWED_ORIGINS.includes(origin)) return origin
+            if (process.env.NODE_ENV !== 'production' && origin.startsWith('http://localhost')) return origin
+            return ''
+        },
+        credentials: true,
+    }),
+)
+
+app.use('*', securityHeaders())
+app.use('*', errorHandler())
+
+app.get('/', (c) => c.json({ name: 'hyun-hub', version: '1.0.0' }))
+
+const deps = compose()
+const router = createRouter({
+    auth: deps.auth,
+    apiTokenService: deps.apiTokenService,
+    getSession: deps.getSession,
+    postService: deps.postService,
+    commentService: deps.commentService,
+    messageService: deps.messageService,
+    blogImageService: deps.blogImageService,
+    categoryDb: deps.categoryDb,
+    tagDb: deps.tagDb,
+    adminDb: deps.adminDb,
+    imageGenerator: deps.imageGenerator,
+    fontLoader: deps.fontLoader,
+})
+app.route('/api', router)
+
+if (process.env.NODE_ENV !== 'production') {
+    app.get('/docs', async (c) => {
+        const specs = await generateSpecs(app, {
+            documentation: {
+                info: {
+                    title: 'Hyun Hub API',
+                    version: '1.0.0',
+                    description: 'Badge, Weather, HN Digest, Blog 통합 API',
+                },
+                servers: [
+                    { url: 'https://hub.gumyo.net', description: 'Production' },
+                    { url: 'http://localhost:9999', description: 'Development' },
+                ],
+            },
+        })
+        return c.json(specs)
+    })
+
+    app.get('/swagger', swaggerUI({ url: '/docs' }))
+}
+
+export default {
+    port: process.env.PORT || 9999,
+    fetch: app.fetch,
+}

@@ -1,0 +1,9 @@
+{
+    "bunVersion": "1.x",
+    "buildCommand": "bun run vercel-build",
+    "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+    "crons": [
+        { "path": "/api/hn/cron/sync", "schedule": "*/30 * * * *" },
+        { "path": "/api/hn/cron/daily", "schedule": "0 14 * * *" }
+    ]
+}
