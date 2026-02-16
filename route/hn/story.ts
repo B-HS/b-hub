@@ -1,12 +1,12 @@
 import { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
-import { resolver, validator } from 'hono-openapi/zod'
+import { validator } from 'hono-openapi/zod'
 import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
 import { successResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
-import { storyListQuerySchema, storyIdParamSchema, searchQuerySchema, tagStoriesQuerySchema } from '../../dto/hn/story'
+import { storyListQuerySchema, searchQuerySchema, tagStoriesQuerySchema } from '../../dto/hn/story'
 
 type StoryRouteDb = {
     getStoriesPaginated: (type: string | undefined, limit: number, offset: number) => Promise<Record<string, unknown>[]>
@@ -66,6 +66,19 @@ export const createStoryRoute = (deps: StoryRouteDeps) => {
                     limit: query.limit,
                 }),
             )
+        }),
+    )
+
+    route.get(
+        '/stories/counts',
+        describeRoute({
+            tags: ['HN'],
+            summary: '카테고리별 스토리 수',
+            responses: { 200: { description: '카테고리별 카운트' } },
+        }),
+        withErrorHandling(async (c) => {
+            const counts = await deps.db.getStoryCounts()
+            return c.json(successResponse({ counts }))
         }),
     )
 
@@ -130,19 +143,6 @@ export const createStoryRoute = (deps: StoryRouteDeps) => {
                     limit: query.limit,
                 }),
             )
-        }),
-    )
-
-    route.get(
-        '/stories/counts',
-        describeRoute({
-            tags: ['HN'],
-            summary: '카테고리별 스토리 수',
-            responses: { 200: { description: '카테고리별 카운트' } },
-        }),
-        withErrorHandling(async (c) => {
-            const counts = await deps.db.getStoryCounts()
-            return c.json(successResponse({ counts }))
         }),
     )
 
