@@ -5,7 +5,7 @@
     "scripts": {
         "dev": "bun run --hot index.ts",
         "build": "bun build ./index.ts --outfile ./api/index.js --target bun --format esm",
-        "vercel-build": "bun build ./index.ts --outfile ./api/index.js --target bun --format esm --external @google/genai",
+        "vercel-build": "bun build ./index.ts --outfile ./api/index.js --target bun --format esm --external @google/genai --external cheerio",
         "test": "bun test",
         "typecheck": "tsc --noEmit",
         "test:coverage": "bun test --coverage",
@@ -27,6 +27,7 @@
         "icojs": "^0.20.1",
         "mysql2": "^3.16.3",
         "satori": "^0.19.1",
+        "cheerio": "^1.0.0",
         "sharp": "^0.34.4",
         "zod": "^3.24.0",
         "zod-openapi": "4"

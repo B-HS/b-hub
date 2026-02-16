@@ -14,6 +14,9 @@ import { createImageProcessor } from './service/shared/image-processor'
 import { createImageGenerator } from './service/shared/image-generator'
 import { createFontLoader } from './service/shared/font-loader'
 import { createHnFetcherService } from './service/domain/hn/hn-fetcher'
+import { createContentParser } from './service/domain/hn/hn-content-parser'
+import { createHnTranslator } from './service/domain/hn/hn-translator'
+import * as cheerio from 'cheerio'
 import { createHnDigestService } from './service/domain/hn/hn-digest'
 import { createHnWebhookService } from './service/domain/hn/hn-webhook'
 import satori from 'satori'
@@ -831,17 +834,45 @@ export const compose = () => {
     }
 
     const hnAi = {
-        summarize: async (prompt: string) => {
+        summarize: async (prompt: string, maxTokens?: number) => {
             const ai = await getGenAI()
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash-lite',
                 contents: prompt,
+                ...(maxTokens && { config: { maxOutputTokens: maxTokens } }),
             })
             return response.text ?? ''
         },
     }
 
-    const hnFetcher = createHnFetcherService({ db: hnFetcherDb })
+    const contentParser = createContentParser({ cheerio })
+
+    const translatorDb = {
+        getExistingTags: async () => {
+            const list = await db
+                .select({ name: schema.hnTags.name })
+                .from(schema.hnTags)
+                .orderBy(desc(schema.hnTags.usageCount))
+                .limit(50)
+            return list.map((t) => t.name)
+        },
+        updateTagUsage: async (tagNames: string[]) => {
+            for (const name of tagNames) {
+                await db
+                    .insert(schema.hnTags)
+                    .values({ name, usageCount: 1 })
+                    .onDuplicateKeyUpdate({ set: { usageCount: sql`usage_count + 1` } })
+            }
+        },
+    }
+
+    const hnTranslator = createHnTranslator({ ai: hnAi, db: translatorDb })
+
+    const hnFetcher = createHnFetcherService({
+        db: hnFetcherDb,
+        contentParser,
+        translator: hnTranslator,
+    })
     const hnDigest = createHnDigestService({ ai: hnAi, db: hnDigestServiceDb })
     const hnWebhook = createHnWebhookService({ db: hnWebhookDb })
 
