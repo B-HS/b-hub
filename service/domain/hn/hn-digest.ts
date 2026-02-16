@@ -155,7 +155,100 @@ ${storiesText}
         return { summarized: unsummarized.length, date: dateKey }
     }
 
-    return { summarizeStory, summarizeAndSave, generateDigestSummary, runDaily }
+    const getWeekNumber = (date: Date): number => {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+        const dayNum = d.getUTCDay() || 7
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+        return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+    }
+
+    const runWeekly = async () => {
+        const now = new Date()
+        const weekStart = new Date(now)
+        weekStart.setDate(now.getDate() - 7)
+
+        const startTimestamp = Math.floor(weekStart.getTime() / 1000)
+        const endTimestamp = Math.floor(now.getTime() / 1000)
+
+        const weeklyStories = await deps.db.getStoriesForPeriod(startTimestamp, endTimestamp, 30)
+        const storyIds = weeklyStories.map((s) => s.id as number)
+        const summaryList = storyIds.length > 0 ? await deps.db.getSummariesByStoryIds(storyIds) : []
+        const summaryMap = new Map(summaryList.map((s) => [s.storyId as number, s]))
+
+        const storySummaries = weeklyStories
+            .map((story) => {
+                const summary = summaryMap.get(story.id as number)
+                return {
+                    title: (story.title as string) ?? '',
+                    titleKo: (story.titleKo as string) ?? undefined,
+                    summary: (summary?.summary as string) ?? '',
+                    url: (story.url as string) ?? null,
+                    score: (story.score as number) ?? 0,
+                    tags: (summary?.tags as string[]) ?? [],
+                }
+            })
+            .filter((s) => s.title && s.summary)
+
+        const year = now.getFullYear()
+        const weekNum = getWeekNumber(now)
+        const weekKey = `${year}-W${String(weekNum).padStart(2, '0')}`
+
+        const digestContent = await generateDigestSummary('weekly', storySummaries)
+
+        await deps.db.upsertDigest({
+            digestType: 'weekly',
+            digestKey: weekKey,
+            title: `주간 다이제스트 - ${weekKey}`,
+            content: digestContent,
+            storyIds,
+        })
+
+        return { stories: weeklyStories.length, week: weekKey }
+    }
+
+    const runMonthly = async () => {
+        const now = new Date()
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+        const startTimestamp = Math.floor(monthStart.getTime() / 1000)
+        const endTimestamp = Math.floor(now.getTime() / 1000)
+
+        const monthlyStories = await deps.db.getStoriesForPeriod(startTimestamp, endTimestamp, 50)
+        const storyIds = monthlyStories.map((s) => s.id as number)
+        const summaryList = storyIds.length > 0 ? await deps.db.getSummariesByStoryIds(storyIds) : []
+        const summaryMap = new Map(summaryList.map((s) => [s.storyId as number, s]))
+
+        const storySummaries = monthlyStories
+            .map((story) => {
+                const summary = summaryMap.get(story.id as number)
+                return {
+                    title: (story.title as string) ?? '',
+                    titleKo: (story.titleKo as string) ?? undefined,
+                    summary: (summary?.summary as string) ?? '',
+                    url: (story.url as string) ?? null,
+                    score: (story.score as number) ?? 0,
+                    tags: (summary?.tags as string[]) ?? [],
+                }
+            })
+            .filter((s) => s.title && s.summary)
+
+        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+        const digestContent = await generateDigestSummary('monthly', storySummaries)
+
+        await deps.db.upsertDigest({
+            digestType: 'monthly',
+            digestKey: monthKey,
+            title: `월간 다이제스트 - ${monthKey}`,
+            content: digestContent,
+            storyIds,
+        })
+
+        return { stories: monthlyStories.length, month: monthKey }
+    }
+
+    return { summarizeStory, summarizeAndSave, generateDigestSummary, runDaily, runWeekly, runMonthly }
 }
 
 export type HnDigestService = ReturnType<typeof createHnDigestService>

@@ -65,5 +65,41 @@ export const createCronRoute = (deps: CronRouteDeps) => {
         }),
     )
 
+    route.get(
+        '/weekly',
+        describeRoute({
+            tags: ['HN Cron'],
+            summary: '주간 다이제스트 생성',
+            responses: {
+                200: { description: '다이제스트 결과' },
+                ...errorResponses(['HN_CRON_SECRET_INVALID']),
+            },
+        }),
+        withErrorHandling(async (c) => {
+            if (!verifyCronSecret(c)) throw createAppError('HN_CRON_SECRET_INVALID')
+
+            const result = await deps.hnDigest.runWeekly()
+            return c.json(successResponse(result))
+        }),
+    )
+
+    route.get(
+        '/monthly',
+        describeRoute({
+            tags: ['HN Cron'],
+            summary: '월간 다이제스트 생성',
+            responses: {
+                200: { description: '다이제스트 결과' },
+                ...errorResponses(['HN_CRON_SECRET_INVALID']),
+            },
+        }),
+        withErrorHandling(async (c) => {
+            if (!verifyCronSecret(c)) throw createAppError('HN_CRON_SECRET_INVALID')
+
+            const result = await deps.hnDigest.runMonthly()
+            return c.json(successResponse(result))
+        }),
+    )
+
     return route
 }

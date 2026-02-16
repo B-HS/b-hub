@@ -15,6 +15,8 @@ const ALLOWED_ORIGINS = [
     'https://hub.gumyo.net',
     'https://gumyo.net',
     'https://www.gumyo.net',
+    'https://hn.gumyo.net',
+    'https://better.gumyo.net',
 ]
 
 app.use(
@@ -49,6 +51,12 @@ const router = createRouter({
     adminDb: deps.adminDb,
     imageGenerator: deps.imageGenerator,
     fontLoader: deps.fontLoader,
+    hnStoryDb: deps.hnStoryDb,
+    hnDigestDb: deps.hnDigestDb,
+    hnFetcher: deps.hnFetcher,
+    hnDigest: deps.hnDigest,
+    hnWebhook: deps.hnWebhook,
+    cronSecret: deps.cronSecret,
 })
 app.route('/api', router)
 

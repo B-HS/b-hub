@@ -8,6 +8,7 @@ import { createLocationRoute } from './weather/location'
 import { createStoryRoute } from './hn/story'
 import { createCronRoute } from './hn/cron'
 import { createWebhookRoute } from './hn/webhook'
+import { createDigestRoute } from './hn/digest'
 import { createPostRoute } from './blog/post'
 import { createCommentRoute } from './blog/comment'
 import { createCategoryRoute } from './blog/category'
@@ -32,6 +33,7 @@ import type { ImageGenerator } from '../service/shared/image-generator'
 import type { FontLoader } from '../service/shared/font-loader'
 
 type HnStoryDb = Parameters<typeof createStoryRoute>[0]['db']
+type HnDigestDb = Parameters<typeof createDigestRoute>[0]['db']
 type CategoryDb = Parameters<typeof createCategoryRoute>[0]['db']
 type TagDb = Parameters<typeof createTagRoute>[0]['db']
 type AdminDb = Parameters<typeof createAdminRoute>[0]['db']
@@ -52,6 +54,7 @@ type RouterDeps = {
     kmaApi?: KmaApiService
     locationService?: LocationService
     hnStoryDb?: HnStoryDb
+    hnDigestDb?: HnDigestDb
     hnFetcher?: HnFetcherService
     hnDigest?: HnDigestService
     hnWebhook?: HnWebhookService
@@ -120,6 +123,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
     )
 
     router.route('/hn', createStoryRoute({ db: stub(deps.hnStoryDb) }))
+    router.route('/hn/digests', createDigestRoute({ db: stub(deps.hnDigestDb) }))
     router.route(
         '/hn/cron',
         createCronRoute({

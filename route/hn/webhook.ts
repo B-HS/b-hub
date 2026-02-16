@@ -110,6 +110,48 @@ export const createWebhookRoute = (deps: WebhookRouteDeps) => {
     )
 
     route.post(
+        '/public/register',
+        describeRoute({
+            tags: ['HN Webhook'],
+            summary: '공개 웹훅 등록',
+            responses: {
+                200: { description: '등록 완료' },
+                ...errorResponses(['HN_WEBHOOK_REGISTER_FAILED']),
+            },
+        }),
+        validator('json', webhookCreateSchema),
+        withErrorHandling(async (c) => {
+            const body = c.req.valid('json' as never) as z.infer<typeof webhookCreateSchema>
+            const result = await deps.webhookService.register(body.url, undefined, 'discord', body.digestTypes)
+
+            if (!result.success) {
+                throw createAppError('HN_WEBHOOK_REGISTER_FAILED', {
+                    detail: result.error,
+                })
+            }
+
+            return c.json(successResponse({ registered: true }))
+        }),
+    )
+
+    route.post(
+        '/public/unregister',
+        describeRoute({
+            tags: ['HN Webhook'],
+            summary: '공개 웹훅 해제',
+            responses: {
+                200: { description: '해제 완료' },
+            },
+        }),
+        validator('json', webhookDeleteByUrlSchema),
+        withErrorHandling(async (c) => {
+            const body = c.req.valid('json' as never) as z.infer<typeof webhookDeleteByUrlSchema>
+            const result = await deps.webhookService.removeByUrl(body.url)
+            return c.json(successResponse(result))
+        }),
+    )
+
+    route.post(
         '/:id/test',
         describeRoute({
             tags: ['HN Webhook'],

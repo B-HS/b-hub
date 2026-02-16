@@ -24,6 +24,7 @@ type StoryRouteDb = {
         summaries: Record<string, unknown>[]
     }>
     searchStories: (q: string, limit: number) => Promise<Record<string, unknown>[]>
+    getStoryCounts: () => Promise<{ type: string; count: number }[]>
 }
 
 type StoryRouteDeps = {
@@ -129,6 +130,19 @@ export const createStoryRoute = (deps: StoryRouteDeps) => {
                     limit: query.limit,
                 }),
             )
+        }),
+    )
+
+    route.get(
+        '/stories/counts',
+        describeRoute({
+            tags: ['HN'],
+            summary: '카테고리별 스토리 수',
+            responses: { 200: { description: '카테고리별 카운트' } },
+        }),
+        withErrorHandling(async (c) => {
+            const counts = await deps.db.getStoryCounts()
+            return c.json(successResponse({ counts }))
         }),
     )
 
