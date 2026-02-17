@@ -7,11 +7,13 @@ import { successResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
 import type { HnFetcherService } from '../../service/domain/hn/hn-fetcher'
 import type { HnDigestService } from '../../service/domain/hn/hn-digest'
+import type { HnWebhookService } from '../../service/domain/hn/hn-webhook'
 
 type CronRouteDeps = {
     cronSecret: string
     hnFetcher: HnFetcherService
     hnDigest: HnDigestService
+    hnWebhook: HnWebhookService
 }
 
 export const createCronRoute = (deps: CronRouteDeps) => {
@@ -61,7 +63,11 @@ export const createCronRoute = (deps: CronRouteDeps) => {
             if (!verifyCronSecret(c)) throw createAppError('HN_CRON_SECRET_INVALID')
 
             const result = await deps.hnDigest.runDaily()
-            return c.json(successResponse(result))
+
+            const payload = deps.hnWebhook.createDigestPayload('daily', result.date, result.content, result.storySummaries)
+            const webhookResult = await deps.hnWebhook.sendDigestWebhook(payload)
+
+            return c.json(successResponse({ ...result, webhook: webhookResult }))
         }),
     )
 
@@ -79,7 +85,11 @@ export const createCronRoute = (deps: CronRouteDeps) => {
             if (!verifyCronSecret(c)) throw createAppError('HN_CRON_SECRET_INVALID')
 
             const result = await deps.hnDigest.runWeekly()
-            return c.json(successResponse(result))
+
+            const payload = deps.hnWebhook.createDigestPayload('weekly', result.week, result.content, result.storySummaries)
+            const webhookResult = await deps.hnWebhook.sendDigestWebhook(payload)
+
+            return c.json(successResponse({ ...result, webhook: webhookResult }))
         }),
     )
 
@@ -97,7 +107,11 @@ export const createCronRoute = (deps: CronRouteDeps) => {
             if (!verifyCronSecret(c)) throw createAppError('HN_CRON_SECRET_INVALID')
 
             const result = await deps.hnDigest.runMonthly()
-            return c.json(successResponse(result))
+
+            const payload = deps.hnWebhook.createDigestPayload('monthly', result.month, result.content, result.storySummaries)
+            const webhookResult = await deps.hnWebhook.sendDigestWebhook(payload)
+
+            return c.json(successResponse({ ...result, webhook: webhookResult }))
         }),
     )
 

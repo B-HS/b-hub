@@ -130,6 +130,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
             cronSecret: deps.cronSecret ?? '',
             hnFetcher: stub(deps.hnFetcher),
             hnDigest: stub(deps.hnDigest),
+            hnWebhook: stub(deps.hnWebhook),
         }),
     )
     router.route(

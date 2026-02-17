@@ -13,6 +13,12 @@ import { createStorageService } from './service/shared/storage'
 import { createImageProcessor } from './service/shared/image-processor'
 import { createImageGenerator } from './service/shared/image-generator'
 import { createFontLoader } from './service/shared/font-loader'
+import { createIconLoader } from './service/shared/icon-loader'
+import { createCache } from './service/shared/cache'
+import { createBadgeService } from './service/domain/badge/badge'
+import { createKmaApiService } from './service/domain/weather/kma-api'
+import { createLocationService } from './service/domain/weather/location'
+import { convertTailwindToCSS, mergeStyles } from './lib/tailwind-converter'
 import { createHnFetcherService } from './service/domain/hn/hn-fetcher'
 import { createContentParser } from './service/domain/hn/hn-content-parser'
 import { createHnTranslator } from './service/domain/hn/hn-translator'
@@ -23,6 +29,7 @@ import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import locations from './masterdata/locations.json'
 
 export const compose = () => {
     const db = getDb()
@@ -888,6 +895,20 @@ export const compose = () => {
         loadWasm: () => readFile(wasmPath).then((b) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)),
     })
 
+    const iconLoader = createIconLoader()
+    const badgeCache = createCache<Buffer>({ maxSize: 200, defaultTtlMs: 24 * 60 * 60 * 1000 })
+    const badgeService = createBadgeService({
+        imageGenerator,
+        fontLoader,
+        iconLoader,
+        cache: badgeCache,
+        convertTailwindToCSS,
+        mergeStyles,
+    })
+
+    const kmaApi = createKmaApiService({ apiKey: process.env.KMA_API_KEY ?? '' })
+    const locationService = createLocationService({ locations })
+
     return {
         auth,
         getSession,
@@ -901,6 +922,9 @@ export const compose = () => {
         adminDb,
         imageGenerator,
         fontLoader,
+        badgeService,
+        kmaApi,
+        locationService,
         hnStoryDb,
         hnDigestDb,
         hnFetcher,

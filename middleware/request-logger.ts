@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono'
 import type { Database } from '../db/index'
 import { apiRequestLog } from '../db/schema'
+import { filterSensitiveData } from '../lib/sensitive-filter'
 
 type RequestLoggerDeps = {
     db: Database

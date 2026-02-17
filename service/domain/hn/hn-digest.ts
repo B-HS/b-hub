@@ -18,9 +18,6 @@ type DigestDb = {
 type HnDigestDeps = {
     ai: AiService
     db: DigestDb
-    notification?: {
-        sendWebhook: (url: string, body: Record<string, unknown>) => Promise<{ success: boolean; statusCode?: number }>
-    }
 }
 
 export const createHnDigestService = (deps: HnDigestDeps) => {
@@ -152,7 +149,7 @@ ${storiesText}
             storyIds,
         })
 
-        return { summarized: unsummarized.length, date: dateKey }
+        return { summarized: unsummarized.length, date: dateKey, content: digestContent, storySummaries }
     }
 
     const getWeekNumber = (date: Date): number => {
@@ -204,7 +201,7 @@ ${storiesText}
             storyIds,
         })
 
-        return { stories: weeklyStories.length, week: weekKey }
+        return { stories: weeklyStories.length, week: weekKey, content: digestContent, storySummaries }
     }
 
     const runMonthly = async () => {
@@ -245,7 +242,7 @@ ${storiesText}
             storyIds,
         })
 
-        return { stories: monthlyStories.length, month: monthKey }
+        return { stories: monthlyStories.length, month: monthKey, content: digestContent, storySummaries }
     }
 
     return { summarizeStory, summarizeAndSave, generateDigestSummary, runDaily, runWeekly, runMonthly }

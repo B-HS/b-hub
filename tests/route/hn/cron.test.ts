@@ -2,6 +2,8 @@ import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createCronRoute } from '../../../route/hn/cron'
 
+const mockWebhookResult = { total: 1, success: 1, failed: 0, details: [{ webhookId: 1, name: 'test', status: 'success' as const }] }
+
 const createMockDeps = (cronSecret = 'test-secret') => ({
     cronSecret,
     hnFetcher: {
@@ -19,10 +21,28 @@ const createMockDeps = (cronSecret = 'test-secret') => ({
         syncStories: mock(() => Promise.resolve({ synced: 0, updated: 0, parsed: 0 })),
     },
     hnDigest: {
-        runDaily: mock(() => Promise.resolve({ summarized: 5, date: '2025-01-01' })),
+        runDaily: mock(() => Promise.resolve({ summarized: 5, date: '2025-01-01', content: 'digest content', storySummaries: [] })),
+        runWeekly: mock(() => Promise.resolve({ stories: 10, week: '2025-W01', content: 'weekly content', storySummaries: [] })),
+        runMonthly: mock(() => Promise.resolve({ stories: 30, month: '2025-01', content: 'monthly content', storySummaries: [] })),
         summarizeStory: mock(() => Promise.resolve({ summary: '', tags: [] })),
         summarizeAndSave: mock(() => Promise.resolve({ summary: '', tags: [] })),
         generateDigestSummary: mock(() => Promise.resolve('')),
+    },
+    hnWebhook: {
+        createDigestPayload: mock((_type: string, _date: string, _content: string, _stories: unknown[]) => ({
+            type: 'daily' as const,
+            date: '2025-01-01',
+            title: 'test',
+            content: 'test',
+            stories: [],
+        })),
+        sendDigestWebhook: mock(() => Promise.resolve(mockWebhookResult)),
+        register: mock(() => Promise.resolve({ success: true })),
+        deactivate: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+        removeByUrl: mock(() => Promise.resolve({ deleted: 0 })),
+        list: mock(() => Promise.resolve([])),
+        test: mock(() => Promise.resolve({ success: true, webhookId: 1, name: 'test' })),
     },
 })
 

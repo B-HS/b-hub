@@ -1,14 +1,58 @@
 import { z } from 'zod'
 
+const CSS_COLOR_NAMES = new Set([
+    'aliceblue', 'antiquewhite', 'aqua', 'aquamarine', 'azure', 'beige', 'bisque', 'black',
+    'blanchedalmond', 'blue', 'blueviolet', 'brown', 'burlywood', 'cadetblue', 'chartreuse',
+    'chocolate', 'coral', 'cornflowerblue', 'cornsilk', 'crimson', 'cyan', 'darkblue', 'darkcyan',
+    'darkgoldenrod', 'darkgray', 'darkgreen', 'darkgrey', 'darkkhaki', 'darkmagenta', 'darkolivegreen',
+    'darkorange', 'darkorchid', 'darkred', 'darksalmon', 'darkseagreen', 'darkslateblue', 'darkslategray',
+    'darkslategrey', 'darkturquoise', 'darkviolet', 'deeppink', 'deepskyblue', 'dimgray', 'dimgrey',
+    'dodgerblue', 'firebrick', 'floralwhite', 'forestgreen', 'fuchsia', 'gainsboro', 'ghostwhite',
+    'gold', 'goldenrod', 'gray', 'green', 'greenyellow', 'grey', 'honeydew', 'hotpink', 'indianred',
+    'indigo', 'ivory', 'khaki', 'lavender', 'lavenderblush', 'lawngreen', 'lemonchiffon', 'lightblue',
+    'lightcoral', 'lightcyan', 'lightgoldenrodyellow', 'lightgray', 'lightgreen', 'lightgrey',
+    'lightpink', 'lightsalmon', 'lightseagreen', 'lightskyblue', 'lightslategray', 'lightslategrey',
+    'lightsteelblue', 'lightyellow', 'lime', 'limegreen', 'linen', 'magenta', 'maroon', 'mediumaquamarine',
+    'mediumblue', 'mediumorchid', 'mediumpurple', 'mediumseagreen', 'mediumslateblue', 'mediumspringgreen',
+    'mediumturquoise', 'mediumvioletred', 'midnightblue', 'mintcream', 'mistyrose', 'moccasin',
+    'navajowhite', 'navy', 'oldlace', 'olive', 'olivedrab', 'orange', 'orangered', 'orchid',
+    'palegoldenrod', 'palegreen', 'paleturquoise', 'palevioletred', 'papayawhip', 'peachpuff', 'peru',
+    'pink', 'plum', 'powderblue', 'purple', 'rebeccapurple', 'red', 'rosybrown', 'royalblue',
+    'saddlebrown', 'salmon', 'sandybrown', 'seagreen', 'seashell', 'sienna', 'silver', 'skyblue',
+    'slateblue', 'slategray', 'slategrey', 'snow', 'springgreen', 'steelblue', 'tan', 'teal', 'thistle',
+    'tomato', 'turquoise', 'violet', 'wheat', 'white', 'whitesmoke', 'yellow', 'yellowgreen', 'transparent',
+])
+
+const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
+const colorSchema = z.string().refine(
+    (val) => HEX_COLOR_REGEX.test(val) || CSS_COLOR_NAMES.has(val.toLowerCase()),
+    { message: 'Must be a hex color (#fff or #ffffff) or a CSS color name' },
+)
+
+const VALID_FONT_WEIGHTS = new Set([100, 200, 300, 400, 500, 600, 700, 800, 900])
+
 export const badgeImageQuerySchema = z.object({
     width: z.coerce.number().int().min(1).max(4096).default(800),
     height: z.coerce.number().int().min(1).max(4096).default(250),
-    text: z.string().default('Badge'),
+    text: z.string().max(1000).default('Badge'),
     font: z.string().default('Inter'),
-    fontSize: z.coerce.number().int().min(1).max(500).optional(),
-    fontWeight: z.coerce.number().int().min(100).max(900).default(400),
-    color: z.string().default('#000000'),
-    backgroundColor: z.string().default('#ffffff'),
+    fontSize: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .max(500)
+        .refine((v) => v === 0 || (v >= 8 && v <= 500), { message: 'fontSize must be 0 (auto) or between 8 and 500' })
+        .optional(),
+    fontWeight: z.coerce
+        .number()
+        .int()
+        .min(100)
+        .max(900)
+        .refine((v) => VALID_FONT_WEIGHTS.has(v), { message: 'fontWeight must be a multiple of 100 (100-900)' })
+        .default(400),
+    color: colorSchema.default('#000000'),
+    backgroundColor: colorSchema.default('#ffffff'),
     icon: z.string().default(''),
     iconUrl: z.string().default(''),
     iconSize: z.coerce.number().int().min(0).max(500).default(0),

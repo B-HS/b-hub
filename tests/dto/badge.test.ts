@@ -59,17 +59,83 @@ describe('badgeImageQuerySchema', () => {
         expect(() => badgeImageQuerySchema.parse({ height: '4097' })).toThrow()
     })
 
-    test('fontSize 최소값 검증', () => {
-        expect(() => badgeImageQuerySchema.parse({ fontSize: '0' })).toThrow()
+    test('fontSize 0 → 유효 (auto)', () => {
+        const result = badgeImageQuerySchema.parse({ fontSize: '0' })
+        expect(result.fontSize).toBe(0)
+    })
+
+    test('fontSize 5 → 실패 (8 미만, 0도 아님)', () => {
+        expect(() => badgeImageQuerySchema.parse({ fontSize: '5' })).toThrow()
+    })
+
+    test('fontSize 8 → 유효', () => {
+        const result = badgeImageQuerySchema.parse({ fontSize: '8' })
+        expect(result.fontSize).toBe(8)
     })
 
     test('fontSize 최대값 검증', () => {
         expect(() => badgeImageQuerySchema.parse({ fontSize: '501' })).toThrow()
     })
 
+    test('fontWeight 100단위만 허용', () => {
+        const result = badgeImageQuerySchema.parse({ fontWeight: '400' })
+        expect(result.fontWeight).toBe(400)
+    })
+
+    test('fontWeight 150 → 실패', () => {
+        expect(() => badgeImageQuerySchema.parse({ fontWeight: '150' })).toThrow()
+    })
+
+    test('fontWeight 350 → 실패', () => {
+        expect(() => badgeImageQuerySchema.parse({ fontWeight: '350' })).toThrow()
+    })
+
     test('fontWeight 범위 검증', () => {
         expect(() => badgeImageQuerySchema.parse({ fontWeight: '99' })).toThrow()
         expect(() => badgeImageQuerySchema.parse({ fontWeight: '901' })).toThrow()
+    })
+
+    test('color hex (#fff) → 유효', () => {
+        const result = badgeImageQuerySchema.parse({ color: '#fff' })
+        expect(result.color).toBe('#fff')
+    })
+
+    test('color hex (#ffffff) → 유효', () => {
+        const result = badgeImageQuerySchema.parse({ color: '#ffffff' })
+        expect(result.color).toBe('#ffffff')
+    })
+
+    test('color CSS name (red) → 유효', () => {
+        const result = badgeImageQuerySchema.parse({ color: 'red' })
+        expect(result.color).toBe('red')
+    })
+
+    test('color transparent → 유효', () => {
+        const result = badgeImageQuerySchema.parse({ color: 'transparent' })
+        expect(result.color).toBe('transparent')
+    })
+
+    test('color #gg0000 → 실패', () => {
+        expect(() => badgeImageQuerySchema.parse({ color: '#gg0000' })).toThrow()
+    })
+
+    test('color notacolor → 실패', () => {
+        expect(() => badgeImageQuerySchema.parse({ color: 'notacolor' })).toThrow()
+    })
+
+    test('backgroundColor 검증도 동일하게 동작', () => {
+        expect(() => badgeImageQuerySchema.parse({ backgroundColor: '#xyz' })).toThrow()
+        const result = badgeImageQuerySchema.parse({ backgroundColor: 'blue' })
+        expect(result.backgroundColor).toBe('blue')
+    })
+
+    test('text 1000자 → 유효', () => {
+        const result = badgeImageQuerySchema.parse({ text: 'a'.repeat(1000) })
+        expect(result.text.length).toBe(1000)
+    })
+
+    test('text 1001자 → 실패', () => {
+        expect(() => badgeImageQuerySchema.parse({ text: 'a'.repeat(1001) })).toThrow()
     })
 
     test('문자열을 숫자로 변환한다', () => {
