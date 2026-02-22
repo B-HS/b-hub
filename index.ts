@@ -52,6 +52,7 @@ const router = createRouter({
     badgeService: deps.badgeService,
     kmaApi: deps.kmaApi,
     locationService: deps.locationService,
+    weatherApiKeyService: deps.weatherApiKeyService,
     hnStoryDb: deps.hnStoryDb,
     hnDigestDb: deps.hnDigestDb,
     hnFetcher: deps.hnFetcher,

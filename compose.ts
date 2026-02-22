@@ -18,6 +18,7 @@ import { createCache } from './service/shared/cache'
 import { createBadgeService } from './service/domain/badge/badge'
 import { createKmaApiService } from './service/domain/weather/kma-api'
 import { createLocationService } from './service/domain/weather/location'
+import { createWeatherApiKeyService } from './service/domain/weather/weather-api-key'
 import { convertTailwindToCSS, mergeStyles } from './lib/tailwind-converter'
 import { createHnFetcherService } from './service/domain/hn/hn-fetcher'
 import { createContentParser } from './service/domain/hn/hn-content-parser'
@@ -908,6 +909,7 @@ export const compose = () => {
 
     const kmaApi = createKmaApiService({ apiKey: process.env.KMA_API_KEY ?? '' })
     const locationService = createLocationService({ locations })
+    const weatherApiKeyService = createWeatherApiKeyService({ db })
 
     return {
         auth,
@@ -925,6 +927,7 @@ export const compose = () => {
         badgeService,
         kmaApi,
         locationService,
+        weatherApiKeyService,
         hnStoryDb,
         hnDigestDb,
         hnFetcher,

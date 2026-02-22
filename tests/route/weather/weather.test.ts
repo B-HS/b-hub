@@ -1,6 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createWeatherRoute } from '../../../route/weather/weather'
+import { errorHandler } from '../../../middleware/error-handler'
 
 const mockLocationService = {
     getAll: mock(() => []),
@@ -18,6 +19,28 @@ const mockLocationService = {
     ]),
     getByGrid: mock(() => null),
     findNearest: mock(() => null),
+}
+
+const mockWeatherApiKeyService = {
+    create: mock(() => Promise.resolve('test-token')),
+    validate: mock(() =>
+        Promise.resolve({
+            id: 1,
+            userId: 'user-1',
+            token: 'hashed',
+            name: 'test',
+            dailyLimit: 100,
+            expiresAt: null,
+            lastUsedAt: null,
+            createdAt: new Date(),
+        }),
+    ),
+    checkRateLimit: mock(() => Promise.resolve(true)),
+    logRequest: mock(() => Promise.resolve()),
+    revoke: mock(() => Promise.resolve()),
+    listByUser: mock(() => Promise.resolve([])),
+    updateDailyLimit: mock(() => Promise.resolve()),
+    getById: mock(() => Promise.resolve(null)),
 }
 
 const createMockKmaApi = () => ({
@@ -154,16 +177,26 @@ const createMockKmaApi = () => ({
     ),
 })
 
+const HEADERS = { 'X-Weather-Key': 'test-key' }
+
 const createApp = (kmaApi = createMockKmaApi()) => {
     const app = new Hono()
-    app.route('/weather', createWeatherRoute({ kmaApi, locationService: mockLocationService }))
+    app.use('*', errorHandler())
+    app.route(
+        '/weather',
+        createWeatherRoute({
+            kmaApi,
+            locationService: mockLocationService,
+            weatherApiKeyService: mockWeatherApiKeyService as never,
+        }),
+    )
     return { app, kmaApi }
 }
 
 describe('GET /weather/current', () => {
     test('nx/ny로 현재 날씨를 조회한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/current?nx=60&ny=127')
+        const res = await app.request('/weather/current?nx=60&ny=127', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -173,7 +206,7 @@ describe('GET /weather/current', () => {
 
     test('location으로 현재 날씨를 조회한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/current?location=서울')
+        const res = await app.request('/weather/current?location=서울', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -186,8 +219,16 @@ describe('GET /weather/current', () => {
             search: mock(() => []),
         }
         const app = new Hono()
-        app.route('/weather', createWeatherRoute({ kmaApi, locationService: noResultLocationService }))
-        const res = await app.request('/weather/current')
+        app.use('*', errorHandler())
+        app.route(
+            '/weather',
+            createWeatherRoute({
+                kmaApi,
+                locationService: noResultLocationService,
+                weatherApiKeyService: mockWeatherApiKeyService as never,
+            }),
+        )
+        const res = await app.request('/weather/current', { headers: HEADERS })
         expect(res.status).toBe(400)
     })
 
@@ -200,15 +241,21 @@ describe('GET /weather/current', () => {
             }),
         )
         const { app } = createApp(kmaApi)
-        const res = await app.request('/weather/current?nx=60&ny=127')
+        const res = await app.request('/weather/current?nx=60&ny=127', { headers: HEADERS })
         expect(res.status).toBe(502)
+    })
+
+    test('키 없이 요청하면 401을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/weather/current?nx=60&ny=127')
+        expect(res.status).toBe(401)
     })
 })
 
 describe('GET /weather/ultra-short', () => {
     test('초단기예보를 조회한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/ultra-short?nx=60&ny=127')
+        const res = await app.request('/weather/ultra-short?nx=60&ny=127', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -219,7 +266,7 @@ describe('GET /weather/ultra-short', () => {
 describe('GET /weather/short-term', () => {
     test('단기예보를 조회한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/short-term?nx=60&ny=127')
+        const res = await app.request('/weather/short-term?nx=60&ny=127', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -230,7 +277,7 @@ describe('GET /weather/short-term', () => {
 describe('GET /weather/version', () => {
     test('예보 버전을 조회한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/version?ftype=ODAM')
+        const res = await app.request('/weather/version?ftype=ODAM', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -239,13 +286,13 @@ describe('GET /weather/version', () => {
 
     test('잘못된 ftype은 에러를 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/version?ftype=INVALID')
+        const res = await app.request('/weather/version?ftype=INVALID', { headers: HEADERS })
         expect(res.status).not.toBe(200)
     })
 
     test('ftype이 없으면 에러를 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/weather/version')
+        const res = await app.request('/weather/version', { headers: HEADERS })
         expect(res.status).not.toBe(200)
     })
 })

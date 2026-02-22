@@ -17,10 +17,13 @@ import {
 import { parseCurrentWeather, parseUltraForecasts, parseShortForecasts } from '../../service/domain/weather/weather-data'
 import type { KmaApiService } from '../../service/domain/weather/kma-api'
 import type { LocationService } from '../../service/domain/weather/location'
+import type { WeatherApiKeyService } from '../../service/domain/weather/weather-api-key'
+import { requireWeatherKey } from '../../middleware/require-weather-key'
 
 type WeatherRouteDeps = {
     kmaApi: KmaApiService
     locationService: LocationService
+    weatherApiKeyService: WeatherApiKeyService
 }
 
 const resolveCoordinates = (nx: number | undefined, ny: number | undefined, location: string | undefined, locationService: LocationService) => {
@@ -40,6 +43,8 @@ const resolveCoordinates = (nx: number | undefined, ny: number | undefined, loca
 
 export const createWeatherRoute = (deps: WeatherRouteDeps) => {
     const route = new Hono()
+
+    route.use('*', requireWeatherKey({ weatherApiKeyService: deps.weatherApiKeyService }))
 
     route.get(
         '/current',

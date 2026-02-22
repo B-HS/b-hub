@@ -303,10 +303,28 @@ export const weatherShort = mysqlTable(
     (table) => [index('idx_weather_short_grid').on(table.nx, table.ny, table.baseDate, table.baseTime)],
 )
 
+export const weatherApiKey = mysqlTable(
+    'weather_api_key',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        token: varchar('token', { length: 64 }).notNull().unique(),
+        name: varchar('name', { length: 100 }),
+        dailyLimit: int('daily_limit').default(100).notNull(),
+        expiresAt: timestamp('expires_at', { fsp: 3 }),
+        lastUsedAt: timestamp('last_used_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_weather_api_key_user').on(table.userId)],
+)
+
 export const weatherApiLog = mysqlTable(
     'weather_api_log',
     {
         id: int('id').autoincrement().primaryKey(),
+        keyId: int('key_id').references(() => weatherApiKey.id, { onDelete: 'set null' }),
         userId: varchar('user_id', { length: 36 }).references(() => user.id, {
             onDelete: 'set null',
         }),
@@ -314,23 +332,16 @@ export const weatherApiLog = mysqlTable(
         nx: int('nx'),
         ny: int('ny'),
         statusCode: int('status_code').notNull(),
+        ip: varchar('ip', { length: 45 }),
+        userAgent: text('user_agent'),
+        durationMs: int('duration_ms'),
+        errorCode: varchar('error_code', { length: 50 }),
         createdAt: timestamp('created_at').defaultNow().notNull(),
     },
-    (table) => [index('idx_weather_api_log_user').on(table.userId)],
-)
-
-export const weatherRateLimit = mysqlTable(
-    'weather_rate_limit',
-    {
-        id: int('id').autoincrement().primaryKey(),
-        userId: varchar('user_id', { length: 36 })
-            .notNull()
-            .references(() => user.id, { onDelete: 'cascade' }),
-        requestCount: int('request_count').default(0).notNull(),
-        windowStart: timestamp('window_start').defaultNow().notNull(),
-        createdAt: timestamp('created_at').defaultNow().notNull(),
-    },
-    (table) => [index('idx_weather_rate_limit_user').on(table.userId)],
+    (table) => [
+        index('idx_weather_api_log_user').on(table.userId),
+        index('idx_weather_api_log_key_created').on(table.keyId, table.createdAt),
+    ],
 )
 
 export const hnStories = mysqlTable(
@@ -453,6 +464,7 @@ export const hnWebhookLogs = mysqlTable(
 
 export type User = typeof user.$inferSelect
 export type ApiToken = typeof apiToken.$inferSelect
+export type WeatherApiKey = typeof weatherApiKey.$inferSelect
 export type Post = typeof posts.$inferSelect
 export type Comment = typeof comments.$inferSelect
 export type HnStory = typeof hnStories.$inferSelect

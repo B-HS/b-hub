@@ -32,16 +32,46 @@ const createMockLocationService = () => ({
     findNearest: mock(() => mockLocations[0]),
 })
 
+const mockWeatherApiKeyService = {
+    create: mock(() => Promise.resolve('test-token')),
+    validate: mock(() =>
+        Promise.resolve({
+            id: 1,
+            userId: 'user-1',
+            token: 'hashed',
+            name: 'test',
+            dailyLimit: 100,
+            expiresAt: null,
+            lastUsedAt: null,
+            createdAt: new Date(),
+        }),
+    ),
+    checkRateLimit: mock(() => Promise.resolve(true)),
+    logRequest: mock(() => Promise.resolve()),
+    revoke: mock(() => Promise.resolve()),
+    listByUser: mock(() => Promise.resolve([])),
+    updateDailyLimit: mock(() => Promise.resolve()),
+    getById: mock(() => Promise.resolve(null)),
+}
+
+const HEADERS = { 'X-Weather-Key': 'test-key' }
+
 const createApp = (locationService = createMockLocationService()) => {
     const app = new Hono()
-    app.route('/locations', createLocationRoute({ locationService }))
+    app.route(
+        '/locations',
+        createLocationRoute({
+            locationService,
+            weatherApiKeyService: mockWeatherApiKeyService as never,
+        }),
+    )
     return { app, locationService }
 }
 
 describe('GET /locations/', () => {
     test('전체 위치 목록을 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations')
+        const res = await app.request('/locations', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -52,7 +82,7 @@ describe('GET /locations/', () => {
 describe('GET /locations/convert', () => {
     test('lat/lon을 격자로 변환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/convert?lat=37.57&lon=126.97')
+        const res = await app.request('/locations/convert?lat=37.57&lon=126.97', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -63,7 +93,7 @@ describe('GET /locations/convert', () => {
 
     test('gridX/gridY를 좌표로 변환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/convert?gridX=60&gridY=127')
+        const res = await app.request('/locations/convert?gridX=60&gridY=127', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -73,19 +103,19 @@ describe('GET /locations/convert', () => {
 
     test('파라미터 없으면 에러를 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/convert')
+        const res = await app.request('/locations/convert', { headers: HEADERS })
         expect(res.status).toBe(400)
     })
 
     test('잘못된 lat/lon은 에러를 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/convert?lat=abc&lon=def')
+        const res = await app.request('/locations/convert?lat=abc&lon=def', { headers: HEADERS })
         expect(res.status).toBe(400)
     })
 
     test('잘못된 gridX/gridY는 에러를 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/convert?gridX=abc&gridY=def')
+        const res = await app.request('/locations/convert?gridX=abc&gridY=def', { headers: HEADERS })
         expect(res.status).toBe(400)
     })
 })
@@ -93,7 +123,7 @@ describe('GET /locations/convert', () => {
 describe('GET /locations/:keyword', () => {
     test('키워드로 위치를 검색한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/서울')
+        const res = await app.request('/locations/서울', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
@@ -103,7 +133,7 @@ describe('GET /locations/:keyword', () => {
 
     test('결과 없으면 빈 배열을 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/locations/존재하지않는지역')
+        const res = await app.request('/locations/존재하지않는지역', { headers: HEADERS })
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.data).toHaveLength(0)

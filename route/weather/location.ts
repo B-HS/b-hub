@@ -9,13 +9,18 @@ import { errorResponses } from '../../dto/error-response'
 import { locationSchema } from '../../dto/weather/location'
 import { latLonToGrid, gridToLatLon } from '../../service/domain/weather/grid-converter'
 import type { LocationService } from '../../service/domain/weather/location'
+import type { WeatherApiKeyService } from '../../service/domain/weather/weather-api-key'
+import { requireWeatherKey } from '../../middleware/require-weather-key'
 
 type LocationRouteDeps = {
     locationService: LocationService
+    weatherApiKeyService: WeatherApiKeyService
 }
 
 export const createLocationRoute = (deps: LocationRouteDeps) => {
     const route = new Hono()
+
+    route.use('*', requireWeatherKey({ weatherApiKeyService: deps.weatherApiKeyService }))
 
     route.get(
         '/',

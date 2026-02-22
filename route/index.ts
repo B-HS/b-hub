@@ -5,6 +5,7 @@ import { createTokenRoute } from './auth/token'
 import { createBadgeRoute } from './badge'
 import { createWeatherRoute } from './weather/weather'
 import { createLocationRoute } from './weather/location'
+import { createWeatherKeyRoute } from './weather/key'
 import { createStoryRoute } from './hn/story'
 import { createCronRoute } from './hn/cron'
 import { createWebhookRoute } from './hn/webhook'
@@ -22,6 +23,7 @@ import type { ApiTokenService } from '../service/shared/api-token'
 import type { BadgeService } from '../service/domain/badge/badge'
 import type { KmaApiService } from '../service/domain/weather/kma-api'
 import type { LocationService } from '../service/domain/weather/location'
+import type { WeatherApiKeyService } from '../service/domain/weather/weather-api-key'
 import type { HnFetcherService } from '../service/domain/hn/hn-fetcher'
 import type { HnDigestService } from '../service/domain/hn/hn-digest'
 import type { HnWebhookService } from '../service/domain/hn/hn-webhook'
@@ -53,6 +55,7 @@ type RouterDeps = {
     badgeService?: BadgeService
     kmaApi?: KmaApiService
     locationService?: LocationService
+    weatherApiKeyService?: WeatherApiKeyService
     hnStoryDb?: HnStoryDb
     hnDigestDb?: HnDigestDb
     hnFetcher?: HnFetcherService
@@ -109,16 +112,25 @@ export const createRouter = (deps: RouterDeps = {}) => {
     )
 
     router.route(
+        '/weather/keys',
+        createWeatherKeyRoute({
+            weatherApiKeyService: stub(deps.weatherApiKeyService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
         '/weather',
         createWeatherRoute({
             kmaApi: stub(deps.kmaApi),
             locationService: stub(deps.locationService),
+            weatherApiKeyService: stub(deps.weatherApiKeyService),
         }),
     )
     router.route(
         '/weather/locations',
         createLocationRoute({
             locationService: stub(deps.locationService),
+            weatherApiKeyService: stub(deps.weatherApiKeyService),
         }),
     )
 

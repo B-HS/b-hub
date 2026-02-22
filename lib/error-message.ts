@@ -32,6 +32,8 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     WEATHER_KMA_API_ERROR: '기상청 API 호출에 실패했습니다',
     WEATHER_INVALID_GRID: '유효하지 않은 격자 좌표입니다',
     WEATHER_DATA_NOT_FOUND: '기상 데이터를 찾을 수 없습니다',
+    WEATHER_KEY_INVALID: '날씨 API 키가 유효하지 않습니다',
+    WEATHER_KEY_RATE_LIMIT: '날씨 API 일일 요청 한도를 초과했습니다',
 
     HN_STORY_NOT_FOUND: 'HN 스토리를 찾을 수 없습니다',
     HN_FETCH_FAILED: 'HN 데이터 수집에 실패했습니다',
