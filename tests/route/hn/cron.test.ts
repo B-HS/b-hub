@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from 'bun:test'
+import { describe, expect, test, mock, afterEach } from 'bun:test'
 import { Hono } from 'hono'
 import { createCronRoute } from '../../../route/hn/cron'
 
@@ -110,6 +110,76 @@ describe('GET /cron/daily', () => {
     test('인증 없으면 401을 반환한다', async () => {
         const { app } = createApp()
         const res = await app.request('/cron/daily')
+        expect(res.status).toBe(401)
+    })
+})
+
+describe('GET /cron/weekly', () => {
+    test('인증된 요청으로 주간 다이제스트를 생성한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/cron/weekly', {
+            headers: { Authorization: 'Bearer test-secret' },
+        })
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.success).toBe(true)
+        expect(body.data.stories).toBe(10)
+    })
+
+    test('인증 없으면 401을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/cron/weekly')
+        expect(res.status).toBe(401)
+    })
+})
+
+describe('GET /cron/monthly', () => {
+    const OriginalDate = globalThis.Date
+
+    afterEach(() => {
+        globalThis.Date = OriginalDate
+    })
+
+    const mockDate = (fakeNow: Date) => {
+        globalThis.Date = new Proxy(OriginalDate, {
+            construct(_target, args) {
+                return args.length === 0 ? new OriginalDate(fakeNow.getTime()) : new OriginalDate(...(args as [string]))
+            },
+            apply(_target, _thisArg, args) {
+                return args.length === 0 ? new OriginalDate(fakeNow.getTime()).toString() : new OriginalDate(...(args as [string])).toString()
+            },
+        }) as DateConstructor
+    }
+
+    test('마지막 날이면 월간 다이제스트를 생성한다', async () => {
+        mockDate(new OriginalDate(2025, 0, 31, 9, 0, 0))
+
+        const { app } = createApp()
+        const res = await app.request('/cron/monthly', {
+            headers: { Authorization: 'Bearer test-secret' },
+        })
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.success).toBe(true)
+        expect(body.data.stories).toBe(30)
+    })
+
+    test('마지막 날이 아니면 skip한다', async () => {
+        mockDate(new OriginalDate(2025, 0, 28, 9, 0, 0))
+
+        const { app } = createApp()
+        const res = await app.request('/cron/monthly', {
+            headers: { Authorization: 'Bearer test-secret' },
+        })
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.success).toBe(true)
+        expect(body.data.skipped).toBe(true)
+    })
+
+    test('인증 없으면 401을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/cron/monthly')
         expect(res.status).toBe(401)
     })
 })

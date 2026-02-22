@@ -165,15 +165,14 @@ export const createHnFetcherService = (deps: HnFetcherDeps) => {
 
         for (const item of updateItems) {
             const existing = existingMap.get(item.id)!
-            const needsResummarize = item.score !== existing.score || item.descendants !== existing.descendants
 
             await deps.db.updateStoryMeta(item.id, {
                 score: item.score ?? 0,
                 descendants: item.descendants ?? 0,
-                needsResummarize,
+                needsResummarize: false,
             })
 
-            if (needsResummarize) updated++
+            if (item.score !== existing.score || item.descendants !== existing.descendants) updated++
         }
 
         if (newItems.length > 0) {

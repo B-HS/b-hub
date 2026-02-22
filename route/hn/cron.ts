@@ -106,6 +106,12 @@ export const createCronRoute = (deps: CronRouteDeps) => {
         withErrorHandling(async (c) => {
             if (!verifyCronSecret(c)) throw createAppError('HN_CRON_SECRET_INVALID')
 
+            const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }))
+            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+            if (now.getDate() !== lastDay) {
+                return c.json(successResponse({ skipped: true, reason: `Not last day (${now.getDate()}/${lastDay})` }))
+            }
+
             const result = await deps.hnDigest.runMonthly()
 
             const payload = deps.hnWebhook.createDigestPayload('monthly', result.month, result.content, result.storySummaries)
