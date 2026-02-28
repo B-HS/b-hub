@@ -1173,11 +1173,20 @@ export const compose = () => {
         },
 
         upsertAttachment: async (data: Record<string, unknown>) => {
-            await db.insert(schema.mailAttachments).values(data as never).onDuplicateKeyUpdate({ set: data as never })
+            const { messageId, remoteAttachmentId, ...updateFields } = data
+            await db
+                .insert(schema.mailAttachments)
+                .values(data as never)
+                .onDuplicateKeyUpdate({ set: updateFields as never })
             const [att] = await db
                 .select()
                 .from(schema.mailAttachments)
-                .where(eq(schema.mailAttachments.messageId, data.messageId as number))
+                .where(
+                    and(
+                        eq(schema.mailAttachments.messageId, messageId as number),
+                        eq(schema.mailAttachments.remoteAttachmentId, remoteAttachmentId as string),
+                    ),
+                )
                 .limit(1)
             return att
         },

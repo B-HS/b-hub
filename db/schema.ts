@@ -590,7 +590,7 @@ export const mailAttachments = mysqlTable(
         messageId: int('message_id')
             .notNull()
             .references(() => mailMessages.id, { onDelete: 'cascade' }),
-        remoteAttachmentId: text('remote_attachment_id'),
+        remoteAttachmentId: varchar('remote_attachment_id', { length: 512 }),
         filename: varchar('filename', { length: 255 }),
         mimeType: varchar('mime_type', { length: 100 }),
         sizeBytes: int('size_bytes'),
@@ -599,7 +599,10 @@ export const mailAttachments = mysqlTable(
         r2Key: varchar('r2_key', { length: 255 }),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
     },
-    (table) => [index('idx_mail_attachments_message').on(table.messageId)],
+    (table) => [
+        index('idx_mail_attachments_message').on(table.messageId),
+        unique('uq_mail_attachments_msg_remote').on(table.messageId, table.remoteAttachmentId),
+    ],
 )
 
 export const mailSyncLogs = mysqlTable(
