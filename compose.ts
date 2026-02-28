@@ -53,7 +53,7 @@ export const compose = () => {
         googleClientId: env.GOOGLE_CLIENT_ID ?? '',
         googleClientSecret: env.GOOGLE_CLIENT_SECRET ?? '',
         secret: env.BETTER_AUTH_SECRET,
-        trustedOrigins: env.TRUSTED_ORIGINS?.split(',') ?? ['https://blog.gumyo.net', 'http://localhost:3000'],
+        trustedOrigins: env.TRUSTED_ORIGINS?.split(',') ?? ['https://blog.gumyo.net', 'https://mail.gumyo.net', 'http://localhost:3000'],
     })
 
     const getSession = async (c: { req: { raw: { headers: Headers } } }) => {
