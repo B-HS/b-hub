@@ -14,14 +14,11 @@ const createMockDb = (overrides: { selectResult?: unknown[]; countResult?: numbe
         select: mock((...args: unknown[]) => ({
             from: mock(() => ({
                 where: mock(() => {
-                    // If select was called with { count } arg, it's a count query
                     if (args.length > 0) {
                         return Promise.resolve([{ count: countResult }])
                     }
-                    // Otherwise it's a regular select - needs .limit() or direct resolve
                     return {
                         limit: mock(() => Promise.resolve(selectResult)),
-                        // for listByUser which has no .limit()
                         then: (resolve: (v: unknown) => void) => Promise.resolve(selectResult).then(resolve),
                     }
                 }),
@@ -133,6 +130,5 @@ describe('createWeatherApiKeyService', () => {
             endpoint: '/test',
             statusCode: 200,
         })
-        // Should not throw
     })
 })

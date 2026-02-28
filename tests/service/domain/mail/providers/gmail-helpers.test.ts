@@ -90,7 +90,6 @@ describe('parseEmailAddress', () => {
     })
 
     test('특수문자가 포함된 이름을 파싱한다', () => {
-        // 쉼표가 따옴표 밖이므로 2개로 분리됨 - 실제 동작을 반영
         const result = parseEmailAddress("\"O'Brien, James\" <james@test.com>")
         expect(result[0].address).toBe('james@test.com')
         expect(result[0].name).toBe("O'Brien, James")
@@ -141,7 +140,6 @@ describe('decodeBase64Url', () => {
     })
 
     test('-를 +로, _를 /로 치환하여 디코딩한다', () => {
-        // base64url uses - and _ instead of + and /
         const text = 'subjects?with+special/chars'
         const base64url = Buffer.from(text).toString('base64url')
         expect(decodeBase64Url(base64url)).toBe(text)

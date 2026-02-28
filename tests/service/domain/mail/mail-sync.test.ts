@@ -284,7 +284,6 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             const result = await service.syncHistorical(1, 'user-1', {})
 
-            // folderId is from the mockFolder which has type 'inbox'
             expect(result.folderId).toBeDefined()
         })
 
@@ -308,9 +307,7 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncHistorical(1, 'user-1', {})
 
-            // stale session reset to error
             expect(deps.db.updateSession).toHaveBeenCalledWith(1, { status: 'error' })
-            // new session created
             expect(deps.db.createSession).toHaveBeenCalledTimes(1)
         })
 

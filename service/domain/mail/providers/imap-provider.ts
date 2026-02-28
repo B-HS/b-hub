@@ -41,8 +41,6 @@ const parseAddress = (addr: { name?: string; address?: string } | undefined): Em
     let name = addr.name ?? ''
     let address = addr.address
 
-    // Fix malformed addresses where ImapFlow splits "Name <email>" incorrectly
-    // e.g. { name: "Hyunseok", address: "Byun <gumyoincirno@gmail.com" }
     if (address.includes('<') || address.includes('>')) {
         const match = address.match(/<?\s*([^<>\s]+@[^<>\s]+)\s*>?/)
         if (match) {
@@ -150,7 +148,6 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                     messageCount = status.messages ?? 0
                     unreadCount = status.unseen ?? 0
                 } catch {
-                    // \Noselect 등 STATUS 미지원 폴더는 0으로 유지
                 }
                 folders.push({
                     id: mb.path,
@@ -189,7 +186,6 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                         uids.push(msg.uid)
                     }
                 } else {
-                    // sequence set '1:*' — 모든 서버에서 호환되는 전체 메시지 조회
                     for await (const msg of imap.fetch('1:*', { uid: true })) {
                         uids.push(msg.uid)
                     }
@@ -278,10 +274,8 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 if (batchUids.length === 0) {
                     newCursor = null
                 } else if (direction === 'backward') {
-                    // backward: only set cursor when more batches remain
                     newCursor = uids.length > batchSize ? Math.min(...batchUids).toString() : null
                 } else {
-                    // forward: always preserve cursor for next incremental sync
                     newCursor = Math.max(...batchUids).toString()
                 }
 

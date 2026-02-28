@@ -12,7 +12,7 @@ const GMAIL_SCOPES = [
     'https://www.googleapis.com/auth/gmail.send',
 ].join(' ')
 
-const STATE_TTL_MS = 10 * 60 * 1000 // 10분
+const STATE_TTL_MS = 10 * 60 * 1000
 
 type MailOAuthConnectDeps = {
     googleClientId: string
@@ -46,7 +46,7 @@ const base64urlEncode = (str: string) =>
 const base64urlDecode = (str: string) =>
     Buffer.from(str, 'base64url').toString()
 
-async function hmacSign(payload: string, secret: string): Promise<string> {
+const  hmacSign = async (payload: string, secret: string): Promise<string>  =>{
     const key = await crypto.subtle.importKey(
         'raw',
         new TextEncoder().encode(secret),
@@ -58,7 +58,7 @@ async function hmacSign(payload: string, secret: string): Promise<string> {
     return base64url(sig)
 }
 
-async function hmacVerify(payload: string, signature: string, secret: string): Promise<boolean> {
+const hmacVerify = async (payload: string, signature: string, secret: string): Promise<boolean>  => {
     const expected = await hmacSign(payload, secret)
     return expected === signature
 }
@@ -104,7 +104,6 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
         sessionUserId: string,
         baseUrl: string,
     ): Promise<{ mailAccountId: number; email: string; redirect: string | null }> => {
-        // 1. state 검증
         const dotIdx = state.indexOf('.')
         if (dotIdx < 0) throw createAppError('MAIL_OAUTH_STATE_INVALID')
 
@@ -124,7 +123,6 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
         if (stateData.userId !== sessionUserId) throw createAppError('MAIL_OAUTH_STATE_INVALID')
         if (Date.now() > stateData.exp) throw createAppError('MAIL_OAUTH_STATE_INVALID')
 
-        // 2. code → token 교환
         const callbackUrl = `${baseUrl}/api/mail/accounts/connect/google/callback`
         const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
             method: 'POST',
@@ -155,7 +153,6 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
         }
 
-        // 3. userinfo에서 email/sub 추출
         const userinfoRes = await fetch(GOOGLE_USERINFO_URL, {
             headers: { Authorization: `Bearer ${tokenData.access_token}` },
         })
@@ -169,7 +166,6 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
         }
 
-        // 4. account 테이블 upsert (better-auth 포맷)
         const existing = await deps.findAccountByProviderAndUser('google', sessionUserId, userinfo.email)
         const accountId = existing?.id ?? crypto.randomUUID()
 
@@ -184,7 +180,6 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             scope: tokenData.scope,
         })
 
-        // 5. mail_accounts 자동 생성 (이미 있으면 건너뜀)
         const existingMailAccount = await deps.findMailAccountByEmail(sessionUserId, userinfo.email)
         if (existingMailAccount) {
             return {

@@ -7,7 +7,6 @@ let capturedFetchQueries: unknown[] = []
 const mockImapConnect = mock(() => Promise.resolve())
 const mockImapLogout = mock(() => Promise.resolve())
 
-// UIDs returned by the mock IMAP fetch — configurable per test
 let mockUids: number[] = []
 
 mock.module('imapflow', () => ({
@@ -21,7 +20,6 @@ mock.module('imapflow', () => ({
         status = mock(() => Promise.resolve({ messages: mockUids.length }))
         fetch(range: unknown, _fields: unknown, _options?: unknown) {
             capturedFetchQueries.push(range)
-            // If range is a comma-separated UID string like "30,20", filter to those UIDs
             let uids = mockUids
             if (typeof range === 'string' && range.includes(',')) {
                 const allowed = new Set(range.split(',').map(Number))
@@ -73,7 +71,6 @@ mock.module('nodemailer', () => ({
     },
 }))
 
-// import after mocking
 const { createImapProvider } = await import('../../../../../service/domain/mail/providers/imap-provider')
 
 const baseDeps = {
@@ -156,7 +153,7 @@ describe('fetchMessages direction', () => {
 
         expect(capturedFetchQueries[0]).toBe('1:*')
         expect(result.messages.length).toBe(3)
-        expect(result.newSyncCursor).toBe('30') // max UID
+        expect(result.newSyncCursor).toBe('30')
     })
 
     test('forward: cursor 있으면 UID range "cursor+1:*"로 조회한다', async () => {
@@ -166,7 +163,7 @@ describe('fetchMessages direction', () => {
         const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '30', batchSize: 100 })
 
         expect(capturedFetchQueries[0]).toBe('31:*')
-        expect(result.newSyncCursor).toBe('32') // max UID
+        expect(result.newSyncCursor).toBe('32')
     })
 
     test('backward: cursor 없으면 시퀀스 "1:*"로 전체 조회, cursor = min UID', async () => {
@@ -176,9 +173,8 @@ describe('fetchMessages direction', () => {
         const result = await provider.fetchMessages({ folderId: 'INBOX', batchSize: 2, direction: 'backward' })
 
         expect(capturedFetchQueries[0]).toBe('1:*')
-        // batchSize=2, uids desc=[30,20,10], batch=[30,20], 3 > 2 → hasMore
         expect(result.messages.length).toBe(2)
-        expect(result.newSyncCursor).toBe('20') // min of batch
+        expect(result.newSyncCursor).toBe('20')
     })
 
     test('backward: cursor 있으면 UID range "1:cursor-1"로 조회한다', async () => {
@@ -188,8 +184,7 @@ describe('fetchMessages direction', () => {
         const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '20', batchSize: 2, direction: 'backward' })
 
         expect(capturedFetchQueries[0]).toBe('1:19')
-        // uids desc=[15,10,5], batch=[15,10], 3 > 2 → hasMore
-        expect(result.newSyncCursor).toBe('10') // min of batch
+        expect(result.newSyncCursor).toBe('10')
     })
 
     test('backward: 마지막 배치면 cursor null 반환 (hasMore=false)', async () => {
@@ -198,7 +193,6 @@ describe('fetchMessages direction', () => {
         await provider.connect()
         const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '10', batchSize: 100, direction: 'backward' })
 
-        // uids.length(2) <= batchSize(100) → 마지막 배치
         expect(result.messages.length).toBe(2)
         expect(result.newSyncCursor).toBeNull()
     })
@@ -209,7 +203,6 @@ describe('fetchMessages direction', () => {
         await provider.connect()
         const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '30', batchSize: 100, direction: 'forward' })
 
-        // uids.length(2) <= batchSize(100) but forward → cursor preserved
         expect(result.newSyncCursor).toBe('32')
     })
 
@@ -221,7 +214,6 @@ describe('fetchMessages direction', () => {
 
         expect(result.messages.length).toBe(0)
         expect(result.newSyncCursor).toBeNull()
-        // totalEstimate=0이면 fetch 자체를 하지 않음
         expect(capturedFetchQueries.length).toBe(0)
     })
 })

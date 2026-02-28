@@ -146,7 +146,6 @@ describe('sanitizeFilename', () => {
     })
 
     test('이중 URL 인코딩은 단일 디코딩 후 안전하게 처리한다', () => {
-        // %252e → %2e (단일 디코딩), 결과에 실제 경로 탐색 문자 없음
         expect(sanitizeFilename('%252e%252e%252fpasswd')).toBe('%2e%2e%2fpasswd')
     })
 

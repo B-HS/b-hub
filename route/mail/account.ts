@@ -160,8 +160,6 @@ export const createMailAccountRoute = (deps: MailAccountRouteDeps) => {
         ),
     )
 
-    // ─── Gmail OAuth 추가 연동 ───
-
     route.get(
         '/connect/google',
         withErrorHandling(
@@ -188,7 +186,6 @@ export const createMailAccountRoute = (deps: MailAccountRouteDeps) => {
                 const state = c.req.query('state')
                 const errorParam = c.req.query('error')
 
-                // Google이 에러를 보낸 경우
                 if (errorParam || !code || !state) {
                     const redirect = state ? deps.mailOAuthConnect.parseRedirectFromState(state) : null
                     const target = redirect || deps.baseUrl

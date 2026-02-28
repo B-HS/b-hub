@@ -475,8 +475,6 @@ export type HnSummary = typeof hnSummaries.$inferSelect
 export type HnDigest = typeof hnDigests.$inferSelect
 export type HnWebhook = typeof hnWebhooks.$inferSelect
 
-// ─── Mail ───
-
 export const mailAccounts = mysqlTable(
     'mail_accounts',
     {

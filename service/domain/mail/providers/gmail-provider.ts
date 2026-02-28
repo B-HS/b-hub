@@ -185,7 +185,6 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
         async fetchMessages(options: FetchMessagesOptions): Promise<ProviderSyncResult> {
             const { folderId, cursor, batchSize = 100, direction = 'forward' } = options
 
-            // Historical/backward sync: pageToken pagination for syncHistorical
             if (direction === 'backward') {
                 const params = new URLSearchParams({ maxResults: batchSize.toString() })
                 if (folderId) params.set('labelIds', folderId)
@@ -205,7 +204,6 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                 }
             }
 
-            // Incremental sync via History API (when cursor = historyId from previous sync)
             if (cursor) {
                 try {
                     const addedIds = new Set<string>()
@@ -213,7 +211,6 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                     let latestHistoryId: string | null = null
                     let pageToken: string | undefined
 
-                    // Paginate through all history pages to avoid skipping changes
                     do {
                         const params = new URLSearchParams({
                             startHistoryId: cursor,
@@ -262,16 +259,13 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                         newSyncCursor: latestHistoryId ?? cursor,
                     }
                 } catch (error) {
-                    // historyId expired (404) or invalid — fall through to full fetch
                     if (error instanceof Error && /Gmail API error (404|400)/.test(error.message)) {
-                        // Fall through to full fetch below
                     } else {
                         throw error
                     }
                 }
             }
 
-            // Full fetch: first sync or expired history cursor
             const params = new URLSearchParams({ maxResults: batchSize.toString() })
             if (folderId) params.set('labelIds', folderId)
 

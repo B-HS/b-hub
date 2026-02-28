@@ -30,7 +30,6 @@ beforeEach(() => {
         const options = init ?? {}
         fetchCalls.push({ url, options })
 
-        // 가장 길게 매칭되는 패턴 우선 (e.g. /labels/INBOX > /labels)
         let bestMatch: (() => Response) | null = null
         let bestLen = 0
         for (const [pattern, respFn] of fetchResponses) {
@@ -65,7 +64,6 @@ describe('disconnect', () => {
         await provider.connect()
         await provider.disconnect()
 
-        // connect 다시 호출 시 getOAuthToken이 다시 불려야 함
         await provider.connect()
         expect(deps.getOAuthToken).toHaveBeenCalledTimes(2)
     })
@@ -162,7 +160,7 @@ describe('fetchMessageDetail', () => {
         expect(msg!.id).toBe('msg-1')
         expect(msg!.subject).toBe('Test Subject')
         expect(msg!.from?.address).toBe('sender@test.com')
-        expect(msg!.isRead).toBe(true) // no UNREAD label
+        expect(msg!.isRead).toBe(true)
         expect(msg!.isStarred).toBe(false)
     })
 
@@ -381,7 +379,6 @@ describe('fetchMessages', () => {
         setFetchResponse('/history?', {
             history: [
                 { messagesAdded: [{ message: { id: 'new-1' } }] },
-                // UNREAD 라벨 제거 = 읽음 처리, INBOX 삭제가 아님
                 { labelsRemoved: [{ message: { id: 'new-1' }, labelIds: ['UNREAD'] }] },
             ],
             historyId: '99999',
@@ -420,14 +417,12 @@ describe('fetchMessages', () => {
             if (url.includes('/history?')) {
                 historyCallCount++
                 if (historyCallCount === 1) {
-                    // 첫 페이지: nextPageToken 포함
                     return mockResponse({
                         history: [{ messagesAdded: [{ message: { id: 'old-1' } }] }],
                         nextPageToken: 'page2-token',
                         historyId: '99999',
                     })
                 }
-                // 두 번째 페이지: 최신 메일 포함
                 return mockResponse({
                     history: [{ messagesAdded: [{ message: { id: 'new-1' } }] }],
                     historyId: '99999',
@@ -451,9 +446,7 @@ describe('fetchMessages', () => {
     test('incremental: labelsAdded에서 폴더 라벨이 추가된 메시지만 fetch한다', async () => {
         setFetchResponse('/history?', {
             history: [
-                // INBOX 라벨 추가 = 이 폴더에 새로 들어온 메시지
                 { labelsAdded: [{ message: { id: 'labeled-1' }, labelIds: ['INBOX'] }] },
-                // STARRED 라벨 추가 = INBOX와 무관
                 { labelsAdded: [{ message: { id: 'starred-1' }, labelIds: ['STARRED'] }] },
             ],
             historyId: '99999',
@@ -514,9 +507,7 @@ describe('Gmail API 에러 마스킹', () => {
         try {
             await provider.fetchMessageDetail('test-err')
         } catch {
-            // fetchMessageDetail catches and returns null
         }
-        // The provider should handle errors gracefully (returns null for fetchMessageDetail)
         const msg = await provider.fetchMessageDetail('test-err')
         expect(msg).toBeNull()
     })
@@ -542,7 +533,6 @@ describe('fetchMessages History API fallback', () => {
     })
 
     test('History API 404 시 full fetch로 fallback한다', async () => {
-        // History returns 404, then full fetch succeeds
         fetchResponses.set('/history?', () => mockResponse({ error: { code: 404 } }, 404))
         setFetchResponse('/messages?', {
             messages: [makeMessageRef('m1')],
@@ -626,7 +616,6 @@ describe('429 exponential backoff', () => {
         const provider = createGmailProvider(createDeps())
         const result = await provider.testConnection()
         expect(result.success).toBe(true)
-        // 2번 429 + 1번 200 = /profile 3번 호출 (+ getOAuthToken 1번)
         const profileCalls = fetchCalls.filter((c) => c.url.includes('/profile'))
         expect(profileCalls.length).toBe(3)
     })

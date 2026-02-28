@@ -74,7 +74,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         const accounts = await deps.accountService.list(userId)
         if (!accounts.some((a) => a.id === msg.accountId)) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
-        // Auto mark as read on open
         if (!msg.isRead) {
             applyFlagAction(userId, [messageId], 'markRead').catch(() => {})
         }
@@ -101,7 +100,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             : action === 'markStarred' ? { isStarred: true }
             : { isStarred: false }
 
-        // Group by accountId + folderId for IMAP mailbox selection
         const grouped = new Map<string, { accountId: number; folderId: number; remoteIds: string[] }>()
         for (const info of msgInfos) {
             const key = `${info.accountId}:${info.folderId}`
@@ -118,13 +116,11 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 await provider[action](remoteIds, folder?.remoteFolderId)
                 await provider.disconnect()
             } catch {
-                // Provider failure is non-fatal; DB will be updated, next sync corrects
             }
         }
 
         await deps.db.updateFlags(messageIds, flagUpdate)
 
-        // Recalculate folder unread counts when read status changes
         if (action === 'markRead' || action === 'markUnread') {
             const affectedFolderIds = [...new Set(msgInfos.map((m) => m.folderId))]
             await Promise.all(
@@ -148,7 +144,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
         if (msgInfos.length !== messageIds.length) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
-        // Group by accountId, collecting source folderIds for label removal
         const grouped = new Map<number, { remoteIds: string[]; sourceFolderIds: Set<number> }>()
         for (const info of msgInfos) {
             const group = grouped.get(info.accountId) ?? { remoteIds: [], sourceFolderIds: new Set() }
@@ -159,7 +154,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
 
         const targetFolder = await deps.db.getFolderById(targetFolderId)
 
-        // Verify targetFolder belongs to one of the message accounts (IDOR prevention)
         if (targetFolder) {
             const accountIds = [...grouped.keys()]
             if (!accountIds.includes(targetFolder.accountId)) {
@@ -171,7 +165,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             try {
                 const { provider } = await deps.accountService.getProvider(accountId, userId)
                 await provider.connect()
-                // Resolve source folder remoteFolderId for providers that need it (e.g. Gmail label removal)
                 let sourceFolderRemoteId: string | undefined
                 if (sourceFolderIds.size === 1) {
                     const sourceFolder = await deps.db.getFolderById([...sourceFolderIds][0])
@@ -180,7 +173,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 await provider.moveMessage(remoteIds, targetFolder?.remoteFolderId ?? targetFolderId.toString(), sourceFolderRemoteId)
                 await provider.disconnect()
             } catch {
-                // non-fatal
             }
         }
 
@@ -205,7 +197,6 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 await provider.deleteMessage(remoteIds)
                 await provider.disconnect()
             } catch {
-                // non-fatal
             }
         }
 

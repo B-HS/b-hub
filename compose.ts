@@ -929,8 +929,6 @@ export const compose = () => {
     const locationService = createLocationService({ locations })
     const weatherApiKeyService = createWeatherApiKeyService({ db })
 
-    // ─── Mail ───
-
     if (!env.MAIL_ENCRYPTION_KEY) {
         throw new Error('MAIL_ENCRYPTION_KEY is required for mail functionality')
     }
@@ -1103,8 +1101,6 @@ export const compose = () => {
                         name: data.name,
                         type: data.type,
                         uidValidity: data.uidValidity,
-                        // messageCount, unreadCount는 updateFolderCounts에서만 갱신
-                        // provider 카운트로 덮어쓰면 sync 중 DB 카운트가 유실됨
                     },
                 })
             const [folder] = await db

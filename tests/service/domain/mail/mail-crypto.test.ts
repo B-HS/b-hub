@@ -71,7 +71,6 @@ describe('createMailCrypto', () => {
     })
 
     test('v1 레거시 암호문을 복호화할 수 있다 (하위호환)', () => {
-        // v1 format: base64(iv[12] + authTag[16] + ciphertext)
         const { createCipheriv, randomBytes } = require('crypto')
         const v1Key = Buffer.from(TEST_KEY.padEnd(32, '0').slice(0, 32), 'utf-8')
         const iv = randomBytes(12)
@@ -80,7 +79,6 @@ describe('createMailCrypto', () => {
         const authTag = cipher.getAuthTag()
         const v1Ciphertext = Buffer.concat([iv, authTag, encrypted]).toString('base64')
 
-        // v1 ciphertext should NOT start with "v2:"
         expect(v1Ciphertext.startsWith('v2:')).toBe(false)
 
         const crypto = createMailCrypto(TEST_KEY)
@@ -90,7 +88,7 @@ describe('createMailCrypto', () => {
     test('변조된 v2 암호문은 에러를 발생시킨다', () => {
         const crypto = createMailCrypto(TEST_KEY)
         const encrypted = crypto.encrypt('secret')
-        const payload = encrypted.slice(3) // remove "v2:"
+        const payload = encrypted.slice(3)
         const buf = Buffer.from(payload, 'base64')
         buf[buf.length - 1] ^= 0xff
         const tampered = 'v2:' + buf.toString('base64')

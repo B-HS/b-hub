@@ -7,7 +7,6 @@ const AUTH_TAG_LEN = 16
 const KEY_LEN = 32
 
 export const createMailCrypto = (encryptionKey: string) => {
-    // v1 legacy key derivation (padEnd + slice)
     const v1Key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32), 'utf-8')
 
     const deriveKey = (salt: Buffer): Buffer =>
@@ -26,7 +25,6 @@ export const createMailCrypto = (encryptionKey: string) => {
 
     const decrypt = (ciphertext: string): string => {
         if (ciphertext.startsWith(V2_PREFIX)) {
-            // v2 format: "v2:" + base64(salt[16] + iv[12] + authTag[16] + ciphertext)
             const buf = Buffer.from(ciphertext.slice(V2_PREFIX.length), 'base64')
             const salt = buf.subarray(0, SALT_LEN)
             const iv = buf.subarray(SALT_LEN, SALT_LEN + IV_LEN)
@@ -38,7 +36,6 @@ export const createMailCrypto = (encryptionKey: string) => {
             return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf-8')
         }
 
-        // v1 legacy format: base64(iv[12] + authTag[16] + ciphertext)
         const buf = Buffer.from(ciphertext, 'base64')
         const iv = buf.subarray(0, 12)
         const authTag = buf.subarray(12, 28)

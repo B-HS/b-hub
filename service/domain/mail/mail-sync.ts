@@ -5,14 +5,12 @@ import { createAppError } from '../../../lib/error'
 import { maskProviderError } from '../../../lib/mail-utils'
 
 type MailSyncDb = {
-    // Folders
     upsertFolder: (data: { accountId: number; remoteFolderId: string; name: string; type: string; parentId: number | null; messageCount: number; unreadCount: number; uidValidity: number | null }) => Promise<MailFolder>
     getFoldersByAccount: (accountId: number) => Promise<MailFolder[]>
     getFolderById: (id: number) => Promise<MailFolder | null>
     updateFolderCounts: (folderId: number, messageCount: number, unreadCount: number) => Promise<void>
     updateFolderSyncCursor: (folderId: number, cursor: string | null) => Promise<void>
 
-    // Messages
     upsertMessage: (data: {
         accountId: number
         folderId: number
@@ -39,7 +37,6 @@ type MailSyncDb = {
     }) => Promise<MailMessage & { isNew: boolean }>
     deleteMessagesByRemoteIds: (accountId: number, remoteIds: string[]) => Promise<void>
 
-    // Attachments
     upsertAttachment: (data: {
         messageId: number
         remoteAttachmentId: string | null
@@ -50,17 +47,14 @@ type MailSyncDb = {
         isInline: boolean
     }) => Promise<MailAttachment>
 
-    // Sync logs
     createSyncLog: (data: { accountId: number; syncType: string; status: string; folderId: number | null; startedAt: Date }) => Promise<MailSyncLog>
     updateSyncLog: (id: number, data: { status: string; messagesAdded?: number; messagesUpdated?: number; messagesDeleted?: number; durationMs?: number; errorMessage?: string; completedAt?: Date }) => Promise<void>
     getLatestSyncLog: (accountId: number) => Promise<MailSyncLog | null>
 
-    // Sync sessions
     getActiveSession: (accountId: number) => Promise<MailSyncSession | null>
     createSession: (data: { accountId: number; folderId: number | null; syncType: string; status: string; totalEstimate: number | null; startedAt: Date }) => Promise<MailSyncSession>
     updateSession: (id: number, data: { status?: string; syncedCount?: number; cursor?: string; totalEstimate?: number; lastBatchAt?: Date; completedAt?: Date }) => Promise<void>
 
-    // Count
     countMessagesByFolder: (folderId: number) => Promise<number>
     countUnreadByFolder: (folderId: number) => Promise<number>
 }
@@ -123,7 +117,6 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 })
             }
 
-            // Yield event loop every 10 messages so other requests can be processed
             if (i % 10 === 9) await yieldEventLoop()
         }
 
@@ -186,7 +179,6 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             let dbFolders = await deps.db.getFoldersByAccount(accountId)
             const isIncremental = dbFolders.length > 0 && dbFolders.some((f) => f.syncCursor)
 
-            // Only fetch folder metadata on first sync — incremental updates counts at the end
             if (!isIncremental) {
                 const folders = await provider.fetchFolders()
                 await Promise.all(
@@ -215,7 +207,6 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 : dbFolders
 
             if (isIncremental) {
-                // Incremental: parallelize folder syncs (History API calls are independent)
                 const results = await Promise.all(
                     foldersToSync.map((folder) => syncFolder(provider, accountId, folder, account.syncCursor ?? undefined)),
                 )
@@ -225,7 +216,6 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                     totalDeleted += r.deleted
                 }
             } else {
-                // First sync: sequential to avoid rate limits on full message fetches
                 for (const folder of foldersToSync) {
                     const r = await syncFolder(provider, accountId, folder, account.syncCursor ?? undefined)
                     totalAdded += r.added
