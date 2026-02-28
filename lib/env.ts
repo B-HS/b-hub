@@ -4,14 +4,20 @@ const envSchema = z.object({
     DATABASE_URL: z.string().min(1),
     SITE_URL: z.string().url().optional(),
 
+    BASE_URL: z.string().min(1).optional(),
+
     GITHUB_CLIENT_ID: z.string().min(1).optional(),
     GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+
+    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
 
     R2_END_POINT: z.string().url().optional(),
     R2_ACCESS_KEY_ID: z.string().min(1).optional(),
     R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
     R2_BUCKET: z.string().min(1).optional(),
     R2_CUSTOM_DOMAIN: z.string().min(1).optional(),
+    R2_CUSTOME_DOMAIN: z.string().min(1).optional(), // legacy typo — use R2_CUSTOM_DOMAIN
 
     KMA_API_KEY: z.string().min(1).optional(),
 
@@ -24,6 +30,13 @@ const envSchema = z.object({
     SENTRY_DSN: z.string().url().optional(),
 
     BETTER_AUTH_SECRET: z.string().min(1).optional(),
+
+    TRUSTED_ORIGINS: z.string().optional(),
+
+    MAIL_ENCRYPTION_KEY: z.string().min(32).optional(),
+
+    VERCEL: z.string().optional(),
+    PORT: z.string().optional(),
 
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })

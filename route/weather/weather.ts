@@ -15,6 +15,7 @@ import {
     versionResponseSchema,
 } from '../../dto/weather/weather'
 import { parseCurrentWeather, parseUltraForecasts, parseShortForecasts } from '../../service/domain/weather/weather-data'
+import type { ErrorCode } from '../../lib/error-code'
 import type { KmaApiService } from '../../service/domain/weather/kma-api'
 import type { LocationService } from '../../service/domain/weather/location'
 import type { WeatherApiKeyService } from '../../service/domain/weather/weather-api-key'
@@ -79,7 +80,7 @@ export const createWeatherRoute = (deps: WeatherRouteDeps) => {
 
             const result = await deps.kmaApi.getUltraSrtNcst(coords.gridX, coords.gridY)
             if (!result.success) {
-                throw createAppError('WEATHER_KMA_API_ERROR', {
+                throw createAppError(result.error.code as ErrorCode, {
                     detail: result.error.message,
                 })
             }
@@ -135,7 +136,7 @@ export const createWeatherRoute = (deps: WeatherRouteDeps) => {
 
             const result = await deps.kmaApi.getUltraSrtFcst(coords.gridX, coords.gridY)
             if (!result.success) {
-                throw createAppError('WEATHER_KMA_API_ERROR', {
+                throw createAppError(result.error.code as ErrorCode, {
                     detail: result.error.message,
                 })
             }
@@ -185,7 +186,7 @@ export const createWeatherRoute = (deps: WeatherRouteDeps) => {
 
             const result = await deps.kmaApi.getVilageFcst(coords.gridX, coords.gridY)
             if (!result.success) {
-                throw createAppError('WEATHER_KMA_API_ERROR', {
+                throw createAppError(result.error.code as ErrorCode, {
                     detail: result.error.message,
                 })
             }
@@ -230,7 +231,7 @@ export const createWeatherRoute = (deps: WeatherRouteDeps) => {
             const result = await deps.kmaApi.getFcstVersion(query.ftype)
 
             if (!result.success) {
-                throw createAppError('WEATHER_KMA_API_ERROR', {
+                throw createAppError(result.error.code as ErrorCode, {
                     detail: result.error.message,
                 })
             }

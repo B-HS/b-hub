@@ -154,6 +154,39 @@ describe('createKmaApiService', () => {
         expect(result.success).toBe(false)
     })
 
+    test('getFcstVersion 빈 배열이면 원본 결과를 그대로 반환한다', async () => {
+        const fetchFn = createMockFetch(createMockKmaResponse([]))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const result = await service.getFcstVersion('ODAM')
+        expect(result.success).toBe(true)
+        if (result.success) {
+            expect(result.data).toEqual([])
+        }
+    })
+
+    test('fetch가 timeout되면 재시도 후 에러를 반환한다', async () => {
+        const fetchFn = mock(() => Promise.reject(new Error('Timeout')))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const result = await service.getUltraSrtFcst(60, 127)
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.code).toBe('WEATHER_KMA_API_ERROR')
+        }
+    })
+
+    test('getVilageFcst도 네트워크 에러를 처리한다', async () => {
+        const fetchFn = mock(() => Promise.reject(new Error('DNS failure')))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const result = await service.getVilageFcst(60, 127)
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.code).toBe('WEATHER_KMA_API_ERROR')
+        }
+    })
+
     test('URL에 apiKey가 포함된다', async () => {
         const fetchFn = createMockFetch(createMockKmaResponse([]))
         const service = createKmaApiService({ apiKey: 'my-secret-key', fetchFn })

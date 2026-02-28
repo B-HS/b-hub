@@ -59,6 +59,12 @@ const router = createRouter({
     hnDigest: deps.hnDigest,
     hnWebhook: deps.hnWebhook,
     cronSecret: deps.cronSecret,
+    mailAccountService: deps.mailAccountService,
+    mailSyncService: deps.mailSyncService,
+    mailMessageService: deps.mailMessageService,
+    mailUploadService: deps.mailUploadService,
+    mailFolderDb: deps.mailFolderDb,
+    mailCheckLimit: deps.mailCheckLimit,
 })
 app.route('/api', router)
 

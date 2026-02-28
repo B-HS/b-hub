@@ -1,3 +1,5 @@
+import { createAppError } from '../../../lib/error'
+
 type ImageAsset = {
     id: string
     url: string
@@ -53,6 +55,7 @@ type BlogImageDb = {
         width: number
         height: number
     }) => Promise<{ imageId: number }>
+    runTransaction?: <T>(fn: () => Promise<T>) => Promise<T>
 }
 
 type BlogImageDeps = {
@@ -64,16 +67,16 @@ type BlogImageDeps = {
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
 export const createBlogImageService = (deps: BlogImageDeps) => ({
     upload: async (file: File, userId: string): Promise<ImageAsset> => {
         if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-            throw new Error('BLOG_IMAGE_INVALID_TYPE')
+            throw createAppError('BLOG_IMAGE_INVALID_TYPE')
         }
 
         if (file.size > MAX_FILE_SIZE) {
-            throw new Error('BLOG_IMAGE_TOO_LARGE')
+            throw createAppError('BLOG_IMAGE_TOO_LARGE')
         }
 
         const buffer = Buffer.from(await file.arrayBuffer())
@@ -85,30 +88,38 @@ export const createBlogImageService = (deps: BlogImageDeps) => ({
 
         await deps.storage.upload(key, webpBuffer, 'image/webp')
 
-        await deps.db.insertImageAsset({
-            id,
-            r2Key: key,
-            bucket: deps.bucket,
-            mimeType: 'image/webp',
-            sizeBytes: webpBuffer.length,
-            width: metadata.width,
-            height: metadata.height,
-            checksum: null,
-            uploadedBy: userId,
-        })
-
         const url = deps.storage.getUrl(key)
 
-        await deps.db.insertLegacyImage({
-            userId,
-            fileName: `${id}.webp`,
-            originalName: file.name,
-            url,
-            mimeType: 'image/webp',
-            fileSize: webpBuffer.length,
-            width: metadata.width,
-            height: metadata.height,
-        })
+        const insertBoth = async () => {
+            await deps.db.insertImageAsset({
+                id,
+                r2Key: key,
+                bucket: deps.bucket,
+                mimeType: 'image/webp',
+                sizeBytes: webpBuffer.length,
+                width: metadata.width,
+                height: metadata.height,
+                checksum: null,
+                uploadedBy: userId,
+            })
+
+            await deps.db.insertLegacyImage({
+                userId,
+                fileName: `${id}.webp`,
+                originalName: file.name,
+                url,
+                mimeType: 'image/webp',
+                fileSize: webpBuffer.length,
+                width: metadata.width,
+                height: metadata.height,
+            })
+        }
+
+        if (deps.db.runTransaction) {
+            await deps.db.runTransaction(insertBoth)
+        } else {
+            await insertBoth()
+        }
 
         return {
             id,

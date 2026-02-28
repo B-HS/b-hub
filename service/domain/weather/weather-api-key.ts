@@ -1,17 +1,11 @@
 import { eq, and, gte, sql } from 'drizzle-orm'
 import { weatherApiKey, weatherApiLog } from '../../../db/schema'
-import { hashToken } from '../../shared/api-token'
+import { generateToken, hashToken } from '../../../lib/token-utils'
 import type { Database } from '../../../db/index'
+import { captureException } from '../../../lib/sentry'
 
 type WeatherApiKeyDeps = {
     db: Database
-}
-
-const generateToken = () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(32))
-    return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
 }
 
 export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
@@ -40,7 +34,7 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
             .update(weatherApiKey)
             .set({ lastUsedAt: new Date() })
             .where(eq(weatherApiKey.id, record.id))
-            .catch(() => {})
+            .catch((e) => captureException(e))
 
         return record
     }
@@ -81,7 +75,7 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
                 durationMs: data.durationMs ?? null,
                 errorCode: data.errorCode ?? null,
             })
-            .catch(() => {})
+            .catch((e) => captureException(e))
     }
 
     const revoke = async (userId: string, keyId: number) => {
@@ -89,29 +83,33 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
     }
 
     const listByUser = async (userId: string) => {
-        const keys = await deps.db.select().from(weatherApiKey).where(eq(weatherApiKey.userId, userId))
-
         const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000)
-        const keysWithUsage = await Promise.all(
-            keys.map(async (key) => {
-                const [result] = await deps.db
-                    .select({ count: sql<number>`COUNT(*)` })
-                    .from(weatherApiLog)
-                    .where(and(eq(weatherApiLog.keyId, key.id), gte(weatherApiLog.createdAt, windowStart)))
 
-                return {
-                    id: key.id,
-                    name: key.name,
-                    dailyLimit: key.dailyLimit,
-                    todayUsage: result?.count ?? 0,
-                    expiresAt: key.expiresAt,
-                    lastUsedAt: key.lastUsedAt,
-                    createdAt: key.createdAt,
-                }
-            }),
-        )
+        const usageSub = deps.db
+            .select({
+                keyId: weatherApiLog.keyId,
+                count: sql<number>`COUNT(*)`.as('count'),
+            })
+            .from(weatherApiLog)
+            .where(gte(weatherApiLog.createdAt, windowStart))
+            .groupBy(weatherApiLog.keyId)
+            .as('usage')
 
-        return keysWithUsage
+        const rows = await deps.db
+            .select({
+                id: weatherApiKey.id,
+                name: weatherApiKey.name,
+                dailyLimit: weatherApiKey.dailyLimit,
+                todayUsage: sql<number>`COALESCE(${usageSub.count}, 0)`,
+                expiresAt: weatherApiKey.expiresAt,
+                lastUsedAt: weatherApiKey.lastUsedAt,
+                createdAt: weatherApiKey.createdAt,
+            })
+            .from(weatherApiKey)
+            .leftJoin(usageSub, eq(weatherApiKey.id, usageSub.keyId))
+            .where(eq(weatherApiKey.userId, userId))
+
+        return rows
     }
 
     const updateDailyLimit = async (keyId: number, limit: number) => {

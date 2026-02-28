@@ -62,7 +62,7 @@ describe('createBlogImageService', () => {
         const file = new File([new ArrayBuffer(11 * 1024 * 1024)], 'huge.jpg', {
             type: 'image/jpeg',
         })
-        await expect(service.upload(file, 'user-1')).rejects.toThrow('BLOG_IMAGE_TOO_LARGE')
+        await expect(service.upload(file, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_TOO_LARGE' })
     })
 
     test('upload는 image_assets와 legacy images 테이블 모두에 저장한다', async () => {
@@ -98,17 +98,45 @@ describe('createBlogImageService', () => {
         const pdfFile = new File([new ArrayBuffer(1024)], 'doc.pdf', {
             type: 'application/pdf',
         })
-        await expect(service.upload(pdfFile, 'user-1')).rejects.toThrow('BLOG_IMAGE_INVALID_TYPE')
+        await expect(service.upload(pdfFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
 
         const textFile = new File([new ArrayBuffer(1024)], 'readme.txt', {
             type: 'text/plain',
         })
-        await expect(service.upload(textFile, 'user-1')).rejects.toThrow('BLOG_IMAGE_INVALID_TYPE')
+        await expect(service.upload(textFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
 
         const htmlFile = new File([new ArrayBuffer(1024)], 'page.html', {
             type: 'text/html',
         })
-        await expect(service.upload(htmlFile, 'user-1')).rejects.toThrow('BLOG_IMAGE_INVALID_TYPE')
+        await expect(service.upload(htmlFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
+    })
+
+    test('upload는 SVG 파일을 거부한다', async () => {
+        const deps = createMockDeps()
+        const service = createBlogImageService(deps)
+
+        const svgFile = new File(['<svg></svg>'], 'icon.svg', {
+            type: 'image/svg+xml',
+        })
+        await expect(service.upload(svgFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
+    })
+
+    test('upload는 storage 업로드 실패 시 에러를 throw한다', async () => {
+        const deps = createMockDeps()
+        deps.storage.upload = mock(() => Promise.reject(new Error('R2 upload failed')))
+        const service = createBlogImageService(deps)
+
+        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', { type: 'image/jpeg' })
+        await expect(service.upload(file, 'user-1')).rejects.toThrow('R2 upload failed')
+    })
+
+    test('upload는 imageProcessor 실패 시 에러를 throw한다', async () => {
+        const deps = createMockDeps()
+        deps.imageProcessor.toWebp = mock(() => Promise.reject(new Error('Sharp conversion failed')))
+        const service = createBlogImageService(deps)
+
+        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', { type: 'image/jpeg' })
+        await expect(service.upload(file, 'user-1')).rejects.toThrow('Sharp conversion failed')
     })
 
     test('getList는 이미지 목록을 반환한다', async () => {

@@ -13,7 +13,7 @@ export const getDb = () => {
     pool = mysql.createPool({
         uri: process.env.DATABASE_URL,
         waitForConnections: true,
-        connectionLimit: 10,
+        connectionLimit: 20,
         queueLimit: 0,
     })
 

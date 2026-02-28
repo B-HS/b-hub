@@ -1,4 +1,5 @@
 import { PutObjectCommand, DeleteObjectCommand, ListObjectsCommand, type S3Client } from '@aws-sdk/client-s3'
+import { createAppError } from '../../lib/error'
 
 type StorageDeps = {
     s3: S3Client
@@ -8,22 +9,30 @@ type StorageDeps = {
 
 export const createStorageService = (deps: StorageDeps) => {
     const upload = async (key: string, body: Buffer | Uint8Array, contentType: string) => {
-        const command = new PutObjectCommand({
-            Bucket: deps.bucket,
-            Key: key,
-            Body: body instanceof Buffer ? new Uint8Array(body) : body,
-            ContentType: contentType,
-        })
-        await deps.s3.send(command)
-        return { key, url: `${deps.cdnDomain}/${key}` }
+        try {
+            const command = new PutObjectCommand({
+                Bucket: deps.bucket,
+                Key: key,
+                Body: body instanceof Buffer ? new Uint8Array(body) : body,
+                ContentType: contentType,
+            })
+            await deps.s3.send(command)
+            return { key, url: `${deps.cdnDomain}/${key}` }
+        } catch (error) {
+            throw createAppError('STORAGE_UPLOAD_FAILED')
+        }
     }
 
     const del = async (key: string) => {
-        const command = new DeleteObjectCommand({
-            Bucket: deps.bucket,
-            Key: key,
-        })
-        await deps.s3.send(command)
+        try {
+            const command = new DeleteObjectCommand({
+                Bucket: deps.bucket,
+                Key: key,
+            })
+            await deps.s3.send(command)
+        } catch (error) {
+            throw createAppError('STORAGE_DELETE_FAILED')
+        }
     }
 
     const list = async (prefix?: string) => {

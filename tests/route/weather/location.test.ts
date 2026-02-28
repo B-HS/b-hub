@@ -131,6 +131,13 @@ describe('GET /locations/:keyword', () => {
         expect(body.data[0].level1).toBe('서울특별시')
     })
 
+    test('100자 초과 키워드는 400 에러를 반환한다', async () => {
+        const { app } = createApp()
+        const longKeyword = 'a'.repeat(101)
+        const res = await app.request(`/locations/${longKeyword}`, { headers: HEADERS })
+        expect(res.status).toBe(400)
+    })
+
     test('결과 없으면 빈 배열을 반환한다', async () => {
         const { app } = createApp()
         const res = await app.request('/locations/존재하지않는지역', { headers: HEADERS })

@@ -1,7 +1,7 @@
 import type { Context, Next } from 'hono'
 import type { Database } from '../db/index'
 import { apiRequestLog } from '../db/schema'
-import { filterSensitiveData } from '../lib/sensitive-filter'
+import { captureException } from '../lib/sentry'
 
 type RequestLoggerDeps = {
     db: Database
@@ -40,5 +40,5 @@ export const requestLogger = (deps: RequestLoggerDeps) => async (c: Context, nex
             durationMs,
             errorCode,
         })
-        .catch(() => {})
+        .catch((e) => captureException(e))
 }

@@ -1,20 +1,13 @@
-import { createHash } from 'crypto'
 import { eq, and } from 'drizzle-orm'
 import { apiToken } from '../../db/schema'
 import type { Database } from '../../db/index'
+import { generateToken, hashToken } from '../../lib/token-utils'
+
+export { hashToken }
 
 type ApiTokenDeps = {
     db: Database
 }
-
-const generateToken = () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(32))
-    return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
-}
-
-export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 
 export const createApiTokenService = (deps: ApiTokenDeps) => {
     const create = async (userId: string, name?: string, expiresInDays = 90) => {

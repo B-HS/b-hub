@@ -8,6 +8,8 @@ type AuthProviderDeps = {
     baseUrl: string
     githubClientId: string
     githubClientSecret: string
+    googleClientId: string
+    googleClientSecret: string
     secret?: string
     trustedOrigins?: string[]
 }
@@ -22,6 +24,19 @@ export const createAuthProvider = (deps: AuthProviderDeps) => {
             github: {
                 clientId: deps.githubClientId,
                 clientSecret: deps.githubClientSecret,
+            },
+            google: {
+                clientId: deps.googleClientId,
+                clientSecret: deps.googleClientSecret,
+                scope: [
+                    'openid',
+                    'email',
+                    'profile',
+                    'https://www.googleapis.com/auth/gmail.modify',
+                    'https://www.googleapis.com/auth/gmail.send',
+                ],
+                accessType: 'offline',
+                prompt: 'consent',
             },
         },
         plugins: [

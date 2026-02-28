@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, boolean, datetime, timestamp, bigint, json, index, unique } from 'drizzle-orm/mysql-core'
+import { mysqlTable, int, varchar, text, longtext, boolean, datetime, timestamp, bigint, json, index, unique } from 'drizzle-orm/mysql-core'
 
 export const user = mysqlTable('user', {
     id: varchar('id', { length: 36 }).primaryKey(),
@@ -474,3 +474,203 @@ export type NewHnComment = typeof hnComments.$inferInsert
 export type HnSummary = typeof hnSummaries.$inferSelect
 export type HnDigest = typeof hnDigests.$inferSelect
 export type HnWebhook = typeof hnWebhooks.$inferSelect
+
+// ─── Mail ───
+
+export const mailAccounts = mysqlTable(
+    'mail_accounts',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        provider: varchar('provider', { length: 20 }).notNull(),
+        email: varchar('email', { length: 255 }).notNull(),
+        displayName: varchar('display_name', { length: 100 }),
+        credentials: text('credentials'),
+        imapHost: varchar('imap_host', { length: 255 }),
+        imapPort: int('imap_port'),
+        imapTls: boolean('imap_tls').default(true),
+        smtpHost: varchar('smtp_host', { length: 255 }),
+        smtpPort: int('smtp_port'),
+        smtpTls: boolean('smtp_tls').default(true),
+        isActive: boolean('is_active').default(true).notNull(),
+        lastSyncAt: timestamp('last_sync_at', { fsp: 3 }),
+        lastSyncStatus: varchar('last_sync_status', { length: 20 }).default('pending'),
+        syncCursor: text('sync_cursor'),
+        betterAuthAccountId: varchar('better_auth_account_id', { length: 36 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index('idx_mail_accounts_user').on(table.userId),
+        unique('uq_mail_accounts_user_email').on(table.userId, table.email),
+    ],
+)
+
+export const mailFolders = mysqlTable(
+    'mail_folders',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        accountId: int('account_id')
+            .notNull()
+            .references(() => mailAccounts.id, { onDelete: 'cascade' }),
+        remoteFolderId: varchar('remote_folder_id', { length: 255 }).notNull(),
+        name: varchar('name', { length: 255 }).notNull(),
+        type: varchar('type', { length: 20 }).default('custom').notNull(),
+        parentId: int('parent_id'),
+        messageCount: int('message_count').default(0).notNull(),
+        unreadCount: int('unread_count').default(0).notNull(),
+        uidValidity: int('uid_validity'),
+        syncCursor: text('sync_cursor'),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index('idx_mail_folders_account').on(table.accountId),
+        unique('uq_mail_folders_account_remote').on(table.accountId, table.remoteFolderId),
+    ],
+)
+
+export const mailMessages = mysqlTable(
+    'mail_messages',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        accountId: int('account_id')
+            .notNull()
+            .references(() => mailAccounts.id, { onDelete: 'cascade' }),
+        folderId: int('folder_id')
+            .notNull()
+            .references(() => mailFolders.id, { onDelete: 'cascade' }),
+        remoteMessageId: varchar('remote_message_id', { length: 500 }).notNull(),
+        messageIdHeader: varchar('message_id_header', { length: 500 }),
+        threadId: varchar('thread_id', { length: 255 }),
+        inReplyTo: varchar('in_reply_to', { length: 500 }),
+        referencesHeader: text('references_header'),
+        fromAddress: json('from_address').$type<{ name: string; address: string }>(),
+        toAddresses: json('to_addresses').$type<{ name: string; address: string }[]>().default([]),
+        ccAddresses: json('cc_addresses').$type<{ name: string; address: string }[]>().default([]),
+        bccAddresses: json('bcc_addresses').$type<{ name: string; address: string }[]>().default([]),
+        subject: text('subject'),
+        bodyHtml: longtext('body_html'),
+        bodyText: longtext('body_text'),
+        snippet: varchar('snippet', { length: 500 }),
+        isRead: boolean('is_read').default(false).notNull(),
+        isStarred: boolean('is_starred').default(false).notNull(),
+        isDraft: boolean('is_draft').default(false).notNull(),
+        hasAttachments: boolean('has_attachments').default(false).notNull(),
+        sentAt: timestamp('sent_at', { fsp: 3 }),
+        receivedAt: timestamp('received_at', { fsp: 3 }),
+        uid: int('uid'),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        unique('uq_mail_messages_account_remote').on(table.accountId, table.remoteMessageId),
+        index('idx_mail_messages_folder').on(table.folderId),
+        index('idx_mail_messages_sent_at').on(table.sentAt),
+        index('idx_mail_messages_thread').on(table.threadId),
+        index('idx_mail_messages_account_read').on(table.accountId, table.isRead),
+        index('idx_mail_messages_account_folder_received').on(table.accountId, table.folderId, table.receivedAt),
+        index('idx_mail_messages_account_received').on(table.accountId, table.receivedAt),
+    ],
+)
+
+export const mailAttachments = mysqlTable(
+    'mail_attachments',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        messageId: int('message_id')
+            .notNull()
+            .references(() => mailMessages.id, { onDelete: 'cascade' }),
+        remoteAttachmentId: text('remote_attachment_id'),
+        filename: varchar('filename', { length: 255 }),
+        mimeType: varchar('mime_type', { length: 100 }),
+        sizeBytes: int('size_bytes'),
+        contentId: varchar('content_id', { length: 255 }),
+        isInline: boolean('is_inline').default(false).notNull(),
+        r2Key: varchar('r2_key', { length: 255 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_mail_attachments_message').on(table.messageId)],
+)
+
+export const mailSyncLogs = mysqlTable(
+    'mail_sync_logs',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        accountId: int('account_id')
+            .notNull()
+            .references(() => mailAccounts.id, { onDelete: 'cascade' }),
+        syncType: varchar('sync_type', { length: 20 }).notNull(),
+        status: varchar('status', { length: 20 }).notNull(),
+        folderId: int('folder_id'),
+        messagesAdded: int('messages_added').default(0),
+        messagesUpdated: int('messages_updated').default(0),
+        messagesDeleted: int('messages_deleted').default(0),
+        durationMs: int('duration_ms'),
+        errorMessage: text('error_message'),
+        startedAt: timestamp('started_at', { fsp: 3 }),
+        completedAt: timestamp('completed_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_mail_sync_logs_account').on(table.accountId)],
+)
+
+export const mailSyncSessions = mysqlTable(
+    'mail_sync_sessions',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        accountId: int('account_id')
+            .notNull()
+            .references(() => mailAccounts.id, { onDelete: 'cascade' }),
+        folderId: int('folder_id'),
+        syncType: varchar('sync_type', { length: 20 }).notNull(),
+        status: varchar('status', { length: 20 }).notNull(),
+        totalEstimate: int('total_estimate'),
+        syncedCount: int('synced_count').default(0),
+        cursor: text('cursor'),
+        startedAt: timestamp('started_at', { fsp: 3 }),
+        lastBatchAt: timestamp('last_batch_at', { fsp: 3 }),
+        completedAt: timestamp('completed_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [
+        index('idx_mail_sync_sessions_account_status').on(table.accountId, table.status),
+    ],
+)
+
+export const mailUploads = mysqlTable(
+    'mail_uploads',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        filename: varchar('filename', { length: 255 }).notNull(),
+        mimeType: varchar('mime_type', { length: 100 }).notNull(),
+        sizeBytes: int('size_bytes').notNull(),
+        r2Key: varchar('r2_key', { length: 255 }).notNull().unique(),
+        isInline: boolean('is_inline').default(false).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_mail_uploads_user').on(table.userId)],
+)
+
+export type MailAccount = typeof mailAccounts.$inferSelect
+export type NewMailAccount = typeof mailAccounts.$inferInsert
+export type MailFolder = typeof mailFolders.$inferSelect
+export type MailMessage = typeof mailMessages.$inferSelect
+export type MailAttachment = typeof mailAttachments.$inferSelect
+export type MailSyncLog = typeof mailSyncLogs.$inferSelect
+export type MailSyncSession = typeof mailSyncSessions.$inferSelect
+export type MailUpload = typeof mailUploads.$inferSelect

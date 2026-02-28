@@ -1,3 +1,5 @@
+import { createAppError } from '../../lib/error'
+
 type SharpInstance = {
     resize: (width: number, height?: number, options?: Record<string, unknown>) => SharpInstance
     webp: (options?: Record<string, unknown>) => SharpInstance
@@ -17,14 +19,14 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024
 export const createImageProcessor = (deps: ImageProcessorDeps) => {
     const toWebp = async (buffer: Buffer, quality = 80) => {
         if (buffer.length > MAX_IMAGE_SIZE) {
-            throw new Error('IMAGE_TOO_LARGE')
+            throw createAppError('IMAGE_PROCESS_FAILED')
         }
         return deps.sharp(buffer).webp({ quality }).toBuffer()
     }
 
     const toPng = async (buffer: Buffer) => {
         if (buffer.length > MAX_IMAGE_SIZE) {
-            throw new Error('IMAGE_TOO_LARGE')
+            throw createAppError('IMAGE_PROCESS_FAILED')
         }
         return deps.sharp(buffer).png().toBuffer()
     }

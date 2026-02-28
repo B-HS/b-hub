@@ -48,14 +48,14 @@ describe('createImageProcessor', () => {
         const sharp = createMockSharp()
         const processor = createImageProcessor({ sharp })
         const largeBuffer = Buffer.alloc(11 * 1024 * 1024)
-        expect(processor.toWebp(largeBuffer)).rejects.toThrow('IMAGE_TOO_LARGE')
+        expect(processor.toWebp(largeBuffer)).rejects.toMatchObject({ code: 'IMAGE_PROCESS_FAILED' })
     })
 
     test('toPng도 10MB 초과시 에러를 던진다', async () => {
         const sharp = createMockSharp()
         const processor = createImageProcessor({ sharp })
         const largeBuffer = Buffer.alloc(11 * 1024 * 1024)
-        expect(processor.toPng(largeBuffer)).rejects.toThrow('IMAGE_TOO_LARGE')
+        expect(processor.toPng(largeBuffer)).rejects.toMatchObject({ code: 'IMAGE_PROCESS_FAILED' })
     })
 
     test('metadata가 없으면 기본값을 반환한다', async () => {

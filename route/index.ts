@@ -18,6 +18,11 @@ import { createMessageRoute } from './blog/message'
 import { createImageRoute } from './blog/image'
 import { createAdminRoute } from './blog/admin'
 import { createThumbnailRoute } from './blog/thumbnail'
+import { createMailAccountRoute } from './mail/account'
+import { createMailFolderRoute } from './mail/folder'
+import { createMailMessageRoute } from './mail/message'
+import { createMailSyncRoute } from './mail/sync'
+import { createMailUploadRoute } from './mail/upload'
 import type { AuthProvider } from '../service/shared/auth-provider'
 import type { ApiTokenService } from '../service/shared/api-token'
 import type { BadgeService } from '../service/domain/badge/badge'
@@ -33,6 +38,11 @@ import type { MessageService } from '../service/domain/blog/message'
 import type { BlogImageService } from '../service/domain/blog/blog-image'
 import type { ImageGenerator } from '../service/shared/image-generator'
 import type { FontLoader } from '../service/shared/font-loader'
+import type { MailAccountService } from '../service/domain/mail/mail-account'
+import type { MailSyncService } from '../service/domain/mail/mail-sync'
+import type { MailMessageService } from '../service/domain/mail/mail-message'
+import type { MailUploadService } from '../service/domain/mail/mail-upload'
+import { createAppError } from '../lib/error'
 
 type HnStoryDb = Parameters<typeof createStoryRoute>[0]['db']
 type HnDigestDb = Parameters<typeof createDigestRoute>[0]['db']
@@ -71,6 +81,12 @@ type RouterDeps = {
     adminDb?: AdminDb
     imageGenerator?: ImageGenerator
     fontLoader?: FontLoader
+    mailAccountService?: MailAccountService
+    mailSyncService?: MailSyncService
+    mailMessageService?: MailMessageService
+    mailUploadService?: MailUploadService
+    mailFolderDb?: Parameters<typeof createMailFolderRoute>[0]['db']
+    mailCheckLimit?: (key: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number }
 }
 
 const stub = <T>(obj?: T): T =>
@@ -79,7 +95,7 @@ const stub = <T>(obj?: T): T =>
         {},
         {
             get: () => () => {
-                throw new Error('SERVICE_NOT_CONFIGURED')
+                throw createAppError('SERVICE_NOT_CONFIGURED')
             },
         },
     ) as T)
@@ -87,7 +103,7 @@ const stub = <T>(obj?: T): T =>
 const stubFn = <T>(fn?: T): T =>
     fn ??
     ((() => {
-        throw new Error('SERVICE_NOT_CONFIGURED')
+        throw createAppError('SERVICE_NOT_CONFIGURED')
     }) as T)
 
 export const createRouter = (deps: RouterDeps = {}) => {
@@ -210,6 +226,45 @@ export const createRouter = (deps: RouterDeps = {}) => {
             postService: stub(deps.postService),
             imageGenerator: stub(deps.imageGenerator),
             fontLoader: stub(deps.fontLoader),
+        }),
+    )
+
+    router.route(
+        '/mail/accounts',
+        createMailAccountRoute({
+            mailAccountService: stub(deps.mailAccountService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/mail/folders',
+        createMailFolderRoute({
+            db: stub(deps.mailFolderDb),
+            mailAccountService: stub(deps.mailAccountService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/mail/messages',
+        createMailMessageRoute({
+            mailMessageService: stub(deps.mailMessageService),
+            getSession: stubFn(deps.getSession) as never,
+            checkLimit: deps.mailCheckLimit,
+        }),
+    )
+    router.route(
+        '/mail/sync',
+        createMailSyncRoute({
+            mailSyncService: stub(deps.mailSyncService),
+            getSession: stubFn(deps.getSession) as never,
+            checkLimit: deps.mailCheckLimit,
+        }),
+    )
+    router.route(
+        '/mail/uploads',
+        createMailUploadRoute({
+            mailUploadService: stub(deps.mailUploadService),
+            getSession: stubFn(deps.getSession) as never,
         }),
     )
 
