@@ -39,6 +39,7 @@ import type { BlogImageService } from '../service/domain/blog/blog-image'
 import type { ImageGenerator } from '../service/shared/image-generator'
 import type { FontLoader } from '../service/shared/font-loader'
 import type { MailAccountService } from '../service/domain/mail/mail-account'
+import type { MailOAuthConnectService } from '../service/domain/mail/mail-oauth-connect'
 import type { MailSyncService } from '../service/domain/mail/mail-sync'
 import type { MailMessageService } from '../service/domain/mail/mail-message'
 import type { MailUploadService } from '../service/domain/mail/mail-upload'
@@ -82,11 +83,13 @@ type RouterDeps = {
     imageGenerator?: ImageGenerator
     fontLoader?: FontLoader
     mailAccountService?: MailAccountService
+    mailOAuthConnect?: MailOAuthConnectService
     mailSyncService?: MailSyncService
     mailMessageService?: MailMessageService
     mailUploadService?: MailUploadService
     mailFolderDb?: Parameters<typeof createMailFolderRoute>[0]['db']
     mailCheckLimit?: (key: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number }
+    baseUrl?: string
 }
 
 const stub = <T>(obj?: T): T =>
@@ -234,6 +237,8 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createMailAccountRoute({
             mailAccountService: stub(deps.mailAccountService),
             getSession: stubFn(deps.getSession) as never,
+            mailOAuthConnect: deps.mailOAuthConnect,
+            baseUrl: deps.baseUrl,
         }),
     )
     router.route(

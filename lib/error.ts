@@ -62,6 +62,9 @@ const STATUS_MAP: Record<string, number> = {
     MAIL_UPLOAD_TOO_LARGE: 413,
     MAIL_UPLOAD_INVALID_TYPE: 422,
     MAIL_UPLOAD_NOT_FOUND: 404,
+    MAIL_OAUTH_STATE_INVALID: 400,
+    MAIL_OAUTH_EXCHANGE_FAILED: 502,
+    MAIL_ACCOUNT_ALREADY_EXISTS: 409,
 }
 
 export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500

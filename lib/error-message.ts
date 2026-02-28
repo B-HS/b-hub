@@ -57,4 +57,7 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     MAIL_UPLOAD_BLOCKED_EXTENSION: '보안상 허용되지 않는 파일 확장자입니다',
     MAIL_BLOCKED_HOST: '내부 네트워크 주소는 사용할 수 없습니다',
     MAIL_OAUTH_ACCOUNT_MISMATCH: 'OAuth 계정 소유권이 일치하지 않습니다',
+    MAIL_OAUTH_STATE_INVALID: 'OAuth state가 유효하지 않습니다',
+    MAIL_OAUTH_EXCHANGE_FAILED: 'OAuth 토큰 교환에 실패했습니다',
+    MAIL_ACCOUNT_ALREADY_EXISTS: '이미 연결된 메일 계정입니다',
 }

@@ -33,6 +33,7 @@ import { createMailAccountService } from './service/domain/mail/mail-account'
 import { createMailSyncService } from './service/domain/mail/mail-sync'
 import { createMailMessageService } from './service/domain/mail/mail-message'
 import { createMailUploadService } from './service/domain/mail/mail-upload'
+import { createMailOAuthConnectService } from './service/domain/mail/mail-oauth-connect'
 import { createRateLimiter } from './lib/rate-limit'
 import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
@@ -1019,6 +1020,61 @@ export const compose = () => {
         verifyBetterAuthOwnership,
     })
 
+    const mailOAuthConnect = createMailOAuthConnectService({
+        googleClientId: env.GOOGLE_CLIENT_ID ?? '',
+        googleClientSecret: env.GOOGLE_CLIENT_SECRET ?? '',
+        secret: env.BETTER_AUTH_SECRET ?? '',
+        findAccountByProviderAndUser: async (providerId: string, userId: string, email: string) => {
+            const [acc] = await db
+                .select({ id: schema.account.id })
+                .from(schema.account)
+                .where(and(
+                    eq(schema.account.providerId, providerId),
+                    eq(schema.account.userId, userId),
+                    eq(schema.account.accountId, email),
+                ))
+                .limit(1)
+            return acc ?? null
+        },
+        upsertAccount: async (data) => {
+            await db
+                .insert(schema.account)
+                .values({
+                    id: data.id,
+                    accountId: data.accountId,
+                    providerId: data.providerId,
+                    userId: data.userId,
+                    accessToken: data.accessToken,
+                    refreshToken: data.refreshToken,
+                    accessTokenExpiresAt: data.accessTokenExpiresAt,
+                    scope: data.scope,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                } as never)
+                .onDuplicateKeyUpdate({
+                    set: {
+                        accessToken: data.accessToken,
+                        refreshToken: data.refreshToken,
+                        accessTokenExpiresAt: data.accessTokenExpiresAt,
+                        scope: data.scope,
+                        updatedAt: new Date(),
+                    } as never,
+                })
+            return { id: data.id }
+        },
+        findMailAccountByEmail: async (userId: string, email: string) => {
+            const [acc] = await db
+                .select({ id: schema.mailAccounts.id })
+                .from(schema.mailAccounts)
+                .where(and(eq(schema.mailAccounts.userId, userId), eq(schema.mailAccounts.email, email)))
+                .limit(1)
+            return acc ?? null
+        },
+        createMailAccount: async (userId: string, input: { provider: string; email: string; betterAuthAccountId: string }) => {
+            return mailAccountService.create(userId, input)
+        },
+    })
+
     const mailSyncDb = {
         upsertFolder: async (data: {
             accountId: number
@@ -1464,10 +1520,12 @@ export const compose = () => {
         hnWebhook,
         cronSecret: env.CRON_SECRET ?? '',
         mailAccountService,
+        mailOAuthConnect,
         mailSyncService,
         mailMessageService,
         mailUploadService,
         mailFolderDb,
         mailCheckLimit,
+        baseUrl: env.BASE_URL ?? '',
     }
 }

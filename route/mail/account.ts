@@ -6,13 +6,17 @@ import { withErrorHandling } from '../../lib/with-error-handling'
 import { withAuth } from '../../lib/with-auth'
 import { successResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
+import { createAppError } from '../../lib/error'
 import { mailAccountCreateSchema, mailAccountUpdateSchema, mailAccountResponseSchema, mailAccountParamSchema } from '../../dto/mail/account'
 import type { MailAccountService } from '../../service/domain/mail/mail-account'
+import type { MailOAuthConnectService } from '../../service/domain/mail/mail-oauth-connect'
 import type { AuthContext } from '../../lib/hono-types'
 
 type MailAccountRouteDeps = {
     mailAccountService: MailAccountService
     getSession: Parameters<typeof withAuth>[0]['getSession']
+    mailOAuthConnect?: MailOAuthConnectService
+    baseUrl?: string
 }
 
 const formatAccount = (a: { id: number; provider: string; email: string; displayName: string | null; isActive: boolean; lastSyncAt: Date | null; lastSyncStatus: string | null; createdAt: Date; updatedAt: Date }) => ({
@@ -152,6 +156,54 @@ export const createMailAccountRoute = (deps: MailAccountRouteDeps) => {
                 const { accountId } = c.req.valid('param' as never) as z.infer<typeof mailAccountParamSchema>
                 const result = await deps.mailAccountService.testConnection(accountId, user.id)
                 return c.json(successResponse(result))
+            }),
+        ),
+    )
+
+    // ─── Gmail OAuth 추가 연동 ───
+
+    route.get(
+        '/connect/google',
+        withErrorHandling(
+            withAuth({ getSession: deps.getSession })(async (c, user) => {
+                if (!deps.mailOAuthConnect || deps.baseUrl === undefined) {
+                    throw createAppError('SERVICE_NOT_CONFIGURED')
+                }
+                const redirect = c.req.query('redirect') || undefined
+                const authUrl = await deps.mailOAuthConnect.generateAuthUrl(user.id, deps.baseUrl, redirect)
+                return c.redirect(authUrl, 302)
+            }),
+        ),
+    )
+
+    route.get(
+        '/connect/google/callback',
+        withErrorHandling(
+            withAuth({ getSession: deps.getSession })(async (c, user) => {
+                if (!deps.mailOAuthConnect || deps.baseUrl === undefined) {
+                    throw createAppError('SERVICE_NOT_CONFIGURED')
+                }
+
+                const code = c.req.query('code')
+                const state = c.req.query('state')
+                const errorParam = c.req.query('error')
+
+                // Google이 에러를 보낸 경우
+                if (errorParam || !code || !state) {
+                    const redirect = state ? deps.mailOAuthConnect.parseRedirectFromState(state) : null
+                    const target = redirect || deps.baseUrl
+                    return c.redirect(`${target}?error=oauth_denied`, 302)
+                }
+
+                try {
+                    const result = await deps.mailOAuthConnect.handleCallback(code, state, user.id, deps.baseUrl)
+                    const target = result.redirect || deps.baseUrl
+                    return c.redirect(`${target}?success=true&email=${encodeURIComponent(result.email)}`, 302)
+                } catch (err) {
+                    const redirect = deps.mailOAuthConnect.parseRedirectFromState(state) || deps.baseUrl
+                    const errorCode = (err && typeof err === 'object' && 'code' in err) ? (err as { code: string }).code : 'unknown'
+                    return c.redirect(`${redirect}?error=${errorCode}`, 302)
+                }
             }),
         ),
     )

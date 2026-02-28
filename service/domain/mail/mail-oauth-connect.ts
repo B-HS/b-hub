@@ -1,0 +1,213 @@
+import { createAppError } from '../../../lib/error'
+
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo'
+
+const GMAIL_SCOPES = [
+    'openid',
+    'email',
+    'profile',
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/gmail.send',
+].join(' ')
+
+const STATE_TTL_MS = 10 * 60 * 1000 // 10분
+
+type MailOAuthConnectDeps = {
+    googleClientId: string
+    googleClientSecret: string
+    secret: string
+    findAccountByProviderAndUser: (providerId: string, userId: string, email: string) => Promise<{ id: string } | null>
+    upsertAccount: (data: {
+        id: string
+        accountId: string
+        providerId: string
+        userId: string
+        accessToken: string
+        refreshToken: string | null
+        accessTokenExpiresAt: Date | null
+        scope: string
+    }) => Promise<{ id: string }>
+    findMailAccountByEmail: (userId: string, email: string) => Promise<{ id: number } | null>
+    createMailAccount: (userId: string, input: {
+        provider: string
+        email: string
+        betterAuthAccountId: string
+    }) => Promise<{ id: number }>
+}
+
+const base64url = (buf: ArrayBuffer) =>
+    Buffer.from(buf).toString('base64url')
+
+const base64urlEncode = (str: string) =>
+    Buffer.from(str).toString('base64url')
+
+const base64urlDecode = (str: string) =>
+    Buffer.from(str, 'base64url').toString()
+
+async function hmacSign(payload: string, secret: string): Promise<string> {
+    const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+    )
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload))
+    return base64url(sig)
+}
+
+async function hmacVerify(payload: string, signature: string, secret: string): Promise<boolean> {
+    const expected = await hmacSign(payload, secret)
+    return expected === signature
+}
+
+export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
+    const generateAuthUrl = async (userId: string, baseUrl: string, redirect?: string) => {
+        const payload = base64urlEncode(JSON.stringify({
+            userId,
+            exp: Date.now() + STATE_TTL_MS,
+            redirect: redirect || null,
+        }))
+        const sig = await hmacSign(payload, deps.secret)
+        const state = `${payload}.${sig}`
+
+        const callbackUrl = `${baseUrl}/api/mail/accounts/connect/google/callback`
+        const params = new URLSearchParams({
+            client_id: deps.googleClientId,
+            redirect_uri: callbackUrl,
+            response_type: 'code',
+            scope: GMAIL_SCOPES,
+            access_type: 'offline',
+            prompt: 'consent',
+            state,
+        })
+
+        return `${GOOGLE_AUTH_URL}?${params.toString()}`
+    }
+
+    const parseRedirectFromState = (state: string): string | null => {
+        try {
+            const [payload] = state.split('.')
+            if (!payload) return null
+            const data = JSON.parse(base64urlDecode(payload))
+            return data.redirect || null
+        } catch {
+            return null
+        }
+    }
+
+    const handleCallback = async (
+        code: string,
+        state: string,
+        sessionUserId: string,
+        baseUrl: string,
+    ): Promise<{ mailAccountId: number; email: string; redirect: string | null }> => {
+        // 1. state 검증
+        const dotIdx = state.indexOf('.')
+        if (dotIdx < 0) throw createAppError('MAIL_OAUTH_STATE_INVALID')
+
+        const payload = state.slice(0, dotIdx)
+        const sig = state.slice(dotIdx + 1)
+
+        const valid = await hmacVerify(payload, sig, deps.secret)
+        if (!valid) throw createAppError('MAIL_OAUTH_STATE_INVALID')
+
+        let stateData: { userId: string; exp: number; redirect: string | null }
+        try {
+            stateData = JSON.parse(base64urlDecode(payload))
+        } catch {
+            throw createAppError('MAIL_OAUTH_STATE_INVALID')
+        }
+
+        if (stateData.userId !== sessionUserId) throw createAppError('MAIL_OAUTH_STATE_INVALID')
+        if (Date.now() > stateData.exp) throw createAppError('MAIL_OAUTH_STATE_INVALID')
+
+        // 2. code → token 교환
+        const callbackUrl = `${baseUrl}/api/mail/accounts/connect/google/callback`
+        const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                code,
+                client_id: deps.googleClientId,
+                client_secret: deps.googleClientSecret,
+                redirect_uri: callbackUrl,
+                grant_type: 'authorization_code',
+            }),
+        })
+
+        if (!tokenRes.ok) {
+            const errorBody = await tokenRes.text().catch(() => 'unknown')
+            throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED', { detail: errorBody })
+        }
+
+        const tokenData = await tokenRes.json() as {
+            access_token: string
+            refresh_token?: string
+            expires_in: number
+            scope: string
+            id_token?: string
+        }
+
+        if (!tokenData.access_token) {
+            throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
+        }
+
+        // 3. userinfo에서 email/sub 추출
+        const userinfoRes = await fetch(GOOGLE_USERINFO_URL, {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        })
+
+        if (!userinfoRes.ok) {
+            throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
+        }
+
+        const userinfo = await userinfoRes.json() as { sub: string; email: string }
+        if (!userinfo.email || !userinfo.sub) {
+            throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
+        }
+
+        // 4. account 테이블 upsert (better-auth 포맷)
+        const existing = await deps.findAccountByProviderAndUser('google', sessionUserId, userinfo.email)
+        const accountId = existing?.id ?? crypto.randomUUID()
+
+        const accountRow = await deps.upsertAccount({
+            id: accountId,
+            accountId: userinfo.sub,
+            providerId: 'google',
+            userId: sessionUserId,
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token ?? null,
+            accessTokenExpiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
+            scope: tokenData.scope,
+        })
+
+        // 5. mail_accounts 자동 생성 (이미 있으면 건너뜀)
+        const existingMailAccount = await deps.findMailAccountByEmail(sessionUserId, userinfo.email)
+        if (existingMailAccount) {
+            return {
+                mailAccountId: existingMailAccount.id,
+                email: userinfo.email,
+                redirect: stateData.redirect,
+            }
+        }
+
+        const mailAccount = await deps.createMailAccount(sessionUserId, {
+            provider: 'gmail',
+            email: userinfo.email,
+            betterAuthAccountId: accountRow.id,
+        })
+
+        return {
+            mailAccountId: mailAccount.id,
+            email: userinfo.email,
+            redirect: stateData.redirect,
+        }
+    }
+
+    return { generateAuthUrl, handleCallback, parseRedirectFromState }
+}
+
+export type MailOAuthConnectService = ReturnType<typeof createMailOAuthConnectService>
