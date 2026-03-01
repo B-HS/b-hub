@@ -67,4 +67,6 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     SPOTIFY_OAUTH_EXCHANGE_FAILED: 'Spotify OAuth 토큰 교환에 실패했습니다',
     SPOTIFY_API_ERROR: 'Spotify API 호출에 실패했습니다',
     SPOTIFY_KEY_INVALID: 'Spotify API 키가 유효하지 않습니다',
+    SPOTIFY_WIDGET_TOKEN_NOT_FOUND: 'Spotify 위젯 토큰을 찾을 수 없습니다',
+    SPOTIFY_WIDGET_TOKEN_INACTIVE: 'Spotify 위젯 토큰이 비활성화되었습니다',
 }

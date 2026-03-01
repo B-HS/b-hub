@@ -72,6 +72,8 @@ const STATUS_MAP: Record<string, number> = {
     SPOTIFY_OAUTH_EXCHANGE_FAILED: 502,
     SPOTIFY_API_ERROR: 502,
     SPOTIFY_KEY_INVALID: 401,
+    SPOTIFY_WIDGET_TOKEN_NOT_FOUND: 404,
+    SPOTIFY_WIDGET_TOKEN_INACTIVE: 403,
 }
 
 export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500

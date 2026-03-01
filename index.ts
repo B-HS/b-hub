@@ -30,7 +30,7 @@ app.use(
     }),
 )
 
-app.use('*', securityHeaders())
+app.use('*', securityHeaders({ excludePaths: ['/api/spotify/playing'] }))
 app.use('*', errorHandler())
 
 app.get('/', (c) => c.json({ name: 'hyun-hub', version: '1.0.0' }))
@@ -66,6 +66,12 @@ const router = createRouter({
     mailUploadService: deps.mailUploadService,
     mailFolderDb: deps.mailFolderDb,
     mailCheckLimit: deps.mailCheckLimit,
+    spotifyAccountService: deps.spotifyAccountService,
+    spotifyApiKeyService: deps.spotifyApiKeyService,
+    spotifyOAuthConnect: deps.spotifyOAuthConnect,
+    spotifyDataService: deps.spotifyDataService,
+    spotifyWidgetTokenService: deps.spotifyWidgetTokenService,
+    spotifyWidgetService: deps.spotifyWidgetService,
     baseUrl: deps.baseUrl,
 })
 app.route('/api', router)

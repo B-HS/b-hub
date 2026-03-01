@@ -26,6 +26,8 @@ import { createMailUploadRoute } from './mail/upload'
 import { createSpotifyAccountRoute } from './spotify/account'
 import { createSpotifyKeyRoute } from './spotify/key'
 import { createSpotifyDataRoute } from './spotify/data'
+import { createSpotifyPlayingRoute } from './spotify/playing'
+import { createSpotifyWidgetTokenRoute } from './spotify/widget-token'
 import type { AuthProvider } from '../service/shared/auth-provider'
 import type { ApiTokenService } from '../service/shared/api-token'
 import type { BadgeService } from '../service/domain/badge/badge'
@@ -50,6 +52,8 @@ import type { SpotifyAccountService } from '../service/domain/spotify/spotify-ac
 import type { SpotifyApiKeyService } from '../service/domain/spotify/spotify-api-key'
 import type { SpotifyOAuthConnectService } from '../service/domain/spotify/spotify-oauth-connect'
 import type { SpotifyDataService } from '../service/domain/spotify/spotify-data'
+import type { SpotifyWidgetTokenService } from '../service/domain/spotify/spotify-widget-token'
+import type { SpotifyWidgetService } from '../service/domain/spotify/spotify-widget'
 import { createAppError } from '../lib/error'
 
 type HnStoryDb = Parameters<typeof createStoryRoute>[0]['db']
@@ -100,6 +104,8 @@ type RouterDeps = {
     spotifyApiKeyService?: SpotifyApiKeyService
     spotifyOAuthConnect?: SpotifyOAuthConnectService
     spotifyDataService?: SpotifyDataService
+    spotifyWidgetTokenService?: SpotifyWidgetTokenService
+    spotifyWidgetService?: SpotifyWidgetService
     baseUrl?: string
 }
 
@@ -306,6 +312,22 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createSpotifyDataRoute({
             spotifyDataService: stub(deps.spotifyDataService),
             spotifyApiKeyService: stub(deps.spotifyApiKeyService),
+            spotifyAccountService: stub(deps.spotifyAccountService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/spotify/playing',
+        createSpotifyPlayingRoute({
+            spotifyWidgetTokenService: stub(deps.spotifyWidgetTokenService),
+            spotifyWidgetService: stub(deps.spotifyWidgetService),
+            baseUrl: deps.baseUrl ?? '',
+        }),
+    )
+    router.route(
+        '/spotify/widget-tokens',
+        createSpotifyWidgetTokenRoute({
+            spotifyWidgetTokenService: stub(deps.spotifyWidgetTokenService),
             spotifyAccountService: stub(deps.spotifyAccountService),
             getSession: stubFn(deps.getSession) as never,
         }),

@@ -39,6 +39,8 @@ import { createSpotifyApiKeyService } from './service/domain/spotify/spotify-api
 import { createSpotifyOAuthConnectService } from './service/domain/spotify/spotify-oauth-connect'
 import { createSpotifyDataService } from './service/domain/spotify/spotify-data'
 import { createSpotifyProvider } from './service/domain/spotify/spotify-provider'
+import { createSpotifyWidgetTokenService } from './service/domain/spotify/spotify-widget-token'
+import { createSpotifyWidgetService } from './service/domain/spotify/spotify-widget'
 import { createRateLimiter } from './lib/rate-limit'
 import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
@@ -1668,6 +1670,55 @@ export const compose = () => {
         createProvider: createSpotifyProviderForAccount,
     })
 
+    const spotifyWidgetTokenDb = {
+        insert: async (data: { userId: string; spotifyAccountId: number; token: string; name: string | null }) => {
+            const [result] = await db.insert(schema.spotifyWidgetTokens).values(data).$returningId()
+            return result
+        },
+        findByToken: async (token: string) => {
+            const [record] = await db
+                .select({
+                    id: schema.spotifyWidgetTokens.id,
+                    userId: schema.spotifyWidgetTokens.userId,
+                    spotifyAccountId: schema.spotifyWidgetTokens.spotifyAccountId,
+                    isActive: schema.spotifyWidgetTokens.isActive,
+                })
+                .from(schema.spotifyWidgetTokens)
+                .where(eq(schema.spotifyWidgetTokens.token, token))
+                .limit(1)
+            return record ?? null
+        },
+        remove: async (userId: string, tokenId: number) => {
+            await db
+                .delete(schema.spotifyWidgetTokens)
+                .where(and(eq(schema.spotifyWidgetTokens.id, tokenId), eq(schema.spotifyWidgetTokens.userId, userId)))
+        },
+        listByUser: async (userId: string) => {
+            return db
+                .select({
+                    id: schema.spotifyWidgetTokens.id,
+                    spotifyAccountId: schema.spotifyWidgetTokens.spotifyAccountId,
+                    token: schema.spotifyWidgetTokens.token,
+                    name: schema.spotifyWidgetTokens.name,
+                    isActive: schema.spotifyWidgetTokens.isActive,
+                    createdAt: schema.spotifyWidgetTokens.createdAt,
+                })
+                .from(schema.spotifyWidgetTokens)
+                .where(eq(schema.spotifyWidgetTokens.userId, userId))
+        },
+        updateIsActive: async (userId: string, tokenId: number, isActive: boolean) => {
+            await db
+                .update(schema.spotifyWidgetTokens)
+                .set({ isActive })
+                .where(and(eq(schema.spotifyWidgetTokens.id, tokenId), eq(schema.spotifyWidgetTokens.userId, userId)))
+        },
+    }
+
+    const spotifyWidgetTokenService = createSpotifyWidgetTokenService({ db: spotifyWidgetTokenDb })
+
+    const albumArtCache = createCache<string>({ maxSize: 200, defaultTtlMs: 5 * 60 * 1000 })
+    const spotifyWidgetService = createSpotifyWidgetService({ spotifyDataService, albumArtCache })
+
     return {
         auth,
         getSession,
@@ -1702,6 +1753,8 @@ export const compose = () => {
         spotifyApiKeyService,
         spotifyOAuthConnect,
         spotifyDataService,
+        spotifyWidgetTokenService,
+        spotifyWidgetService,
         baseUrl: env.BASE_URL ?? '',
     }
 }

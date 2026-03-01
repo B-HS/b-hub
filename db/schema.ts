@@ -710,9 +710,32 @@ export const spotifyApiKeys = mysqlTable(
     (table) => [index('idx_spotify_api_keys_user').on(table.userId), index('idx_spotify_api_keys_account').on(table.spotifyAccountId)],
 )
 
+export const spotifyWidgetTokens = mysqlTable(
+    'spotify_widget_tokens',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        spotifyAccountId: int('spotify_account_id')
+            .notNull()
+            .references(() => spotifyAccounts.id, { onDelete: 'cascade' }),
+        token: varchar('token', { length: 16 }).notNull().unique(),
+        name: varchar('name', { length: 100 }),
+        isActive: boolean('is_active').default(true).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_spotify_widget_tokens_user').on(table.userId), index('idx_spotify_widget_tokens_account').on(table.spotifyAccountId)],
+)
+
 export type SpotifyAccount = typeof spotifyAccounts.$inferSelect
 export type NewSpotifyAccount = typeof spotifyAccounts.$inferInsert
 export type SpotifyApiKey = typeof spotifyApiKeys.$inferSelect
+export type SpotifyWidgetToken = typeof spotifyWidgetTokens.$inferSelect
 
 export type MailAccount = typeof mailAccounts.$inferSelect
 export type NewMailAccount = typeof mailAccounts.$inferInsert
