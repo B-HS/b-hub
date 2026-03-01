@@ -36,12 +36,6 @@ type SpotifyWidgetServiceDeps = {
     albumArtCache: ReturnType<typeof createCache<string>>
 }
 
-const formatTime = (ms: number) => {
-    const totalSec = Math.floor(ms / 1000)
-    const min = Math.floor(totalSec / 60)
-    const sec = totalSec % 60
-    return `${min}:${sec.toString().padStart(2, '0')}`
-}
 
 const truncateText = (text: string, maxLen: number) => (text.length > maxLen ? text.slice(0, maxLen) + '...' : text)
 
@@ -91,9 +85,9 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
         const data = await getNowPlayingData(spotifyAccountId)
         const t = theme
 
-        if (!data.track) return generateNotPlayingSvg(t)
+        if (!data.isPlaying || !data.track) return generateNotPlayingSvg(t)
 
-        const { track, isPlaying } = data
+        const { track } = data
         const trackName = escapeXml(truncateText(track.name, 30))
         const artistName = escapeXml(truncateText(track.artist, 35))
         const albumName = escapeXml(truncateText(track.album, 38))
@@ -107,8 +101,7 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
             }
         }
 
-        const equalizerBars = isPlaying
-            ? `<g transform="translate(432, 48)">
+        const equalizerBars = `<g transform="translate(432, 48)">
       <style>
         @keyframes eq1 { 0%,100% { height: 8px; y: 12px; } 50% { height: 20px; y: 0; } }
         @keyframes eq2 { 0%,100% { height: 14px; y: 6px; } 50% { height: 8px; y: 12px; } }
@@ -121,13 +114,6 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
       <rect class="bar2" x="10" y="6" width="6" height="14" rx="2" fill="#${t.accent}"/>
       <rect class="bar3" x="20" y="10" width="6" height="10" rx="2" fill="#${t.accent}"/>
     </g>`
-            : `<g transform="translate(432, 48)">
-      <rect x="0" y="14" width="6" height="6" rx="2" fill="#535353"/>
-      <rect x="10" y="10" width="6" height="10" rx="2" fill="#535353"/>
-      <rect x="20" y="12" width="6" height="8" rx="2" fill="#535353"/>
-    </g>`
-
-        const statusLabel = isPlaying ? 'Now Playing' : 'Last Played'
 
         return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="140" viewBox="0 0 480 140">
   <style>
@@ -139,7 +125,7 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
   <rect width="480" height="140" rx="${t.radius}" fill="#${t.bg}"/>
   ${albumArtTag}
   ${equalizerBars}
-  <text x="140" y="46" class="status">${statusLabel}</text>
+  <text x="140" y="46" class="status">Now Playing</text>
   <text x="140" y="67" class="title">${trackName}</text>
   <text x="140" y="86" class="artist">${artistName}</text>
   <text x="140" y="106" class="album">${albumName}</text>
@@ -217,23 +203,32 @@ body{width:480px;height:140px;overflow:hidden;font-family:'Segoe UI',Ubuntu,sans
     }
   }
 
+  function reset(){
+    S.p=0;S.d=0;S.on=false;st.textContent='Not Playing';nm.textContent='-';ar.textContent='Spotify';
+    pg.style.width='0%';tm.textContent='0:00 / 0:00';
+    ac.innerHTML='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    eq(false);
+  }
+
   function apply(d){
     S.t=Date.now();S.on=d.isPlaying;
-    if(d.track){
+    if(d.isPlaying&&d.track){
       S.p=d.track.progressMs||0;S.d=d.track.durationMs||0;
-      st.textContent=d.isPlaying?'Now Playing':'Last Played';
+      st.textContent='Now Playing';
       nm.textContent=d.track.name;ar.textContent=d.track.artist;
-      if(d.track.albumArt&&!ac.querySelector('img')){
-        var img=document.createElement('img');img.className='art';img.src=d.track.albumArt;
-        ac.textContent='';ac.appendChild(img);
-      }
+      var cur=ac.querySelector('img');
+      if(d.track.albumArt){
+        if(!cur||cur.src!==d.track.albumArt){
+          var img=document.createElement('img');img.className='art';img.src=d.track.albumArt;
+          ac.textContent='';ac.appendChild(img);
+        }
+      }else if(cur){ac.innerHTML='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>'}
       pg.style.width=(S.d>0?S.p/S.d*100:0)+'%';
       tm.textContent=f(S.p)+' / '+f(S.d);
+      eq(true);
     }else{
-      S.p=0;S.d=0;st.textContent='Not Playing';nm.textContent='-';ar.textContent='Spotify';
-      pg.style.width='0%';tm.textContent='0:00 / 0:00';
+      reset();
     }
-    eq(d.isPlaying);
   }
 
   function poll(){fetch('${dataUrl}').then(function(r){return r.json()}).then(function(j){if(j.success)apply(j.data)}).catch(function(){})}

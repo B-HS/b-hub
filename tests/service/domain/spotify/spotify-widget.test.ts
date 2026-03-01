@@ -6,16 +6,22 @@ const mockTrack = {
     name: 'Test Song',
     artist: 'Test Artist',
     album: 'Test Album',
-    albumArt: null,
-    externalUrl: 'https://open.spotify.com/track/123',
+    albumArt: null as string | null,
+    externalUrl: 'https://open.spotify.com/track/123' as string | null,
     durationMs: 200000,
-    progressMs: 50000,
+    progressMs: 50000 as number | null,
+}
+
+type NowPlayingResult = {
+    isPlaying: boolean
+    track: typeof mockTrack | null
+    lastPlayedAt: string | null
 }
 
 const createMockDeps = () => ({
     spotifyDataService: {
         getNowPlaying: mock(() =>
-            Promise.resolve({
+            Promise.resolve<NowPlayingResult>({
                 isPlaying: true,
                 track: mockTrack,
                 lastPlayedAt: null,
@@ -47,7 +53,7 @@ describe('createSpotifyWidgetService', () => {
         expect(svg).toContain('Not Playing')
     })
 
-    test('generateSvg가 마지막 재생 곡을 표시한다', async () => {
+    test('generateSvg가 미재생 시 마지막 곡 대신 Not Playing을 표시한다', async () => {
         const deps = createMockDeps()
         deps.spotifyDataService.getNowPlaying = mock(() =>
             Promise.resolve({
@@ -58,8 +64,8 @@ describe('createSpotifyWidgetService', () => {
         )
         const service = createSpotifyWidgetService(deps)
         const svg = await service.generateSvg(1)
-        expect(svg).toContain('Last Played')
-        expect(svg).toContain('Test Song')
+        expect(svg).toContain('Not Playing')
+        expect(svg).not.toContain('Test Song')
     })
 
     test('generateSvg가 긴 곡명을 truncate한다', async () => {
