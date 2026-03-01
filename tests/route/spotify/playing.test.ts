@@ -68,6 +68,16 @@ describe('GET /spotify/playing/:token', () => {
         const res = await app.request('/spotify/playing/abc123def4567890')
         expect(res.headers.get('cache-control')).toContain('no-cache')
     })
+
+    test('커스텀 테마 query param을 전달한다', async () => {
+        const deps = createDeps()
+        const app = createApp(deps)
+        await app.request('/spotify/playing/abc123def4567890?bg=000000&accent=ff0000&radius=0')
+        const call = deps.spotifyWidgetService.generateSvg.mock.calls[0] as [number, { bg: string; accent: string; radius: number }]
+        expect(call[1].bg).toBe('000000')
+        expect(call[1].accent).toBe('ff0000')
+        expect(call[1].radius).toBe(0)
+    })
 })
 
 describe('GET /spotify/playing/:token/widget', () => {

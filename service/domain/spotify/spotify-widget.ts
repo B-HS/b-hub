@@ -15,6 +15,22 @@ type NowPlayingData = {
     lastPlayedAt: string | null
 }
 
+export type WidgetTheme = {
+    radius: number
+    bg: string
+    color: string
+    secondary: string
+    accent: string
+}
+
+export const DEFAULT_THEME: WidgetTheme = {
+    radius: 12,
+    bg: '191414',
+    color: 'ffffff',
+    secondary: 'b3b3b3',
+    accent: '1DB954',
+}
+
 type SpotifyWidgetServiceDeps = {
     spotifyDataService: SpotifyDataService
     albumArtCache: ReturnType<typeof createCache<string>>
@@ -49,20 +65,20 @@ const fetchAlbumArtBase64 = async (url: string, cache: ReturnType<typeof createC
     }
 }
 
-const generateNotPlayingSvg = () => {
+const generateNotPlayingSvg = (t: WidgetTheme) => {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="140" viewBox="0 0 480 140">
   <style>
-    .title { font: bold 14px 'Segoe UI', Ubuntu, sans-serif; fill: #fff; }
-    .subtitle { font: 12px 'Segoe UI', Ubuntu, sans-serif; fill: #b3b3b3; }
+    .title { font: bold 14px 'Segoe UI', Ubuntu, sans-serif; fill: #${t.color}; }
+    .subtitle { font: 12px 'Segoe UI', Ubuntu, sans-serif; fill: #${t.secondary}; }
   </style>
-  <rect width="480" height="140" rx="12" fill="#191414"/>
+  <rect width="480" height="140" rx="${t.radius}" fill="#${t.bg}"/>
   <rect x="20" y="20" width="100" height="100" rx="8" fill="#282828"/>
-  <g transform="translate(55, 58)">
-    <circle cx="15" cy="15" r="14" stroke="#535353" stroke-width="2" fill="none"/>
-    <path d="M12 10 L12 20 L20 15 Z" fill="#535353"/>
+  <g transform="translate(57, 57)">
+    <circle cx="13" cy="13" r="13" stroke="#535353" stroke-width="2" fill="none"/>
+    <path d="M11 8 L11 18 L19 13 Z" fill="#535353"/>
   </g>
-  <text x="140" y="58" class="title">Not Playing</text>
-  <text x="140" y="78" class="subtitle">Spotify</text>
+  <text x="140" y="66" class="title">Not Playing</text>
+  <text x="140" y="84" class="subtitle">Spotify</text>
 </svg>`
 }
 
@@ -71,19 +87,16 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
         return deps.spotifyDataService.getNowPlaying(spotifyAccountId)
     }
 
-    const generateSvg = async (spotifyAccountId: number): Promise<string> => {
+    const generateSvg = async (spotifyAccountId: number, theme: WidgetTheme = DEFAULT_THEME): Promise<string> => {
         const data = await getNowPlayingData(spotifyAccountId)
+        const t = theme
 
-        if (!data.track) return generateNotPlayingSvg()
+        if (!data.track) return generateNotPlayingSvg(t)
 
         const { track, isPlaying } = data
         const trackName = escapeXml(truncateText(track.name, 30))
         const artistName = escapeXml(truncateText(track.artist, 35))
-        const progressMs = track.progressMs ?? 0
-        const durationMs = track.durationMs || 1
-        const progressPct = Math.min((progressMs / durationMs) * 100, 100)
-        const progressTime = formatTime(progressMs)
-        const durationTime = formatTime(durationMs)
+        const albumName = escapeXml(truncateText(track.album, 38))
 
         let albumArtTag = '<rect x="20" y="20" width="100" height="100" rx="8" fill="#282828"/>'
         if (track.albumArt) {
@@ -95,7 +108,7 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
         }
 
         const equalizerBars = isPlaying
-            ? `<g transform="translate(430, 30)">
+            ? `<g transform="translate(432, 48)">
       <style>
         @keyframes eq1 { 0%,100% { height: 8px; y: 12px; } 50% { height: 20px; y: 0; } }
         @keyframes eq2 { 0%,100% { height: 14px; y: 6px; } 50% { height: 8px; y: 12px; } }
@@ -104,11 +117,11 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
         .bar2 { animation: eq2 0.6s ease-in-out infinite; }
         .bar3 { animation: eq3 0.7s ease-in-out infinite; }
       </style>
-      <rect class="bar1" x="0" y="12" width="6" height="8" rx="2" fill="#1DB954"/>
-      <rect class="bar2" x="10" y="6" width="6" height="14" rx="2" fill="#1DB954"/>
-      <rect class="bar3" x="20" y="10" width="6" height="10" rx="2" fill="#1DB954"/>
+      <rect class="bar1" x="0" y="12" width="6" height="8" rx="2" fill="#${t.accent}"/>
+      <rect class="bar2" x="10" y="6" width="6" height="14" rx="2" fill="#${t.accent}"/>
+      <rect class="bar3" x="20" y="10" width="6" height="10" rx="2" fill="#${t.accent}"/>
     </g>`
-            : `<g transform="translate(430, 30)">
+            : `<g transform="translate(432, 48)">
       <rect x="0" y="14" width="6" height="6" rx="2" fill="#535353"/>
       <rect x="10" y="10" width="6" height="10" rx="2" fill="#535353"/>
       <rect x="20" y="12" width="6" height="8" rx="2" fill="#535353"/>
@@ -118,25 +131,24 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
 
         return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="140" viewBox="0 0 480 140">
   <style>
-    .status { font: 11px 'Segoe UI', Ubuntu, sans-serif; fill: #1DB954; text-transform: uppercase; letter-spacing: 1px; }
-    .title { font: bold 14px 'Segoe UI', Ubuntu, sans-serif; fill: #fff; }
-    .artist { font: 12px 'Segoe UI', Ubuntu, sans-serif; fill: #b3b3b3; }
-    .time { font: 11px 'Segoe UI', Ubuntu, sans-serif; fill: #b3b3b3; }
+    .status { font: 11px 'Segoe UI', Ubuntu, sans-serif; fill: #${t.accent}; text-transform: uppercase; letter-spacing: 1px; }
+    .title { font: bold 14px 'Segoe UI', Ubuntu, sans-serif; fill: #${t.color}; }
+    .artist { font: 12px 'Segoe UI', Ubuntu, sans-serif; fill: #${t.secondary}; }
+    .album { font: 11px 'Segoe UI', Ubuntu, sans-serif; fill: #686868; }
   </style>
-  <rect width="480" height="140" rx="12" fill="#191414"/>
+  <rect width="480" height="140" rx="${t.radius}" fill="#${t.bg}"/>
   ${albumArtTag}
   ${equalizerBars}
-  <text x="140" y="40" class="status">${statusLabel}</text>
-  <text x="140" y="62" class="title">${trackName}</text>
-  <text x="140" y="82" class="artist">${artistName}</text>
-  <rect x="140" y="100" width="270" height="4" rx="2" fill="#404040"/>
-  <rect x="140" y="100" width="${((270 * progressPct) / 100).toFixed(1)}" height="4" rx="2" fill="#1DB954"/>
-  <text x="140" y="122" class="time">${progressTime} / ${durationTime}</text>
+  <text x="140" y="46" class="status">${statusLabel}</text>
+  <text x="140" y="67" class="title">${trackName}</text>
+  <text x="140" y="86" class="artist">${artistName}</text>
+  <text x="140" y="106" class="album">${albumName}</text>
 </svg>`
     }
 
-    const generateHtmlWidget = (token: string, baseUrl: string): string => {
+    const generateHtmlWidget = (token: string, baseUrl: string, theme: WidgetTheme = DEFAULT_THEME): string => {
         const dataUrl = `${baseUrl}/api/spotify/playing/${token}/data`
+        const t = theme
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -144,116 +156,91 @@ export const createSpotifyWidgetService = (deps: SpotifyWidgetServiceDeps) => {
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=480"/>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { width: 480px; height: 140px; overflow: hidden; font-family: 'Segoe UI', Ubuntu, sans-serif; background: transparent; }
-.card { width: 480px; height: 140px; background: #191414; border-radius: 12px; position: relative; display: flex; align-items: center; padding: 20px; gap: 20px; }
-.art { width: 100px; height: 100px; border-radius: 8px; background: #282828; flex-shrink: 0; object-fit: cover; }
-.info { flex: 1; min-width: 0; }
-.status { font-size: 11px; color: #1DB954; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
-.name { font-size: 14px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
-.artist { font-size: 12px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 12px; }
-.progress-bar { width: 100%; height: 4px; background: #404040; border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
-.progress-fill { height: 100%; background: #1DB954; border-radius: 2px; transition: width 0.1s linear; }
-.time { font-size: 11px; color: #b3b3b3; }
-.eq { position: absolute; top: 30px; right: 30px; display: flex; gap: 4px; align-items: flex-end; height: 20px; }
-.eq-bar { width: 6px; border-radius: 2px; background: #1DB954; transition: height 0.2s; }
-.eq-bar.paused { background: #535353; }
-.placeholder { display: flex; align-items: center; justify-content: center; width: 100px; height: 100px; border-radius: 8px; background: #282828; flex-shrink: 0; }
-.placeholder svg { width: 30px; height: 30px; fill: #535353; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:480px;height:140px;overflow:hidden;font-family:'Segoe UI',Ubuntu,sans-serif;background:transparent}
+.card{width:480px;height:140px;background:#${t.bg};border-radius:${t.radius}px;position:relative;display:flex;align-items:center;padding:20px;gap:20px}
+.art{width:100px;height:100px;border-radius:8px;background:#282828;flex-shrink:0;object-fit:cover}
+.info{flex:1;min-width:0}
+.status{font-size:11px;color:#${t.accent};text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.name{font-size:14px;font-weight:bold;color:#${t.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px}
+.artist{font-size:12px;color:#${t.secondary};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:12px}
+.bar{width:100%;height:4px;background:#404040;border-radius:2px;overflow:hidden;margin-bottom:6px}
+.fill{height:100%;background:#${t.accent};border-radius:2px;will-change:width}
+.time{font-size:11px;color:#${t.secondary}}
+.eq{position:absolute;top:30px;right:30px;display:flex;gap:4px;align-items:flex-end;height:20px}
+.eq b{display:block;width:6px;border-radius:2px;will-change:height}
+.eq b.on{background:#${t.accent}}
+.eq b.off{background:#535353}
+.ph{display:flex;align-items:center;justify-content:center;width:100px;height:100px;border-radius:8px;background:#282828;flex-shrink:0}
+.ph svg{width:30px;height:30px;fill:#535353}
+@keyframes e1{0%,100%{height:8px}50%{height:20px}}
+@keyframes e2{0%,100%{height:14px}50%{height:8px}}
+@keyframes e3{0%,100%{height:10px}50%{height:18px}}
+.eq b.a1{animation:e1 .8s ease-in-out infinite}
+.eq b.a2{animation:e2 .6s ease-in-out infinite}
+.eq b.a3{animation:e3 .7s ease-in-out infinite}
 </style>
 </head>
 <body>
-<div class="card" id="card">
-  <div class="placeholder" id="art-container">
-    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-  </div>
+<div class="card">
+  <div class="ph" id="ac"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
   <div class="info">
-    <div class="status" id="status">Not Playing</div>
-    <div class="name" id="name">-</div>
-    <div class="artist" id="artist">Spotify</div>
-    <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
-    <div class="time" id="time">0:00 / 0:00</div>
+    <div class="status" id="st">Not Playing</div>
+    <div class="name" id="nm">-</div>
+    <div class="artist" id="ar">Spotify</div>
+    <div class="bar"><div class="fill" id="pg"></div></div>
+    <div class="time" id="tm">0:00 / 0:00</div>
   </div>
-  <div class="eq" id="eq"></div>
+  <div class="eq" id="eq"><b class="off" id="b0"></b><b class="off" id="b1"></b><b class="off" id="b2"></b></div>
 </div>
 <script>
 (function(){
-  var state = { progressMs: 0, durationMs: 0, isPlaying: false, lastFetch: 0 };
-  var eqBars = [0,0,0];
-  var eqEl = document.getElementById('eq');
+  var S={p:0,d:0,on:false,t:0},
+      $=function(i){return document.getElementById(i)},
+      pg=$('pg'),tm=$('tm'),st=$('st'),nm=$('nm'),ar=$('ar'),ac=$('ac'),
+      b0=$('b0'),b1=$('b1'),b2=$('b2');
 
-  function fmt(ms) {
-    var s = Math.floor(ms/1000), m = Math.floor(s/60);
-    return m + ':' + String(s%60).padStart(2,'0');
+  function f(ms){var s=Math.floor(ms/1000),m=Math.floor(s/60);return m+':'+String(s%60).padStart(2,'0')}
+
+  function eq(on){
+    var c=on?'on':'off',a1=on?' a1':'',a2=on?' a2':'',a3=on?' a3':'';
+    b0.className=c+a1;b1.className=c+a2;b2.className=c+a3;
+    if(!on){b0.style.height='6px';b1.style.height='10px';b2.style.height='8px'}
+    else{b0.style.height='';b1.style.height='';b2.style.height=''}
   }
 
-  function renderEq() {
-    eqEl.innerHTML = '';
-    for(var i=0;i<3;i++){
-      var bar = document.createElement('div');
-      bar.className = 'eq-bar' + (state.isPlaying ? '' : ' paused');
-      bar.style.height = (state.isPlaying ? eqBars[i] : [6,10,8][i]) + 'px';
-      eqEl.appendChild(bar);
+  function tick(){
+    if(S.on&&S.d>0){
+      var c=Math.min(S.p+Date.now()-S.t,S.d);
+      pg.style.width=(c/S.d*100)+'%';
+      tm.textContent=f(c)+' / '+f(S.d);
     }
   }
 
-  function animateEq() {
-    if(state.isPlaying) {
-      eqBars[0] = 6 + Math.random()*14;
-      eqBars[1] = 6 + Math.random()*14;
-      eqBars[2] = 6 + Math.random()*14;
-    }
-    renderEq();
-  }
-
-  function update() {
-    if(state.isPlaying && state.durationMs > 0) {
-      var elapsed = Date.now() - state.lastFetch;
-      var current = Math.min(state.progressMs + elapsed, state.durationMs);
-      var pct = (current / state.durationMs) * 100;
-      document.getElementById('progress').style.width = pct + '%';
-      document.getElementById('time').textContent = fmt(current) + ' / ' + fmt(state.durationMs);
-    }
-  }
-
-  function applyData(d) {
-    state.lastFetch = Date.now();
-    state.isPlaying = d.isPlaying;
-    if(d.track) {
-      state.progressMs = d.track.progressMs || 0;
-      state.durationMs = d.track.durationMs || 0;
-      document.getElementById('status').textContent = d.isPlaying ? 'Now Playing' : 'Last Played';
-      document.getElementById('name').textContent = d.track.name;
-      document.getElementById('artist').textContent = d.track.artist;
-      var container = document.getElementById('art-container');
-      if(d.track.albumArt) {
-        container.innerHTML = '<img class="art" src="' + d.track.albumArt + '" alt=""/>';
+  function apply(d){
+    S.t=Date.now();S.on=d.isPlaying;
+    if(d.track){
+      S.p=d.track.progressMs||0;S.d=d.track.durationMs||0;
+      st.textContent=d.isPlaying?'Now Playing':'Last Played';
+      nm.textContent=d.track.name;ar.textContent=d.track.artist;
+      if(d.track.albumArt&&!ac.querySelector('img')){
+        var img=document.createElement('img');img.className='art';img.src=d.track.albumArt;
+        ac.textContent='';ac.appendChild(img);
       }
-      var pct = state.durationMs > 0 ? (state.progressMs / state.durationMs)*100 : 0;
-      document.getElementById('progress').style.width = pct + '%';
-      document.getElementById('time').textContent = fmt(state.progressMs) + ' / ' + fmt(state.durationMs);
-    } else {
-      state.progressMs = 0;
-      state.durationMs = 0;
-      document.getElementById('status').textContent = 'Not Playing';
-      document.getElementById('name').textContent = '-';
-      document.getElementById('artist').textContent = 'Spotify';
-      document.getElementById('progress').style.width = '0%';
-      document.getElementById('time').textContent = '0:00 / 0:00';
+      pg.style.width=(S.d>0?S.p/S.d*100:0)+'%';
+      tm.textContent=f(S.p)+' / '+f(S.d);
+    }else{
+      S.p=0;S.d=0;st.textContent='Not Playing';nm.textContent='-';ar.textContent='Spotify';
+      pg.style.width='0%';tm.textContent='0:00 / 0:00';
     }
-    renderEq();
+    eq(d.isPlaying);
   }
 
-  function poll() {
-    fetch('${dataUrl}').then(function(r){return r.json()}).then(function(j){
-      if(j.success) applyData(j.data);
-    }).catch(function(){});
-  }
+  function poll(){fetch('${dataUrl}').then(function(r){return r.json()}).then(function(j){if(j.success)apply(j.data)}).catch(function(){})}
 
   poll();
-  setInterval(poll, 5000);
-  setInterval(update, 100);
-  setInterval(animateEq, 300);
+  setInterval(poll,5000);
+  setInterval(tick,200);
 })();
 </script>
 </body>

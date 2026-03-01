@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from 'bun:test'
-import { createSpotifyWidgetService } from '../../../../service/domain/spotify/spotify-widget'
+import { createSpotifyWidgetService, DEFAULT_THEME } from '../../../../service/domain/spotify/spotify-widget'
 import { createCache } from '../../../../service/shared/cache'
 
 const mockTrack = {
@@ -93,10 +93,32 @@ describe('createSpotifyWidgetService', () => {
         expect(deps.spotifyDataService.getNowPlaying).toHaveBeenCalledWith(1)
     })
 
-    test('generateSvg가 progress bar를 올바른 비율로 렌더링한다', async () => {
+    test('generateSvg가 앨범명을 표시한다', async () => {
         const deps = createMockDeps()
         const service = createSpotifyWidgetService(deps)
         const svg = await service.generateSvg(1)
-        expect(svg).toContain('0:50 / 3:20')
+        expect(svg).toContain('Test Album')
+        expect(svg).not.toContain('progress')
+    })
+
+    test('generateSvg가 커스텀 테마를 적용한다', async () => {
+        const deps = createMockDeps()
+        const service = createSpotifyWidgetService(deps)
+        const theme = { ...DEFAULT_THEME, bg: '000000', color: 'ff0000', accent: '00ff00', radius: 0 }
+        const svg = await service.generateSvg(1, theme)
+        expect(svg).toContain('fill="#000000"')
+        expect(svg).toContain('fill: #ff0000')
+        expect(svg).toContain('fill="#00ff00"')
+        expect(svg).toContain('rx="0"')
+    })
+
+    test('generateHtmlWidget가 커스텀 테마를 적용한다', () => {
+        const deps = createMockDeps()
+        const service = createSpotifyWidgetService(deps)
+        const theme = { ...DEFAULT_THEME, bg: '222222', accent: 'ff5500', radius: 20 }
+        const html = service.generateHtmlWidget('abc123', 'https://hub.gumyo.net', theme)
+        expect(html).toContain('#222222')
+        expect(html).toContain('#ff5500')
+        expect(html).toContain('20px')
     })
 })
