@@ -22,3 +22,17 @@ export const isPublicUrl = (urlString: string) => {
 
     return true
 }
+
+const ALLOWED_DOMAINS = ['gumyo.net', 'hyns.dev']
+
+export const isAllowedRedirect = (url: string): boolean => {
+    if (url.startsWith('/') && !url.startsWith('//')) return true
+
+    try {
+        const { hostname, protocol } = new URL(url)
+        if (protocol !== 'https:' && protocol !== 'http:') return false
+        return ALLOWED_DOMAINS.some((d) => hostname === d || hostname.endsWith(`.${d}`))
+    } catch {
+        return false
+    }
+}

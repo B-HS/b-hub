@@ -57,7 +57,9 @@ export const createSpotifyProvider = (deps: SpotifyProviderDeps) => {
         }
 
         if (res.status === 429 && retries > 0) {
-            const retryAfter = parseInt(res.headers.get('Retry-After') ?? '1', 10)
+            const raw = res.headers.get('Retry-After') ?? '1'
+            const parsed = parseInt(raw, 10)
+            const retryAfter = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 60) : 1
             await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000))
             return spotifyFetch(path, options, retries - 1)
         }

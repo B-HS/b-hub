@@ -1,4 +1,5 @@
 import { createAppError } from '../../../lib/error'
+import { hashToken } from '../../../lib/token-utils'
 
 type SpotifyWidgetTokenDb = {
     insert: (data: { userId: string; spotifyAccountId: number; token: string; name: string | null }) => Promise<{ id: number }>
@@ -8,7 +9,6 @@ type SpotifyWidgetTokenDb = {
         {
             id: number
             spotifyAccountId: number
-            token: string
             name: string | null
             isActive: boolean
             createdAt: Date
@@ -22,7 +22,7 @@ type SpotifyWidgetTokenServiceDeps = {
 }
 
 const generateWidgetToken = () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(8))
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
     return Array.from(bytes)
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('')
@@ -31,12 +31,14 @@ const generateWidgetToken = () => {
 export const createSpotifyWidgetTokenService = (deps: SpotifyWidgetTokenServiceDeps) => {
     const create = async (userId: string, spotifyAccountId: number, name?: string) => {
         const token = generateWidgetToken()
-        const result = await deps.db.insert({ userId, spotifyAccountId, token, name: name ?? null })
-        return { id: result.id, token }
+        const hashed = hashToken(token)
+        await deps.db.insert({ userId, spotifyAccountId, token: hashed, name: name ?? null })
+        return { token }
     }
 
     const validate = async (token: string) => {
-        const record = await deps.db.findByToken(token)
+        const hashed = hashToken(token)
+        const record = await deps.db.findByToken(hashed)
         if (!record) throw createAppError('SPOTIFY_WIDGET_TOKEN_NOT_FOUND')
         if (!record.isActive) throw createAppError('SPOTIFY_WIDGET_TOKEN_INACTIVE')
         return { userId: record.userId, spotifyAccountId: record.spotifyAccountId }

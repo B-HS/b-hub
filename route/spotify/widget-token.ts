@@ -3,6 +3,7 @@ import { validator } from 'hono-openapi/zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { withAuth } from '../../lib/with-auth'
 import { successResponse } from '../../lib/api-response'
+import { createAppError } from '../../lib/error'
 import { spotifyWidgetTokenCreateSchema, spotifyWidgetTokenToggleSchema } from '../../dto/spotify/widget-token'
 import type { SpotifyWidgetTokenService } from '../../service/domain/spotify/spotify-widget-token'
 import type { SpotifyAccountService } from '../../service/domain/spotify/spotify-account'
@@ -26,7 +27,6 @@ export const createSpotifyWidgetTokenRoute = (deps: SpotifyWidgetTokenRouteDeps)
                 const data = tokens.map((t) => ({
                     id: t.id,
                     spotifyAccountId: t.spotifyAccountId,
-                    token: t.token,
                     name: t.name,
                     isActive: t.isActive,
                     createdAt: t.createdAt.toISOString(),
@@ -54,6 +54,7 @@ export const createSpotifyWidgetTokenRoute = (deps: SpotifyWidgetTokenRouteDeps)
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
                 const tokenId = parseInt(c.req.param('id'), 10)
+                if (isNaN(tokenId)) throw createAppError('VALIDATION_ERROR')
                 await deps.spotifyWidgetTokenService.revoke(user.id, tokenId)
                 return c.json(successResponse({ deleted: true }))
             }),
@@ -66,6 +67,7 @@ export const createSpotifyWidgetTokenRoute = (deps: SpotifyWidgetTokenRouteDeps)
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
                 const tokenId = parseInt(c.req.param('id'), 10)
+                if (isNaN(tokenId)) throw createAppError('VALIDATION_ERROR')
                 const body = c.req.valid('json' as never) as z.infer<typeof spotifyWidgetTokenToggleSchema>
                 await deps.spotifyWidgetTokenService.toggleActive(user.id, tokenId, body.isActive)
                 return c.json(successResponse({ id: tokenId, isActive: body.isActive }))

@@ -8,10 +8,10 @@ const createDeps = (withSession = true) => ({
     spotifyWidgetTokenService: {
         listByUser: mock(() =>
             Promise.resolve([
-                { id: 1, spotifyAccountId: 1, token: 'abc123def4567890', name: 'Widget', isActive: true, createdAt: new Date() },
+                { id: 1, spotifyAccountId: 1, name: 'Widget', isActive: true, createdAt: new Date() },
             ]),
         ),
-        create: mock(() => Promise.resolve({ id: 1, token: 'abc123def4567890' })),
+        create: mock(() => Promise.resolve({ token: 'abc123def45678901234567890abcdef' })),
         revoke: mock(() => Promise.resolve()),
         toggleActive: mock(() => Promise.resolve()),
         validate: mock(() => Promise.resolve({ userId: 'user-1', spotifyAccountId: 1 })),

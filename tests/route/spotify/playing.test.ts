@@ -19,7 +19,7 @@ const createDeps = (isValid = true) => ({
                 ? Promise.resolve({ userId: 'user-1', spotifyAccountId: 1 })
                 : Promise.reject({ code: 'SPOTIFY_WIDGET_TOKEN_NOT_FOUND', message: 'Not found', statusCode: 404 }),
         ),
-        create: mock(() => Promise.resolve({ id: 1, token: 'abc123def4567890' })),
+        create: mock(() => Promise.resolve({ token: 'abc123def45678901234567890abcdef' })),
         revoke: mock(() => Promise.resolve()),
         listByUser: mock(() => Promise.resolve([])),
         toggleActive: mock(() => Promise.resolve()),

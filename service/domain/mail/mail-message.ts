@@ -153,12 +153,11 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         }
 
         const targetFolder = await deps.db.getFolderById(targetFolderId)
+        if (!targetFolder) throw createAppError('MAIL_FOLDER_NOT_FOUND')
 
-        if (targetFolder) {
-            const accountIds = [...grouped.keys()]
-            if (!accountIds.includes(targetFolder.accountId)) {
-                throw createAppError('MAIL_FOLDER_NOT_FOUND')
-            }
+        const accountIds = [...grouped.keys()]
+        if (!accountIds.includes(targetFolder.accountId)) {
+            throw createAppError('MAIL_FOLDER_NOT_FOUND')
         }
 
         for (const [accountId, { remoteIds, sourceFolderIds }] of grouped) {

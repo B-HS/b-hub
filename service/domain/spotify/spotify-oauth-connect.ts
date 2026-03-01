@@ -1,5 +1,6 @@
 import { createAppError } from '../../../lib/error'
 import { createOAuthState, verifyOAuthState, parseStatePayload } from '../../../lib/hmac-state'
+import { isAllowedRedirect } from '../../../lib/url-validator'
 
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize'
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token'
@@ -40,7 +41,8 @@ type SpotifyOAuthConnectDeps = {
 
 export const createSpotifyOAuthConnectService = (deps: SpotifyOAuthConnectDeps) => {
     const generateAuthUrl = async (userId: string, baseUrl: string, redirect?: string) => {
-        const state = await createOAuthState({ userId, redirect: redirect || null }, deps.secret, STATE_TTL_MS)
+        const safeRedirect = redirect && isAllowedRedirect(redirect) ? redirect : null
+        const state = await createOAuthState({ userId, redirect: safeRedirect }, deps.secret, STATE_TTL_MS)
 
         const callbackUrl = `${baseUrl}/api/spotify/accounts/connect/callback`
         const params = new URLSearchParams({

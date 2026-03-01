@@ -225,6 +225,32 @@ describe('isBlockedHost', () => {
         expect(isBlockedHost('fd00::1')).toBe(true)
     })
 
+    test('IPv4-mapped IPv6를 차단한다', () => {
+        expect(isBlockedHost('::ffff:127.0.0.1')).toBe(true)
+        expect(isBlockedHost('::ffff:10.0.0.1')).toBe(true)
+        expect(isBlockedHost('::ffff:169.254.169.254')).toBe(true)
+        expect(isBlockedHost('[::ffff:192.168.1.1]')).toBe(true)
+    })
+
+    test('IPv4-mapped IPv6의 공개 IP를 허용한다', () => {
+        expect(isBlockedHost('::ffff:8.8.8.8')).toBe(false)
+    })
+
+    test('IPv4-compatible IPv6를 차단한다', () => {
+        expect(isBlockedHost('::127.0.0.1')).toBe(true)
+        expect(isBlockedHost('::10.0.0.1')).toBe(true)
+    })
+
+    test('8진수 표기 IP를 차단한다', () => {
+        expect(isBlockedHost('0177.0.0.01')).toBe(true)
+        expect(isBlockedHost('012.0.0.1')).toBe(true)
+    })
+
+    test('16진수 표기 IP를 차단한다', () => {
+        expect(isBlockedHost('0x7f.0x0.0x0.0x1')).toBe(true)
+        expect(isBlockedHost('0x0a.0x0.0x0.0x1')).toBe(true)
+    })
+
     test('공개 호스트를 허용한다', () => {
         expect(isBlockedHost('imap.gmail.com')).toBe(false)
         expect(isBlockedHost('smtp.naver.com')).toBe(false)

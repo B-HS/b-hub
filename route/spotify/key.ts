@@ -6,6 +6,7 @@ import { withErrorHandling } from '../../lib/with-error-handling'
 import { withAuth } from '../../lib/with-auth'
 import { successResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
+import { createAppError } from '../../lib/error'
 import { spotifyApiKeyCreateSchema, spotifyApiKeyResponseSchema } from '../../dto/spotify/api-key'
 import type { SpotifyApiKeyService } from '../../service/domain/spotify/spotify-api-key'
 import type { SpotifyAccountService } from '../../service/domain/spotify/spotify-account'
@@ -94,6 +95,7 @@ export const createSpotifyKeyRoute = (deps: SpotifyKeyRouteDeps) => {
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
                 const keyId = parseInt(c.req.param('id'), 10)
+                if (isNaN(keyId)) throw createAppError('VALIDATION_ERROR')
                 await deps.spotifyApiKeyService.revoke(user.id, keyId)
                 return c.json(successResponse({ deleted: true }))
             }),

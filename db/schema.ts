@@ -720,7 +720,7 @@ export const spotifyWidgetTokens = mysqlTable(
         spotifyAccountId: int('spotify_account_id')
             .notNull()
             .references(() => spotifyAccounts.id, { onDelete: 'cascade' }),
-        token: varchar('token', { length: 16 }).notNull().unique(),
+        token: varchar('token', { length: 64 }).notNull().unique(),
         name: varchar('name', { length: 100 }),
         isActive: boolean('is_active').default(true).notNull(),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),

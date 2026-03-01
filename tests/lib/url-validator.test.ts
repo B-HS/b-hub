@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isPublicUrl } from '../../lib/url-validator'
+import { isPublicUrl, isAllowedRedirect } from '../../lib/url-validator'
 
 describe('isPublicUrl', () => {
     test('HTTPS public URL을 허용한다', () => {
@@ -61,5 +61,39 @@ describe('isPublicUrl', () => {
         expect(isPublicUrl('not-a-url')).toBe(false)
         expect(isPublicUrl('')).toBe(false)
         expect(isPublicUrl('ftp://example.com')).toBe(false)
+    })
+})
+
+describe('isAllowedRedirect', () => {
+    test('상대 경로를 허용한다', () => {
+        expect(isAllowedRedirect('/')).toBe(true)
+        expect(isAllowedRedirect('/dashboard')).toBe(true)
+        expect(isAllowedRedirect('/settings/spotify')).toBe(true)
+    })
+
+    test('허용된 도메인을 허용한다', () => {
+        expect(isAllowedRedirect('https://gumyo.net/dashboard')).toBe(true)
+        expect(isAllowedRedirect('https://hyns.dev/settings')).toBe(true)
+        expect(isAllowedRedirect('https://hub.gumyo.net/callback')).toBe(true)
+        expect(isAllowedRedirect('https://sub.hyns.dev')).toBe(true)
+    })
+
+    test('허용되지 않은 도메인을 거부한다', () => {
+        expect(isAllowedRedirect('https://evil.com')).toBe(false)
+        expect(isAllowedRedirect('https://evil.com/gumyo.net')).toBe(false)
+        expect(isAllowedRedirect('https://gumyo.net.evil.com')).toBe(false)
+    })
+
+    test('protocol-relative URL을 거부한다', () => {
+        expect(isAllowedRedirect('//evil.com')).toBe(false)
+    })
+
+    test('javascript: 프로토콜을 거부한다', () => {
+        expect(isAllowedRedirect('javascript:alert(1)')).toBe(false)
+    })
+
+    test('잘못된 URL을 거부한다', () => {
+        expect(isAllowedRedirect('')).toBe(false)
+        expect(isAllowedRedirect('not-a-url')).toBe(false)
     })
 })

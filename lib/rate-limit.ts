@@ -1,3 +1,5 @@
+// NOTE: 메모리 기반 스토어 — Vercel serverless 환경에서 각 인스턴스가 독립적인 스토어를 유지하므로
+// 분산 환경에서는 rate limit이 정확하지 않을 수 있음. 추후 Redis 기반으로 전환 고려.
 type RateLimitConfig = {
     windowMs: number
     maxRequests: number

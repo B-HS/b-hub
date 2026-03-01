@@ -231,7 +231,8 @@ body{width:480px;height:140px;overflow:hidden;font-family:'Segoe UI',Ubuntu,sans
     }
   }
 
-  function poll(){fetch('${dataUrl}').then(function(r){return r.json()}).then(function(j){if(j.success)apply(j.data)}).catch(function(){})}
+  var url=${JSON.stringify(dataUrl)};
+  function poll(){fetch(url).then(function(r){return r.json()}).then(function(j){if(j.success)apply(j.data)}).catch(function(){})}
 
   poll();
   setInterval(poll,5000);

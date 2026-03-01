@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'crypto'
+
 export const base64url = (buf: ArrayBuffer) => Buffer.from(buf).toString('base64url')
 
 export const base64urlEncode = (str: string) => Buffer.from(str).toString('base64url')
@@ -12,7 +14,10 @@ export const hmacSign = async (payload: string, secret: string): Promise<string>
 
 export const hmacVerify = async (payload: string, signature: string, secret: string): Promise<boolean> => {
     const expected = await hmacSign(payload, secret)
-    return expected === signature
+    const a = Buffer.from(expected)
+    const b = Buffer.from(signature)
+    if (a.length !== b.length) return false
+    return timingSafeEqual(a, b)
 }
 
 export const createOAuthState = async (data: Record<string, unknown>, secret: string, ttlMs: number): Promise<string> => {

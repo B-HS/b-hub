@@ -1,10 +1,11 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createSpotifyWidgetTokenService } from '../../../../service/domain/spotify/spotify-widget-token'
+import { hashToken } from '../../../../lib/token-utils'
 
 const createMockDb = () => ({
     insert: mock(() => Promise.resolve({ id: 1 })),
     findByToken: mock((token: string) =>
-        token === 'valid-token-hex00'
+        token === hashToken('valid-token-hex00')
             ? Promise.resolve({ id: 1, userId: 'user-1', spotifyAccountId: 1, isActive: true })
             : Promise.resolve(null),
     ),
@@ -14,7 +15,6 @@ const createMockDb = () => ({
             {
                 id: 1,
                 spotifyAccountId: 1,
-                token: 'abc123def4567890',
                 name: 'My Widget',
                 isActive: true,
                 createdAt: new Date(),
@@ -25,20 +25,20 @@ const createMockDb = () => ({
 })
 
 describe('createSpotifyWidgetTokenService', () => {
-    test('create가 16자 토큰을 생성한다', async () => {
+    test('create가 32자 토큰을 생성한다', async () => {
         const db = createMockDb()
         const service = createSpotifyWidgetTokenService({ db })
         const result = await service.create('user-1', 1, 'Widget')
-        expect(result.id).toBe(1)
-        expect(result.token).toHaveLength(16)
+        expect(result.token).toHaveLength(32)
     })
 
-    test('create가 평문 토큰을 DB에 저장한다', async () => {
+    test('create가 해싱된 토큰을 DB에 저장한다', async () => {
         const db = createMockDb()
         const service = createSpotifyWidgetTokenService({ db })
         const result = await service.create('user-1', 1)
         const insertCall = db.insert.mock.calls[0][0] as { token: string }
-        expect(insertCall.token).toBe(result.token)
+        expect(insertCall.token).toBe(hashToken(result.token))
+        expect(insertCall.token).toHaveLength(64)
     })
 
     test('validate가 유효한 토큰에 대해 계정 정보를 반환한다', async () => {
@@ -46,6 +46,7 @@ describe('createSpotifyWidgetTokenService', () => {
         const service = createSpotifyWidgetTokenService({ db })
         const result = await service.validate('valid-token-hex00')
         expect(result).toEqual({ userId: 'user-1', spotifyAccountId: 1 })
+        expect(db.findByToken).toHaveBeenCalledWith(hashToken('valid-token-hex00'))
     })
 
     test('validate가 존재하지 않는 토큰에 대해 에러를 던진다', async () => {
@@ -73,6 +74,7 @@ describe('createSpotifyWidgetTokenService', () => {
         const service = createSpotifyWidgetTokenService({ db })
         const result = await service.listByUser('user-1')
         expect(result).toHaveLength(1)
+        expect(result[0]).not.toHaveProperty('token')
         expect(db.listByUser).toHaveBeenCalledWith('user-1')
     })
 

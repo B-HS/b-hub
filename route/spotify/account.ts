@@ -11,6 +11,7 @@ import { spotifyAccountUpdateSchema, spotifyAccountParamSchema, spotifyAccountRe
 import type { SpotifyAccountService } from '../../service/domain/spotify/spotify-account'
 import type { SpotifyOAuthConnectService } from '../../service/domain/spotify/spotify-oauth-connect'
 import type { AuthContext } from '../../lib/hono-types'
+import { isAllowedRedirect } from '../../lib/url-validator'
 
 type SpotifyAccountRouteDeps = {
     spotifyAccountService: SpotifyAccountService
@@ -81,18 +82,19 @@ export const createSpotifyAccountRoute = (deps: SpotifyAccountRouteDeps) => {
 
                 if (errorParam || !code || !state) {
                     const redirect = state ? deps.spotifyOAuthConnect.parseRedirectFromState(state) : null
-                    const target = redirect || deps.baseUrl
+                    const target = redirect && isAllowedRedirect(redirect) ? redirect : deps.baseUrl
                     return c.redirect(`${target}?error=oauth_denied`, 302)
                 }
 
                 try {
                     const result = await deps.spotifyOAuthConnect.handleCallback(code, state, user.id, deps.baseUrl)
-                    const target = result.redirect || deps.baseUrl
+                    const target = result.redirect && isAllowedRedirect(result.redirect) ? result.redirect : deps.baseUrl
                     return c.redirect(`${target}?success=true&spotifyUserId=${encodeURIComponent(result.spotifyUserId)}`, 302)
                 } catch (err) {
-                    const redirect = deps.spotifyOAuthConnect.parseRedirectFromState(state) || deps.baseUrl
+                    const redirect = deps.spotifyOAuthConnect.parseRedirectFromState(state)
+                    const target = redirect && isAllowedRedirect(redirect) ? redirect : deps.baseUrl
                     const errorCode = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : 'unknown'
-                    return c.redirect(`${redirect}?error=${errorCode}`, 302)
+                    return c.redirect(`${target}?error=${errorCode}`, 302)
                 }
             }),
         ),

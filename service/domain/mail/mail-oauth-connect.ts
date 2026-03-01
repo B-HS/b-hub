@@ -1,5 +1,6 @@
 import { createAppError } from '../../../lib/error'
 import { createOAuthState, verifyOAuthState, parseStatePayload } from '../../../lib/hmac-state'
+import { isAllowedRedirect } from '../../../lib/url-validator'
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -40,7 +41,8 @@ type MailOAuthConnectDeps = {
 
 export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
     const generateAuthUrl = async (userId: string, baseUrl: string, redirect?: string) => {
-        const state = await createOAuthState({ userId, redirect: redirect || null }, deps.secret, STATE_TTL_MS)
+        const safeRedirect = redirect && isAllowedRedirect(redirect) ? redirect : null
+        const state = await createOAuthState({ userId, redirect: safeRedirect }, deps.secret, STATE_TTL_MS)
 
         const callbackUrl = `${baseUrl}/api/mail/accounts/connect/google/callback`
         const params = new URLSearchParams({

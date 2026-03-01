@@ -1698,7 +1698,6 @@ export const compose = () => {
                 .select({
                     id: schema.spotifyWidgetTokens.id,
                     spotifyAccountId: schema.spotifyWidgetTokens.spotifyAccountId,
-                    token: schema.spotifyWidgetTokens.token,
                     name: schema.spotifyWidgetTokens.name,
                     isActive: schema.spotifyWidgetTokens.isActive,
                     createdAt: schema.spotifyWidgetTokens.createdAt,
