@@ -1,4 +1,5 @@
 import { createAppError } from '../../../lib/error'
+import { createOAuthState, verifyOAuthState, parseStatePayload } from '../../../lib/hmac-state'
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -37,41 +38,9 @@ type MailOAuthConnectDeps = {
     }) => Promise<{ id: number }>
 }
 
-const base64url = (buf: ArrayBuffer) =>
-    Buffer.from(buf).toString('base64url')
-
-const base64urlEncode = (str: string) =>
-    Buffer.from(str).toString('base64url')
-
-const base64urlDecode = (str: string) =>
-    Buffer.from(str, 'base64url').toString()
-
-const  hmacSign = async (payload: string, secret: string): Promise<string>  =>{
-    const key = await crypto.subtle.importKey(
-        'raw',
-        new TextEncoder().encode(secret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign'],
-    )
-    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload))
-    return base64url(sig)
-}
-
-const hmacVerify = async (payload: string, signature: string, secret: string): Promise<boolean>  => {
-    const expected = await hmacSign(payload, secret)
-    return expected === signature
-}
-
 export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
     const generateAuthUrl = async (userId: string, baseUrl: string, redirect?: string) => {
-        const payload = base64urlEncode(JSON.stringify({
-            userId,
-            exp: Date.now() + STATE_TTL_MS,
-            redirect: redirect || null,
-        }))
-        const sig = await hmacSign(payload, deps.secret)
-        const state = `${payload}.${sig}`
+        const state = await createOAuthState({ userId, redirect: redirect || null }, deps.secret, STATE_TTL_MS)
 
         const callbackUrl = `${baseUrl}/api/mail/accounts/connect/google/callback`
         const params = new URLSearchParams({
@@ -88,14 +57,8 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
     }
 
     const parseRedirectFromState = (state: string): string | null => {
-        try {
-            const [payload] = state.split('.')
-            if (!payload) return null
-            const data = JSON.parse(base64urlDecode(payload))
-            return data.redirect || null
-        } catch {
-            return null
-        }
+        const data = parseStatePayload<{ redirect?: string }>(state)
+        return data?.redirect || null
     }
 
     const handleCallback = async (
@@ -104,24 +67,14 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
         sessionUserId: string,
         baseUrl: string,
     ): Promise<{ mailAccountId: number; email: string; redirect: string | null }> => {
-        const dotIdx = state.indexOf('.')
-        if (dotIdx < 0) throw createAppError('MAIL_OAUTH_STATE_INVALID')
-
-        const payload = state.slice(0, dotIdx)
-        const sig = state.slice(dotIdx + 1)
-
-        const valid = await hmacVerify(payload, sig, deps.secret)
-        if (!valid) throw createAppError('MAIL_OAUTH_STATE_INVALID')
-
         let stateData: { userId: string; exp: number; redirect: string | null }
         try {
-            stateData = JSON.parse(base64urlDecode(payload))
+            stateData = await verifyOAuthState<{ userId: string; redirect: string | null }>(state, deps.secret)
         } catch {
             throw createAppError('MAIL_OAUTH_STATE_INVALID')
         }
 
         if (stateData.userId !== sessionUserId) throw createAppError('MAIL_OAUTH_STATE_INVALID')
-        if (Date.now() > stateData.exp) throw createAppError('MAIL_OAUTH_STATE_INVALID')
 
         const callbackUrl = `${baseUrl}/api/mail/accounts/connect/google/callback`
         const tokenRes = await fetch(GOOGLE_TOKEN_URL, {

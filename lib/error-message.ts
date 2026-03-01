@@ -60,4 +60,11 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     MAIL_OAUTH_STATE_INVALID: 'OAuth state가 유효하지 않습니다',
     MAIL_OAUTH_EXCHANGE_FAILED: 'OAuth 토큰 교환에 실패했습니다',
     MAIL_ACCOUNT_ALREADY_EXISTS: '이미 연결된 메일 계정입니다',
+
+    SPOTIFY_ACCOUNT_NOT_FOUND: 'Spotify 계정을 찾을 수 없습니다',
+    SPOTIFY_ACCOUNT_ALREADY_EXISTS: '이미 연결된 Spotify 계정입니다',
+    SPOTIFY_OAUTH_STATE_INVALID: 'Spotify OAuth state가 유효하지 않습니다',
+    SPOTIFY_OAUTH_EXCHANGE_FAILED: 'Spotify OAuth 토큰 교환에 실패했습니다',
+    SPOTIFY_API_ERROR: 'Spotify API 호출에 실패했습니다',
+    SPOTIFY_KEY_INVALID: 'Spotify API 키가 유효하지 않습니다',
 }

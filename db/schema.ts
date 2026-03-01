@@ -667,6 +667,53 @@ export const mailUploads = mysqlTable(
     (table) => [index('idx_mail_uploads_user').on(table.userId)],
 )
 
+export const spotifyAccounts = mysqlTable(
+    'spotify_accounts',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        spotifyUserId: varchar('spotify_user_id', { length: 255 }).notNull(),
+        displayName: varchar('display_name', { length: 100 }),
+        email: varchar('email', { length: 255 }),
+        betterAuthAccountId: varchar('better_auth_account_id', { length: 36 }),
+        isActive: boolean('is_active').default(true).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index('idx_spotify_accounts_user').on(table.userId),
+        unique('uq_spotify_accounts_user_spotify').on(table.userId, table.spotifyUserId),
+    ],
+)
+
+export const spotifyApiKeys = mysqlTable(
+    'spotify_api_keys',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        spotifyAccountId: int('spotify_account_id')
+            .notNull()
+            .references(() => spotifyAccounts.id, { onDelete: 'cascade' }),
+        token: varchar('token', { length: 64 }).notNull().unique(),
+        name: varchar('name', { length: 100 }),
+        expiresAt: timestamp('expires_at', { fsp: 3 }),
+        lastUsedAt: timestamp('last_used_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_spotify_api_keys_user').on(table.userId), index('idx_spotify_api_keys_account').on(table.spotifyAccountId)],
+)
+
+export type SpotifyAccount = typeof spotifyAccounts.$inferSelect
+export type NewSpotifyAccount = typeof spotifyAccounts.$inferInsert
+export type SpotifyApiKey = typeof spotifyApiKeys.$inferSelect
+
 export type MailAccount = typeof mailAccounts.$inferSelect
 export type NewMailAccount = typeof mailAccounts.$inferInsert
 export type MailFolder = typeof mailFolders.$inferSelect

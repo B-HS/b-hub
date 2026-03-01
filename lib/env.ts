@@ -12,6 +12,9 @@ const envSchema = z.object({
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
 
+    SPOTIFY_CLIENT_ID: z.string().min(1).optional(),
+    SPOTIFY_CLIENT_SECRET: z.string().min(1).optional(),
+
     R2_END_POINT: z.string().url().optional(),
     R2_ACCESS_KEY_ID: z.string().min(1).optional(),
     R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),

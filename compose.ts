@@ -34,6 +34,11 @@ import { createMailSyncService } from './service/domain/mail/mail-sync'
 import { createMailMessageService } from './service/domain/mail/mail-message'
 import { createMailUploadService } from './service/domain/mail/mail-upload'
 import { createMailOAuthConnectService } from './service/domain/mail/mail-oauth-connect'
+import { createSpotifyAccountService } from './service/domain/spotify/spotify-account'
+import { createSpotifyApiKeyService } from './service/domain/spotify/spotify-api-key'
+import { createSpotifyOAuthConnectService } from './service/domain/spotify/spotify-oauth-connect'
+import { createSpotifyDataService } from './service/domain/spotify/spotify-data'
+import { createSpotifyProvider } from './service/domain/spotify/spotify-provider'
 import { createRateLimiter } from './lib/rate-limit'
 import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
@@ -1501,6 +1506,168 @@ export const compose = () => {
     const mailRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20 })
     const mailCheckLimit = (key: string, path: string) => mailRateLimiter.checkLimit(`mail:${key}:${path}`)
 
+    const spotifyAccountDb = {
+        list: async (userId: string) => {
+            return db.select().from(schema.spotifyAccounts).where(eq(schema.spotifyAccounts.userId, userId))
+        },
+        getById: async (id: number) => {
+            const [account] = await db.select().from(schema.spotifyAccounts).where(eq(schema.spotifyAccounts.id, id)).limit(1)
+            return account ?? null
+        },
+        update: async (id: number, data: Record<string, unknown>) => {
+            await db.update(schema.spotifyAccounts).set(data as never).where(eq(schema.spotifyAccounts.id, id))
+        },
+        remove: async (id: number) => {
+            await db.delete(schema.spotifyAccounts).where(eq(schema.spotifyAccounts.id, id))
+        },
+    }
+
+    const spotifyAccountService = createSpotifyAccountService({ db: spotifyAccountDb })
+
+    const spotifyApiKeyDb = {
+        insert: async (data: { userId: string; spotifyAccountId: number; token: string; name: string | null }) => {
+            const [result] = await db.insert(schema.spotifyApiKeys).values(data).$returningId()
+            return result
+        },
+        findByToken: async (tokenHash: string) => {
+            const [record] = await db
+                .select({
+                    id: schema.spotifyApiKeys.id,
+                    userId: schema.spotifyApiKeys.userId,
+                    spotifyAccountId: schema.spotifyApiKeys.spotifyAccountId,
+                    expiresAt: schema.spotifyApiKeys.expiresAt,
+                })
+                .from(schema.spotifyApiKeys)
+                .where(eq(schema.spotifyApiKeys.token, tokenHash))
+                .limit(1)
+            return record ?? null
+        },
+        updateLastUsedAt: async (id: number) => {
+            await db.update(schema.spotifyApiKeys).set({ lastUsedAt: new Date() }).where(eq(schema.spotifyApiKeys.id, id))
+        },
+        remove: async (userId: string, keyId: number) => {
+            await db.delete(schema.spotifyApiKeys).where(and(eq(schema.spotifyApiKeys.id, keyId), eq(schema.spotifyApiKeys.userId, userId)))
+        },
+        listByUser: async (userId: string) => {
+            return db
+                .select({
+                    id: schema.spotifyApiKeys.id,
+                    spotifyAccountId: schema.spotifyApiKeys.spotifyAccountId,
+                    name: schema.spotifyApiKeys.name,
+                    expiresAt: schema.spotifyApiKeys.expiresAt,
+                    lastUsedAt: schema.spotifyApiKeys.lastUsedAt,
+                    createdAt: schema.spotifyApiKeys.createdAt,
+                })
+                .from(schema.spotifyApiKeys)
+                .where(eq(schema.spotifyApiKeys.userId, userId))
+        },
+    }
+
+    const spotifyApiKeyService = createSpotifyApiKeyService({ db: spotifyApiKeyDb })
+
+    const spotifyOAuthConnect = createSpotifyOAuthConnectService({
+        spotifyClientId: env.SPOTIFY_CLIENT_ID ?? '',
+        spotifyClientSecret: env.SPOTIFY_CLIENT_SECRET ?? '',
+        secret: env.BETTER_AUTH_SECRET ?? '',
+        findAccountByProviderAndUser: async (providerId: string, userId: string, accountId: string) => {
+            const [acc] = await db
+                .select({ id: schema.account.id })
+                .from(schema.account)
+                .where(and(eq(schema.account.providerId, providerId), eq(schema.account.userId, userId), eq(schema.account.accountId, accountId)))
+                .limit(1)
+            return acc ?? null
+        },
+        upsertAccount: async (data) => {
+            await db
+                .insert(schema.account)
+                .values({
+                    id: data.id,
+                    accountId: data.accountId,
+                    providerId: data.providerId,
+                    userId: data.userId,
+                    accessToken: data.accessToken,
+                    refreshToken: data.refreshToken,
+                    accessTokenExpiresAt: data.accessTokenExpiresAt,
+                    scope: data.scope,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                } as never)
+                .onDuplicateKeyUpdate({
+                    set: {
+                        accessToken: data.accessToken,
+                        refreshToken: data.refreshToken,
+                        accessTokenExpiresAt: data.accessTokenExpiresAt,
+                        scope: data.scope,
+                        updatedAt: new Date(),
+                    } as never,
+                })
+            return { id: data.id }
+        },
+        findSpotifyAccountByUserId: async (userId: string, spotifyUserId: string) => {
+            const [acc] = await db
+                .select({ id: schema.spotifyAccounts.id })
+                .from(schema.spotifyAccounts)
+                .where(and(eq(schema.spotifyAccounts.userId, userId), eq(schema.spotifyAccounts.spotifyUserId, spotifyUserId)))
+                .limit(1)
+            return acc ?? null
+        },
+        createSpotifyAccount: async (data) => {
+            const [result] = await db.insert(schema.spotifyAccounts).values(data).$returningId()
+            return result
+        },
+        updateSpotifyAccount: async (id, data) => {
+            await db.update(schema.spotifyAccounts).set(data as never).where(eq(schema.spotifyAccounts.id, id))
+        },
+    })
+
+    const createSpotifyProviderForAccount = async (spotifyAccountId: number) => {
+        const spotifyAccount = await spotifyAccountDb.getById(spotifyAccountId)
+        if (!spotifyAccount?.betterAuthAccountId) throw new Error('Spotify account not found or not linked')
+
+        return createSpotifyProvider({
+            betterAuthAccountId: spotifyAccount.betterAuthAccountId,
+            getOAuthToken: async (betterAuthAccountId: string) => {
+                const [acc] = await db
+                    .select({ accessToken: schema.account.accessToken, refreshToken: schema.account.refreshToken })
+                    .from(schema.account)
+                    .where(eq(schema.account.id, betterAuthAccountId))
+                    .limit(1)
+                if (!acc?.accessToken) return null
+                return { accessToken: acc.accessToken, refreshToken: acc.refreshToken ?? undefined }
+            },
+            refreshOAuthToken: async (betterAuthAccountId: string, refreshTokenValue: string) => {
+                const res = await fetch('https://accounts.spotify.com/api/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        Authorization: `Basic ${Buffer.from(`${env.SPOTIFY_CLIENT_ID ?? ''}:${env.SPOTIFY_CLIENT_SECRET ?? ''}`).toString('base64')}`,
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'refresh_token',
+                        refresh_token: refreshTokenValue,
+                    }),
+                })
+                if (!res.ok) {
+                    const errorBody = await res.text().catch(() => 'unknown')
+                    throw new Error(`Spotify token refresh failed (${res.status}): ${errorBody}`)
+                }
+                const data = (await res.json()) as { access_token: string; expires_in: number }
+                await db
+                    .update(schema.account)
+                    .set({
+                        accessToken: data.access_token,
+                        accessTokenExpiresAt: new Date(Date.now() + data.expires_in * 1000),
+                    })
+                    .where(eq(schema.account.id, betterAuthAccountId))
+                return data.access_token
+            },
+        })
+    }
+
+    const spotifyDataService = createSpotifyDataService({
+        createProvider: createSpotifyProviderForAccount,
+    })
+
     return {
         auth,
         getSession,
@@ -1531,6 +1698,10 @@ export const compose = () => {
         mailUploadService,
         mailFolderDb,
         mailCheckLimit,
+        spotifyAccountService,
+        spotifyApiKeyService,
+        spotifyOAuthConnect,
+        spotifyDataService,
         baseUrl: env.BASE_URL ?? '',
     }
 }

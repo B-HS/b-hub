@@ -23,6 +23,9 @@ import { createMailFolderRoute } from './mail/folder'
 import { createMailMessageRoute } from './mail/message'
 import { createMailSyncRoute } from './mail/sync'
 import { createMailUploadRoute } from './mail/upload'
+import { createSpotifyAccountRoute } from './spotify/account'
+import { createSpotifyKeyRoute } from './spotify/key'
+import { createSpotifyDataRoute } from './spotify/data'
 import type { AuthProvider } from '../service/shared/auth-provider'
 import type { ApiTokenService } from '../service/shared/api-token'
 import type { BadgeService } from '../service/domain/badge/badge'
@@ -43,6 +46,10 @@ import type { MailOAuthConnectService } from '../service/domain/mail/mail-oauth-
 import type { MailSyncService } from '../service/domain/mail/mail-sync'
 import type { MailMessageService } from '../service/domain/mail/mail-message'
 import type { MailUploadService } from '../service/domain/mail/mail-upload'
+import type { SpotifyAccountService } from '../service/domain/spotify/spotify-account'
+import type { SpotifyApiKeyService } from '../service/domain/spotify/spotify-api-key'
+import type { SpotifyOAuthConnectService } from '../service/domain/spotify/spotify-oauth-connect'
+import type { SpotifyDataService } from '../service/domain/spotify/spotify-data'
 import { createAppError } from '../lib/error'
 
 type HnStoryDb = Parameters<typeof createStoryRoute>[0]['db']
@@ -89,6 +96,10 @@ type RouterDeps = {
     mailUploadService?: MailUploadService
     mailFolderDb?: Parameters<typeof createMailFolderRoute>[0]['db']
     mailCheckLimit?: (key: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number }
+    spotifyAccountService?: SpotifyAccountService
+    spotifyApiKeyService?: SpotifyApiKeyService
+    spotifyOAuthConnect?: SpotifyOAuthConnectService
+    spotifyDataService?: SpotifyDataService
     baseUrl?: string
 }
 
@@ -269,6 +280,33 @@ export const createRouter = (deps: RouterDeps = {}) => {
         '/mail/uploads',
         createMailUploadRoute({
             mailUploadService: stub(deps.mailUploadService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+
+    router.route(
+        '/spotify/accounts',
+        createSpotifyAccountRoute({
+            spotifyAccountService: stub(deps.spotifyAccountService),
+            getSession: stubFn(deps.getSession) as never,
+            spotifyOAuthConnect: deps.spotifyOAuthConnect,
+            baseUrl: deps.baseUrl,
+        }),
+    )
+    router.route(
+        '/spotify/keys',
+        createSpotifyKeyRoute({
+            spotifyApiKeyService: stub(deps.spotifyApiKeyService),
+            spotifyAccountService: stub(deps.spotifyAccountService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/spotify',
+        createSpotifyDataRoute({
+            spotifyDataService: stub(deps.spotifyDataService),
+            spotifyApiKeyService: stub(deps.spotifyApiKeyService),
+            spotifyAccountService: stub(deps.spotifyAccountService),
             getSession: stubFn(deps.getSession) as never,
         }),
     )
