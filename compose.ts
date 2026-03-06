@@ -18,6 +18,7 @@ import { createIconLoader } from './service/shared/icon-loader'
 import { createCache } from './service/shared/cache'
 import { createBadgeService } from './service/domain/badge/badge'
 import { createKmaApiService } from './service/domain/weather/kma-api'
+import { createMockKmaApiService } from './service/domain/weather/mock-kma-api'
 import { createLocationService } from './service/domain/weather/location'
 import { createWeatherApiKeyService } from './service/domain/weather/weather-api-key'
 import { convertTailwindToCSS, mergeStyles } from './lib/tailwind-converter'
@@ -933,6 +934,7 @@ export const compose = () => {
     })
 
     const kmaApi = createKmaApiService({ apiKey: env.KMA_API_KEY ?? '' })
+    const mockKmaApi = createMockKmaApiService()
     const locationService = createLocationService({ locations })
     const weatherApiKeyService = createWeatherApiKeyService({ db })
 
@@ -1733,6 +1735,7 @@ export const compose = () => {
         fontLoader,
         badgeService,
         kmaApi,
+        mockKmaApi,
         locationService,
         weatherApiKeyService,
         hnStoryDb,

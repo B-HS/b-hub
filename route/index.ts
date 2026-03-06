@@ -6,6 +6,7 @@ import { createBadgeRoute } from './badge'
 import { createWeatherRoute } from './weather/weather'
 import { createLocationRoute } from './weather/location'
 import { createWeatherKeyRoute } from './weather/key'
+import { createWeatherMockRoute } from './weather/mock'
 import { createStoryRoute } from './hn/story'
 import { createCronRoute } from './hn/cron'
 import { createWebhookRoute } from './hn/webhook'
@@ -76,6 +77,7 @@ type RouterDeps = {
     } | null>
     badgeService?: BadgeService
     kmaApi?: KmaApiService
+    mockKmaApi?: KmaApiService
     locationService?: LocationService
     weatherApiKeyService?: WeatherApiKeyService
     hnStoryDb?: HnStoryDb
@@ -152,6 +154,14 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createWeatherKeyRoute({
             weatherApiKeyService: stub(deps.weatherApiKeyService),
             getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/weather/mock',
+        createWeatherMockRoute({
+            mockKmaApi: stub(deps.mockKmaApi),
+            locationService: stub(deps.locationService),
+            weatherApiKeyService: stub(deps.weatherApiKeyService),
         }),
     )
     router.route(

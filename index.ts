@@ -86,7 +86,7 @@ if (process.env.NODE_ENV !== 'production') {
                     description: 'Badge, Weather, HN Digest, Blog 통합 API',
                 },
                 servers: [
-                    { url: 'https://hub.gumyo.net', description: 'Production' },
+                    { url: 'https://api.gumyo.net', description: 'Production' },
                     { url: 'http://localhost:9999', description: 'Development' },
                 ],
             },

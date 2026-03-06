@@ -43,3 +43,17 @@ export const requireWeatherKey = (deps: RequireWeatherKeyDeps) => async (c: Cont
         errorCode: errorCode ?? undefined,
     })
 }
+
+export const requireWeatherKeyNoLog = (deps: RequireWeatherKeyDeps) => async (c: Context, next: Next) => {
+    const token = c.req.header('X-Weather-Key')
+    if (!token) throw createAppError('WEATHER_KEY_INVALID')
+
+    const keyRecord = await deps.weatherApiKeyService.validate(token)
+    if (!keyRecord) throw createAppError('WEATHER_KEY_INVALID')
+
+    c.set('user', { id: keyRecord.userId, name: '', email: '', role: null, image: null })
+    c.set('weatherKeyId' as never, keyRecord.id as never)
+    c.set('weatherKeyUserId' as never, keyRecord.userId as never)
+
+    await next()
+}
