@@ -20,23 +20,24 @@ type MailOAuthConnectDeps = {
     googleClientId: string
     googleClientSecret: string
     secret: string
-    findAccountByProviderAndUser: (providerId: string, userId: string, email: string) => Promise<{ id: string } | null>
+    findAccountByProviderAndUser: (providerId: string, userId: string, accountId: string) => Promise<{ id: string } | null>
     upsertAccount: (data: {
         id: string
         accountId: string
         providerId: string
         userId: string
         accessToken: string
-        refreshToken: string | null
+        refreshToken: string | null | undefined
         accessTokenExpiresAt: Date | null
         scope: string
     }) => Promise<{ id: string }>
-    findMailAccountByEmail: (userId: string, email: string) => Promise<{ id: number } | null>
+    findMailAccountByEmail: (userId: string, email: string) => Promise<{ id: number; betterAuthAccountId: string | null } | null>
     createMailAccount: (userId: string, input: {
         provider: string
         email: string
         betterAuthAccountId: string
     }) => Promise<{ id: number }>
+    updateMailAccountBetterAuthId: (id: number, betterAuthAccountId: string) => Promise<void>
 }
 
 export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
@@ -121,7 +122,7 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
         }
 
-        const existing = await deps.findAccountByProviderAndUser('google', sessionUserId, userinfo.email)
+        const existing = await deps.findAccountByProviderAndUser('google', sessionUserId, userinfo.sub)
         const accountId = existing?.id ?? crypto.randomUUID()
 
         const accountRow = await deps.upsertAccount({
@@ -130,13 +131,16 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             providerId: 'google',
             userId: sessionUserId,
             accessToken: tokenData.access_token,
-            refreshToken: tokenData.refresh_token ?? null,
+            refreshToken: tokenData.refresh_token ?? undefined,
             accessTokenExpiresAt: new Date(Date.now() + tokenData.expires_in * 1000),
             scope: tokenData.scope,
         })
 
         const existingMailAccount = await deps.findMailAccountByEmail(sessionUserId, userinfo.email)
         if (existingMailAccount) {
+            if (existingMailAccount.betterAuthAccountId !== accountRow.id) {
+                await deps.updateMailAccountBetterAuthId(existingMailAccount.id, accountRow.id)
+            }
             return {
                 mailAccountId: existingMailAccount.id,
                 email: userinfo.email,

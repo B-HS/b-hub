@@ -56,6 +56,8 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                     refreshPromise = null
                     return newToken
                 }).catch((err) => {
+                    accessToken = null
+                    refreshToken = null
                     refreshPromise = null
                     throw err
                 })

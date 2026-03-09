@@ -1031,19 +1031,29 @@ export const compose = () => {
         googleClientId: env.GOOGLE_CLIENT_ID ?? '',
         googleClientSecret: env.GOOGLE_CLIENT_SECRET ?? '',
         secret: env.BETTER_AUTH_SECRET ?? '',
-        findAccountByProviderAndUser: async (providerId: string, userId: string, email: string) => {
+        findAccountByProviderAndUser: async (providerId: string, userId: string, accountId: string) => {
             const [acc] = await db
                 .select({ id: schema.account.id })
                 .from(schema.account)
                 .where(and(
                     eq(schema.account.providerId, providerId),
                     eq(schema.account.userId, userId),
-                    eq(schema.account.accountId, email),
+                    eq(schema.account.accountId, accountId),
                 ))
                 .limit(1)
             return acc ?? null
         },
         upsertAccount: async (data) => {
+            const updateSet: Record<string, unknown> = {
+                accessToken: data.accessToken,
+                accessTokenExpiresAt: data.accessTokenExpiresAt,
+                scope: data.scope,
+                updatedAt: new Date(),
+            }
+            if (data.refreshToken !== undefined) {
+                updateSet.refreshToken = data.refreshToken
+            }
+
             await db
                 .insert(schema.account)
                 .values({
@@ -1052,26 +1062,18 @@ export const compose = () => {
                     providerId: data.providerId,
                     userId: data.userId,
                     accessToken: data.accessToken,
-                    refreshToken: data.refreshToken,
+                    refreshToken: data.refreshToken ?? null,
                     accessTokenExpiresAt: data.accessTokenExpiresAt,
                     scope: data.scope,
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 } as never)
-                .onDuplicateKeyUpdate({
-                    set: {
-                        accessToken: data.accessToken,
-                        refreshToken: data.refreshToken,
-                        accessTokenExpiresAt: data.accessTokenExpiresAt,
-                        scope: data.scope,
-                        updatedAt: new Date(),
-                    } as never,
-                })
+                .onDuplicateKeyUpdate({ set: updateSet as never })
             return { id: data.id }
         },
         findMailAccountByEmail: async (userId: string, email: string) => {
             const [acc] = await db
-                .select({ id: schema.mailAccounts.id })
+                .select({ id: schema.mailAccounts.id, betterAuthAccountId: schema.mailAccounts.betterAuthAccountId })
                 .from(schema.mailAccounts)
                 .where(and(eq(schema.mailAccounts.userId, userId), eq(schema.mailAccounts.email, email)))
                 .limit(1)
@@ -1079,6 +1081,12 @@ export const compose = () => {
         },
         createMailAccount: async (userId: string, input: { provider: string; email: string; betterAuthAccountId: string }) => {
             return mailAccountService.create(userId, input)
+        },
+        updateMailAccountBetterAuthId: async (id: number, betterAuthAccountId: string) => {
+            await db
+                .update(schema.mailAccounts)
+                .set({ betterAuthAccountId } as never)
+                .where(eq(schema.mailAccounts.id, id))
         },
     })
 
