@@ -5,6 +5,8 @@ import { swaggerUI } from '@hono/swagger-ui'
 import { securityHeaders } from './middleware/security-headers'
 import { errorHandler } from './middleware/error-handler'
 import { createRouter } from './route/index'
+import { homeRoute } from './route/home'
+import { policyRoute } from './route/policy'
 import { compose } from './compose'
 import type { AuthContext } from './lib/hono-types'
 
@@ -30,10 +32,10 @@ app.use(
     }),
 )
 
-app.use('*', securityHeaders({ excludePaths: ['/api/spotify/playing'] }))
+app.use('*', securityHeaders({ excludePaths: ['/api/spotify/playing'], excludeExactPaths: ['/', '/policy'] }))
 app.use('*', errorHandler())
 
-app.get('/', (c) => c.json({ name: 'hyun-hub', version: '1.0.0' }))
+app.route('', homeRoute)
 
 const deps = compose()
 const router = createRouter({
@@ -74,6 +76,7 @@ const router = createRouter({
     spotifyWidgetService: deps.spotifyWidgetService,
     baseUrl: deps.baseUrl,
 })
+app.route('/policy', policyRoute)
 app.route('/api', router)
 
 if (process.env.NODE_ENV !== 'production') {
