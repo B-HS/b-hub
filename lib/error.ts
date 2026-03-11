@@ -74,6 +74,9 @@ const STATUS_MAP: Record<string, number> = {
     SPOTIFY_KEY_INVALID: 401,
     SPOTIFY_WIDGET_TOKEN_NOT_FOUND: 404,
     SPOTIFY_WIDGET_TOKEN_INACTIVE: 403,
+
+    RESUME_NOT_FOUND: 404,
+    RESUME_NOT_OWNER: 403,
 }
 
 export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500

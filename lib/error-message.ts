@@ -69,4 +69,7 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     SPOTIFY_KEY_INVALID: 'Spotify API 키가 유효하지 않습니다',
     SPOTIFY_WIDGET_TOKEN_NOT_FOUND: 'Spotify 위젯 토큰을 찾을 수 없습니다',
     SPOTIFY_WIDGET_TOKEN_INACTIVE: 'Spotify 위젯 토큰이 비활성화되었습니다',
+
+    RESUME_NOT_FOUND: '이력서를 찾을 수 없습니다',
+    RESUME_NOT_OWNER: '이력서 소유자만 수정/삭제할 수 있습니다',
 }

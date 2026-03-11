@@ -732,6 +732,29 @@ export const spotifyWidgetTokens = mysqlTable(
     (table) => [index('idx_spotify_widget_tokens_user').on(table.userId), index('idx_spotify_widget_tokens_account').on(table.spotifyAccountId)],
 )
 
+export const resumes = mysqlTable(
+    'resumes',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        type: varchar('type', { length: 10 }).notNull(),
+        title: varchar('title', { length: 255 }).notNull(),
+        data: json('data').notNull(),
+        isPublic: boolean('is_public').default(false).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_resumes_user').on(table.userId)],
+)
+
+export type Resume = typeof resumes.$inferSelect
+export type NewResume = typeof resumes.$inferInsert
+
 export type SpotifyAccount = typeof spotifyAccounts.$inferSelect
 export type NewSpotifyAccount = typeof spotifyAccounts.$inferInsert
 export type SpotifyApiKey = typeof spotifyApiKeys.$inferSelect

@@ -72,6 +72,7 @@ const router = createRouter({
     spotifyDataService: deps.spotifyDataService,
     spotifyWidgetTokenService: deps.spotifyWidgetTokenService,
     spotifyWidgetService: deps.spotifyWidgetService,
+    resumeService: deps.resumeService,
     baseUrl: deps.baseUrl,
 })
 app.route('/api', router)
