@@ -30,11 +30,7 @@ const validResumeData = {
 const validCvData = {
     name: '猫 太郎',
     kana: 'ねこ たろう',
-    birthday: '1995年10月10日',
-    age: '満30歳',
-    nearest_station: '池袋駅',
-    skills: 'TypeScript',
-    hobbies: '料理',
+    summary: 'Webフロントエンド開発経験を持つエンジニアです。',
     experience: { environments: 'Linux', languages: 'TypeScript', frameworks: 'React', infrastructure: 'AWS', tools: 'Git' },
     overview: [{ title: '株式会社テスト', period: '2023年～', content: '開発', tech_stack: 'React' }],
     jobs: [

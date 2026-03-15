@@ -70,11 +70,7 @@ const cvJobSchema = z.object({
 export const cvDataSchema = z.object({
     name: z.string(),
     kana: z.string(),
-    birthday: z.string(),
-    age: z.string(),
-    nearest_station: z.string(),
-    skills: z.string(),
-    hobbies: z.string(),
+    summary: z.string(),
     experience: cvExperienceSchema,
     overview: z.array(cvOverviewSchema),
     jobs: z.array(cvJobSchema),
