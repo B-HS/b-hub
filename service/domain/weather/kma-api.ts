@@ -1,4 +1,4 @@
-import { createCache } from '../../shared/cache'
+import { redisCache } from '../../shared/redis-cache'
 
 const BASE_URL = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0'
 const MAX_RETRIES = 3
@@ -161,8 +161,6 @@ const mapKmaErrorCode = (kmaCode: string) => {
 
 export const createKmaApiService = (deps: KmaApiDeps) => {
     const fetchFn = deps.fetchFn ?? fetch
-    const cache = createCache<KmaApiResult<unknown>>({ maxSize: 500, defaultTtlMs: 60 * 1000 })
-
     const fetchWithRetry = async <T>(url: string): Promise<KmaApiResult<T>> => {
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             try {
@@ -217,13 +215,14 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
         }
     }
 
-    const cachedFetch = async <T>(cacheKey: string, ttl: number, fetcher: () => Promise<KmaApiResult<T>>): Promise<KmaApiResult<T>> => {
-        const cached = cache.get(cacheKey)
-        if (cached) return cached as KmaApiResult<T>
+    const cachedFetch = async <T>(cacheKey: string, ttlMs: number, fetcher: () => Promise<KmaApiResult<T>>): Promise<KmaApiResult<T>> => {
+        const cached = await redisCache.get<KmaApiResult<T>>(cacheKey)
+        if (cached) return cached
 
         const result = await fetcher()
         if (result.success) {
-            cache.set(cacheKey, result, ttl)
+            const ttlSeconds = Math.max(Math.ceil(ttlMs / 1000), 1)
+            await redisCache.set(cacheKey, result, ttlSeconds)
         }
         return result
     }
