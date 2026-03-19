@@ -1,6 +1,48 @@
+import { createCache } from '../../shared/cache'
+
 const BASE_URL = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0'
 const MAX_RETRIES = 3
 const RETRY_DELAY = 1000
+
+const MIN_CACHE_TTL = 30 * 1000
+
+const getNextNcstTtl = () => {
+    const now = new Date()
+    const next = new Date(now)
+    next.setMinutes(10, 0, 0)
+    if (now.getMinutes() >= 10) next.setHours(next.getHours() + 1)
+    return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
+}
+
+const getNextFcstTtl = () => {
+    const now = new Date()
+    const next = new Date(now)
+    next.setMinutes(45, 0, 0)
+    if (now.getMinutes() >= 45) next.setHours(next.getHours() + 1)
+    return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
+}
+
+const VILAGE_BASE_HOURS = [2, 5, 8, 11, 14, 17, 20, 23]
+
+const getNextVilageTtl = () => {
+    const now = new Date()
+    const h = now.getHours()
+    const m = now.getMinutes()
+
+    for (const bt of VILAGE_BASE_HOURS) {
+        const provideMin = 10
+        if (h < bt || (h === bt && m < provideMin)) {
+            const next = new Date(now)
+            next.setHours(bt, provideMin, 0, 0)
+            return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
+        }
+    }
+
+    const next = new Date(now)
+    next.setDate(next.getDate() + 1)
+    next.setHours(2, 10, 0, 0)
+    return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
+}
 
 type KMAResponseHeader = {
     resultCode: string
@@ -119,6 +161,7 @@ const mapKmaErrorCode = (kmaCode: string) => {
 
 export const createKmaApiService = (deps: KmaApiDeps) => {
     const fetchFn = deps.fetchFn ?? fetch
+    const cache = createCache<KmaApiResult<unknown>>({ maxSize: 500, defaultTtlMs: 60 * 1000 })
 
     const fetchWithRetry = async <T>(url: string): Promise<KmaApiResult<T>> => {
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -174,70 +217,93 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
         }
     }
 
+    const cachedFetch = async <T>(cacheKey: string, ttl: number, fetcher: () => Promise<KmaApiResult<T>>): Promise<KmaApiResult<T>> => {
+        const cached = cache.get(cacheKey)
+        if (cached) return cached as KmaApiResult<T>
+
+        const result = await fetcher()
+        if (result.success) {
+            cache.set(cacheKey, result, ttl)
+        }
+        return result
+    }
+
     const getUltraSrtNcst = async (nx: number, ny: number) => {
         const { baseDate, baseTime } = getBaseDateTime('ncst')
-        const params = new URLSearchParams({
-            serviceKey: deps.apiKey,
-            numOfRows: '10',
-            pageNo: '1',
-            dataType: 'JSON',
-            base_date: baseDate,
-            base_time: baseTime,
-            nx: String(nx),
-            ny: String(ny),
-        })
+        const cacheKey = `ncst:${baseDate}:${baseTime}:${nx}:${ny}`
 
-        return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getUltraSrtNcst?${params}`)
+        return cachedFetch<KMAWeatherItem[]>(cacheKey, getNextNcstTtl(), () => {
+            const params = new URLSearchParams({
+                serviceKey: deps.apiKey,
+                numOfRows: '10',
+                pageNo: '1',
+                dataType: 'JSON',
+                base_date: baseDate,
+                base_time: baseTime,
+                nx: String(nx),
+                ny: String(ny),
+            })
+            return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getUltraSrtNcst?${params}`)
+        })
     }
 
     const getUltraSrtFcst = async (nx: number, ny: number) => {
         const { baseDate, baseTime } = getBaseDateTime('fcst')
-        const params = new URLSearchParams({
-            serviceKey: deps.apiKey,
-            numOfRows: '60',
-            pageNo: '1',
-            dataType: 'JSON',
-            base_date: baseDate,
-            base_time: baseTime,
-            nx: String(nx),
-            ny: String(ny),
-        })
+        const cacheKey = `fcst:${baseDate}:${baseTime}:${nx}:${ny}`
 
-        return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getUltraSrtFcst?${params}`)
+        return cachedFetch<KMAWeatherItem[]>(cacheKey, getNextFcstTtl(), () => {
+            const params = new URLSearchParams({
+                serviceKey: deps.apiKey,
+                numOfRows: '60',
+                pageNo: '1',
+                dataType: 'JSON',
+                base_date: baseDate,
+                base_time: baseTime,
+                nx: String(nx),
+                ny: String(ny),
+            })
+            return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getUltraSrtFcst?${params}`)
+        })
     }
 
     const getVilageFcst = async (nx: number, ny: number) => {
         const { baseDate, baseTime } = getBaseDateTime('vilage')
-        const params = new URLSearchParams({
-            serviceKey: deps.apiKey,
-            numOfRows: '1000',
-            pageNo: '1',
-            dataType: 'JSON',
-            base_date: baseDate,
-            base_time: baseTime,
-            nx: String(nx),
-            ny: String(ny),
-        })
+        const cacheKey = `vilage:${baseDate}:${baseTime}:${nx}:${ny}`
 
-        return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getVilageFcst?${params}`)
+        return cachedFetch<KMAWeatherItem[]>(cacheKey, getNextVilageTtl(), () => {
+            const params = new URLSearchParams({
+                serviceKey: deps.apiKey,
+                numOfRows: '1000',
+                pageNo: '1',
+                dataType: 'JSON',
+                base_date: baseDate,
+                base_time: baseTime,
+                nx: String(nx),
+                ny: String(ny),
+            })
+            return fetchWithRetry<KMAWeatherItem[]>(`${BASE_URL}/getVilageFcst?${params}`)
+        })
     }
 
     const getFcstVersion = async (ftype: string) => {
         const { baseDate, baseTime } = getBaseDateTime('vilage')
-        const params = new URLSearchParams({
-            serviceKey: deps.apiKey,
-            numOfRows: '1',
-            pageNo: '1',
-            dataType: 'JSON',
-            ftype,
-            basedatetime: `${baseDate}${baseTime}`,
-        })
+        const cacheKey = `version:${ftype}:${baseDate}:${baseTime}`
 
-        const result = await fetchWithRetry<KMAVersionItem[]>(`${BASE_URL}/getFcstVersion?${params}`)
-        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
-            return { success: true as const, data: result.data[0] }
-        }
-        return result as KmaApiResult<KMAVersionItem>
+        return cachedFetch<KMAVersionItem>(cacheKey, getNextVilageTtl(), async () => {
+            const params = new URLSearchParams({
+                serviceKey: deps.apiKey,
+                numOfRows: '1',
+                pageNo: '1',
+                dataType: 'JSON',
+                ftype,
+                basedatetime: `${baseDate}${baseTime}`,
+            })
+            const result = await fetchWithRetry<KMAVersionItem[]>(`${BASE_URL}/getFcstVersion?${params}`)
+            if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+                return { success: true as const, data: result.data[0] }
+            }
+            return result as KmaApiResult<KMAVersionItem>
+        })
     }
 
     return { getUltraSrtNcst, getUltraSrtFcst, getVilageFcst, getFcstVersion }
