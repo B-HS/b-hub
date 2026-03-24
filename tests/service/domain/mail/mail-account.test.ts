@@ -137,6 +137,14 @@ describe('createMailAccountService', () => {
             expect(insertCall.credentials).toBeNull()
         })
 
+        test('계정 수가 제한 미만이면 생성에 성공한다', async () => {
+            const deps = createDeps({ db: { countByUser: mock(() => Promise.resolve(9)) } })
+            const service = createMailAccountService(deps)
+            const result = await service.create('user-1', { provider: 'gmail', email: 'test@gmail.com' })
+            expect(result).toEqual({ id: 2 })
+            expect(deps.db.insert).toHaveBeenCalledTimes(1)
+        })
+
         test('10개 제한 초과 시 에러를 발생시킨다', async () => {
             const deps = createDeps({ db: { countByUser: mock(() => Promise.resolve(10)) } })
             const service = createMailAccountService(deps)
@@ -199,6 +207,13 @@ describe('createMailAccountService', () => {
             expect(deps.db.update).toHaveBeenCalledWith(1, { isActive: false })
         })
 
+        test('displayName과 isActive를 동시에 수정한다', async () => {
+            const deps = createDeps()
+            const service = createMailAccountService(deps)
+            await service.update(1, 'user-1', { displayName: 'Updated', isActive: false })
+            expect(deps.db.update).toHaveBeenCalledWith(1, { displayName: 'Updated', isActive: false })
+        })
+
         test('소유권 검증 실패 시 에러를 발생시킨다', async () => {
             const deps = createDeps()
             const service = createMailAccountService(deps)
@@ -253,6 +268,20 @@ describe('createMailAccountService', () => {
             const call = deps.db.update.mock.calls[0] as unknown[]
             const data = call[1] as Record<string, unknown>
             expect(data.syncCursor).toBe('cursor-123')
+        })
+    })
+
+    describe('getProvider', () => {
+        test('providerFactory 에러가 전파된다', async () => {
+            const deps = createDeps({
+                providerFactory: {
+                    create: mock(() => {
+                        throw new Error('Provider creation failed')
+                    }),
+                },
+            })
+            const service = createMailAccountService(deps)
+            await expect(service.getProvider(1, 'user-1')).rejects.toThrow('Provider creation failed')
         })
     })
 })

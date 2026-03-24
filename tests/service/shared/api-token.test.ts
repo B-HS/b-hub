@@ -142,4 +142,40 @@ describe('createApiTokenService', () => {
         expect(hash1).toBe(hash2)
         expect(hash1).toHaveLength(64)
     })
+
+    test('validate에서 expiresAt이 null이면 항상 유효하다', async () => {
+        const record = {
+            id: 1,
+            userId: 'user1',
+            token: hashToken('no-expiry'),
+            name: null,
+            expiresAt: null,
+            lastUsedAt: null,
+            createdAt: new Date(),
+        }
+        const selectFrom = mock(() => ({
+            where: mock(() => ({
+                limit: mock(() => Promise.resolve([record])),
+            })),
+        }))
+        const updateSet = mock(() => ({
+            where: mock(() => Promise.resolve()),
+        }))
+        const db = {
+            ...createMockDb(),
+            select: mock(() => ({ from: selectFrom })),
+            update: mock(() => ({ set: updateSet })),
+        }
+        const service = createApiTokenService({ db: db as never })
+        const result = await service.validate('no-expiry')
+        expect(result).not.toBeNull()
+        expect(result?.id).toBe('user1')
+    })
+
+    test('create에서 생성된 토큰은 hex 형식의 64자 문자열이다', async () => {
+        const db = createMockDb()
+        const service = createApiTokenService({ db: db as never })
+        const token = await service.create('user1')
+        expect(token).toMatch(/^[a-f0-9]{64}$/)
+    })
 })

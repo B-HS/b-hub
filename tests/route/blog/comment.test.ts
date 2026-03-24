@@ -128,4 +128,20 @@ describe('DELETE /blog/comments/:id', () => {
         const res = await app.request('/blog/comments/1', { method: 'DELETE' })
         expect(res.status).toBe(200)
     })
+
+    test('인증된 작성자가 삭제하면 성공한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/blog/comments/1', { method: 'DELETE' })
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.success).toBe(true)
+    })
+
+    test('인증 없이 요청하면 401을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/blog/comments/1', { method: 'DELETE' })
+        expect(res.status).toBe(401)
+    })
 })

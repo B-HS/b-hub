@@ -68,4 +68,20 @@ describe('isAppError', () => {
     test('구조만 맞으면 true를 반환한다', () => {
         expect(isAppError({ code: 'X', message: 'x', statusCode: 400 })).toBe(true)
     })
+
+    test('부분적인 AppError 객체를 거부한다', () => {
+        expect(isAppError({ code: 'X', message: 'x' })).toBe(false)
+        expect(isAppError({ code: 'X', statusCode: 400 })).toBe(false)
+        expect(isAppError({ message: 'x', statusCode: 400 })).toBe(false)
+    })
+})
+
+describe('STATUS_MAP 커버리지', () => {
+    test('모든 ERROR_CODE에 대해 getStatusCode가 유효한 HTTP 상태를 반환한다', () => {
+        for (const code of Object.values(ERROR_CODE)) {
+            const status = getStatusCode(code)
+            expect(status).toBeGreaterThanOrEqual(400)
+            expect(status).toBeLessThanOrEqual(599)
+        }
+    })
 })

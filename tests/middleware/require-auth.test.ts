@@ -27,4 +27,12 @@ describe('requireAuth middleware', () => {
         const body = await res.json()
         expect(body.user.id).toBe('user-1')
     })
+
+    test('getSession이 에러를 던지면 500을 반환한다', async () => {
+        const getSession = mock(async () => {
+            throw new Error('session fetch failed')
+        }) as Parameters<typeof requireAuth>[0]['getSession']
+        const res = await createApp(getSession).request('/test')
+        expect(res.status).toBe(500)
+    })
 })

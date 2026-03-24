@@ -153,4 +153,52 @@ describe('createPostService', () => {
         const result = await service.delete(999)
         expect(result).toBeNull()
     })
+
+    test('list에서 결과가 없으면 빈 배열과 total 0을 반환한다', async () => {
+        const db = createMockDb()
+        db.getPostList = mock(() => Promise.resolve({ data: [], total: 0 }))
+        const service = createPostService({ db })
+
+        const result = await service.list({ page: 1, limit: 20 })
+        expect(result.data).toHaveLength(0)
+        expect(result.total).toBe(0)
+        expect(result.page).toBe(1)
+        expect(result.limit).toBe(20)
+    })
+
+    test('list에서 keyword와 categoryId를 동시에 필터링한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.list({ page: 1, limit: 20, keyword: 'typescript', categoryId: 3 })
+        expect(db.getPostList).toHaveBeenCalledWith(
+            expect.objectContaining({
+                keyword: 'typescript',
+                categoryId: 3,
+                offset: 0,
+                limit: 20,
+            }),
+        )
+    })
+
+    test('list에서 page가 1보다 작으면 첫 페이지로 처리한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.list({ page: 0, limit: 10 })
+        expect(db.getPostList).toHaveBeenCalledWith(
+            expect.objectContaining({
+                offset: -10,
+                limit: 10,
+            }),
+        )
+    })
+
+    test('getById에서 DB 에러가 전파된다', async () => {
+        const db = createMockDb()
+        db.getPostById = mock(() => Promise.reject(new Error('DB connection failed')))
+        const service = createPostService({ db })
+
+        await expect(service.getById(1)).rejects.toThrow('DB connection failed')
+    })
 })

@@ -50,4 +50,24 @@ describe('createRateLimiter', () => {
         await new Promise((resolve) => setTimeout(resolve, 60))
         expect(limiter.checkLimit('user1').allowed).toBe(true)
     })
+
+    test('resetAt이 현재시간 + windowMs 근처이다', () => {
+        const windowMs = 60000
+        const before = Date.now()
+        const limiter = createRateLimiter({ windowMs, maxRequests: 5 })
+        const result = limiter.checkLimit('user1')
+        const after = Date.now()
+        expect(result.resetAt).toBeGreaterThanOrEqual(before + windowMs)
+        expect(result.resetAt).toBeLessThanOrEqual(after + windowMs)
+    })
+
+    test('다른 키는 독립적으로 카운트된다', () => {
+        const limiter = createRateLimiter({ windowMs: 60000, maxRequests: 2 })
+        limiter.checkLimit('a')
+        limiter.checkLimit('a')
+        expect(limiter.checkLimit('a').allowed).toBe(false)
+        const resultB = limiter.checkLimit('b')
+        expect(resultB.allowed).toBe(true)
+        expect(resultB.remaining).toBe(1)
+    })
 })

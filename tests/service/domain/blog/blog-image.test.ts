@@ -147,4 +147,23 @@ describe('createBlogImageService', () => {
         expect(result).toHaveLength(1)
         expect(result[0].imageId).toBe(1)
     })
+
+    test('이미지 메타데이터 추출 실패 시 에러를 전파한다', async () => {
+        const deps = createMockDeps()
+        deps.imageProcessor.getMetadata = mock(() => Promise.reject(new Error('Metadata extraction failed')))
+        const service = createBlogImageService(deps)
+
+        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', { type: 'image/jpeg' })
+        await expect(service.upload(file, 'user-1')).rejects.toThrow('Metadata extraction failed')
+    })
+
+    test('0 바이트 파일도 MIME 타입이 유효하면 업로드를 시도한다', async () => {
+        const deps = createMockDeps()
+        const service = createBlogImageService(deps)
+
+        const file = new File([], 'empty.jpg', { type: 'image/jpeg' })
+        const result = await service.upload(file, 'user-1')
+        expect(result.id).toBe('test-uuid-123')
+        expect(deps.imageProcessor.toWebp).toHaveBeenCalled()
+    })
 })

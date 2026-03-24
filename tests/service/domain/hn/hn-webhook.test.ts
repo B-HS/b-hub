@@ -128,4 +128,56 @@ describe('createHnWebhookService', () => {
         const result = await service.removeByUrl('https://example.com')
         expect(result.deleted).toBe(1)
     })
+
+    test('sendDigestWebhook에서 모든 webhook이 실패하면 실패 카운트를 반환한다', async () => {
+        const db = createMockDb()
+        db.getActiveWebhooks = mock(() =>
+            Promise.resolve([
+                { id: 1, provider: 'discord', url: 'https://fail1.com', name: 'Fail1', digestTypes: ['daily'] },
+                { id: 2, provider: 'discord', url: 'https://fail2.com', name: 'Fail2', digestTypes: ['daily'] },
+            ]),
+        )
+        const fetchFn = mock(() =>
+            Promise.resolve({
+                ok: false,
+                text: () => Promise.resolve('error'),
+            } as Response),
+        )
+        const service = createHnWebhookService({ db, fetchFn })
+
+        const payload = service.createDigestPayload('daily', '2025-01-01', 'content', [])
+        const result = await service.sendDigestWebhook(payload)
+        expect(result.total).toBe(2)
+        expect(result.success).toBe(0)
+        expect(result.failed).toBe(2)
+        expect(result.details).toHaveLength(2)
+        expect(result.details.every((d) => d.status === 'failed')).toBe(true)
+    })
+
+    test('createDigestPayload에서 maxLength 이하 문자열은 content가 변경되지 않는다', () => {
+        const db = createMockDb()
+        const service = createHnWebhookService({ db })
+
+        const shortContent = 'Short content'
+        const payload = service.createDigestPayload('daily', '2025-01-01', shortContent, [])
+        expect(payload.content).toBe(shortContent)
+    })
+
+    test('createDigestPayload에서 weekly 타입은 주간 라벨을 사용한다', () => {
+        const db = createMockDb()
+        const service = createHnWebhookService({ db })
+
+        const payload = service.createDigestPayload('weekly', '2025-01-01', 'content', [])
+        expect(payload.title).toContain('주간')
+        expect(payload.type).toBe('weekly')
+    })
+
+    test('createDigestPayload에서 monthly 타입은 월간 라벨을 사용한다', () => {
+        const db = createMockDb()
+        const service = createHnWebhookService({ db })
+
+        const payload = service.createDigestPayload('monthly', '2025-01-01', 'content', [])
+        expect(payload.title).toContain('월간')
+        expect(payload.type).toBe('monthly')
+    })
 })

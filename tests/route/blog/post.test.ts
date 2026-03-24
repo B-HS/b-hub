@@ -141,4 +141,36 @@ describe('PUT /blog/posts/:id', () => {
         })
         expect(res.status).toBe(404)
     })
+
+    test('인증 없으면 401을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/blog/posts/1', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: 'Updated' }),
+        })
+        expect(res.status).toBe(401)
+    })
+
+    test('관리자가 아니면 403을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve({ user: { id: 'user-1', role: 'user' } }))
+        const { app } = createApp(deps)
+        const res = await app.request('/blog/posts/1', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: 'Updated' }),
+        })
+        expect(res.status).toBe(403)
+    })
+})
+
+describe('GET /blog/posts/:id 추가 케이스', () => {
+    test('숫자가 아닌 id는 404를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/blog/posts/abc')
+        expect(res.status).toBe(404)
+    })
 })

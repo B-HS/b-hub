@@ -137,4 +137,26 @@ describe('createCommentService', () => {
         const result = await service.adminUpdateHide(999, true)
         expect(result).toBeNull()
     })
+
+    test('listByPostId가 빈 배열을 반환한다', async () => {
+        const db = createMockDb()
+        db.getCommentsByPostId = mock(() => Promise.resolve([]))
+        const service = createCommentService({ db })
+
+        const result = await service.listByPostId(999)
+        expect(result).toHaveLength(0)
+        expect(db.getCommentsByPostId).toHaveBeenCalledWith(999)
+    })
+
+    test('adminUpdateHide가 isHide 값을 올바르게 전달한다', async () => {
+        const db = createMockDb()
+        const service = createCommentService({ db })
+
+        await service.adminUpdateHide(1, false)
+        expect(db.updateComment).toHaveBeenCalledWith(1, { isHide: false })
+
+        const result = await service.adminUpdateHide(1, false)
+        expect(result).not.toBeNull()
+        expect(result!.isHide).toBe(false)
+    })
 })

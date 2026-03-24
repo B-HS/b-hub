@@ -195,4 +195,49 @@ describe('createKmaApiService', () => {
         const url = (fetchFn as ReturnType<typeof mock>).mock.calls[0][0] as string
         expect(url).toContain('serviceKey=my-secret-key')
     })
+
+    test('getUltraSrtNcst에서 base_date는 YYYYMMDD 형식이다', async () => {
+        const fetchFn = createMockFetch(createMockKmaResponse([]))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        await service.getUltraSrtNcst(60, 127)
+        const url = (fetchFn as ReturnType<typeof mock>).mock.calls[0][0] as string
+        const params = new URLSearchParams(url.split('?')[1])
+        const baseDate = params.get('base_date')!
+        expect(baseDate).toMatch(/^\d{8}$/)
+    })
+
+    test('getUltraSrtNcst에서 base_time은 HHMM 형식이다', async () => {
+        const fetchFn = createMockFetch(createMockKmaResponse([]))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        await service.getUltraSrtNcst(60, 127)
+        const url = (fetchFn as ReturnType<typeof mock>).mock.calls[0][0] as string
+        const params = new URLSearchParams(url.split('?')[1])
+        const baseTime = params.get('base_time')!
+        expect(baseTime).toMatch(/^\d{4}$/)
+    })
+
+    test('getVilageFcst에서 base_time은 유효한 발표 시간이다', async () => {
+        const fetchFn = createMockFetch(createMockKmaResponse([]))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        await service.getVilageFcst(60, 127)
+        const url = (fetchFn as ReturnType<typeof mock>).mock.calls[0][0] as string
+        const params = new URLSearchParams(url.split('?')[1])
+        const baseTime = params.get('base_time')!
+        const validBaseTimes = ['0200', '0500', '0800', '1100', '1400', '1700', '2000', '2300']
+        expect(validBaseTimes).toContain(baseTime)
+    })
+
+    test('getUltraSrtFcst에서 base_time의 분은 30이다', async () => {
+        const fetchFn = createMockFetch(createMockKmaResponse([]))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        await service.getUltraSrtFcst(60, 127)
+        const url = (fetchFn as ReturnType<typeof mock>).mock.calls[0][0] as string
+        const params = new URLSearchParams(url.split('?')[1])
+        const baseTime = params.get('base_time')!
+        expect(baseTime.slice(2)).toBe('30')
+    })
 })

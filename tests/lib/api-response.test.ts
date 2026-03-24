@@ -79,4 +79,30 @@ describe('errorResponse', () => {
         expect('details' in result.error).toBe(false)
         process.env.NODE_ENV = originalEnv
     })
+
+    test('details가 빈 객체이면 포함한다', () => {
+        const originalEnv = process.env.NODE_ENV
+        process.env.NODE_ENV = 'test'
+        const result = errorResponse('ERROR', 'msg', {})
+        expect('details' in result.error).toBe(true)
+        expect(result.error.details).toEqual({})
+        process.env.NODE_ENV = originalEnv
+    })
+
+    test('details가 undefined이면 포함하지 않는다', () => {
+        const result = errorResponse('ERROR', 'msg', undefined)
+        expect('details' in result.error).toBe(false)
+    })
+})
+
+describe('paginatedResponse 엣지 케이스', () => {
+    test('total=0이면 빈 data와 페이지 정보를 반환한다', () => {
+        const result = paginatedResponse([], { page: 1, limit: 20, total: 0 })
+        expect(result.success).toBe(true)
+        expect(result.data).toEqual([])
+        expect(result.pagination.total).toBe(0)
+        expect(result.pagination.totalPages).toBe(0)
+        expect(result.pagination.page).toBe(1)
+        expect(result.pagination.limit).toBe(20)
+    })
 })

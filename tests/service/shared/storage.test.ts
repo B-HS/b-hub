@@ -65,4 +65,35 @@ describe('createStorageService', () => {
 
         expect(storage.getUrl('blog/image.webp')).toBe('https://cdn.test.com/blog/image.webp')
     })
+
+    test('getUrl이 CDN 도메인과 키를 올바르게 조합한다', () => {
+        const storage = createStorageService({
+            s3: createMockS3() as never,
+            bucket: 'test-bucket',
+            cdnDomain: 'https://cdn.example.com',
+        })
+
+        const url = storage.getUrl('uploads/photo.png')
+        expect(url).toBe('https://cdn.example.com/uploads/photo.png')
+        expect(url.startsWith('https://cdn.example.com/')).toBe(true)
+        expect(url.endsWith('uploads/photo.png')).toBe(true)
+    })
+
+    test('del에서 S3 에러가 STORAGE_DELETE_FAILED로 변환된다', async () => {
+        const mockS3 = { send: mock(() => Promise.reject(new Error('S3 error'))) }
+        const storage = createStorageService({
+            s3: mockS3 as never,
+            bucket: 'test-bucket',
+            cdnDomain: 'https://cdn.test.com',
+        })
+
+        try {
+            await storage.del('test.webp')
+            expect.unreachable('에러가 발생해야 한다')
+        } catch (error: unknown) {
+            const appError = error as { code: string; statusCode: number }
+            expect(appError.code).toBe('STORAGE_DELETE_FAILED')
+            expect(appError.statusCode).toBe(500)
+        }
+    })
 })

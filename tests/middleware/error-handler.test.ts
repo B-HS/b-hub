@@ -54,4 +54,37 @@ describe('errorHandler middleware', () => {
         expect(body.success).toBe(false)
         expect(body.error.code).toBe('INTERNAL_ERROR')
     })
+
+    test('AppError에 details가 있으면 응답에 포함한다', async () => {
+        const app = createApp(() => {
+            throw createAppError('VALIDATION_ERROR', { field: 'email' })
+        })
+        const res = await app.request('/test')
+        expect(res.status).toBe(400)
+        const body = await res.json()
+        expect(body.error.code).toBe('VALIDATION_ERROR')
+        expect(body.error.details).toEqual({ field: 'email' })
+    })
+
+    test('문자열 에러를 500으로 처리한다', async () => {
+        const app = createApp((() => {
+            throw 'string error'
+        }) as () => never)
+        const res = await app.request('/test')
+        expect(res.status).toBe(500)
+        const body = await res.json()
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('INTERNAL_ERROR')
+    })
+
+    test('null 에러를 500으로 처리한다', async () => {
+        const app = createApp((() => {
+            throw null
+        }) as () => never)
+        const res = await app.request('/test')
+        expect(res.status).toBe(500)
+        const body = await res.json()
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('INTERNAL_ERROR')
+    })
 })

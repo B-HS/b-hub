@@ -183,6 +183,18 @@ describe('createMailMessageService', () => {
             await service.markRead('user-1', [1])
             expect(deps.db.updateFlags).toHaveBeenCalledWith([1], { isRead: true })
         })
+
+        test('markRead 후 폴더 unread 카운트가 감소한다', async () => {
+            const deps = createDeps({
+                db: {
+                    countUnreadByFolder: mock(() => Promise.resolve(2)),
+                    countMessagesByFolder: mock(() => Promise.resolve(10)),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.markRead('user-1', [1])
+            expect(deps.db.updateFolderCounts).toHaveBeenCalledWith(1, 10, 2)
+        })
     })
 
     describe('markUnread', () => {
@@ -225,6 +237,16 @@ describe('createMailMessageService', () => {
             const sendCall = accountService._provider.sendMessage.mock.calls[0][0] as Record<string, unknown>
             const to = sendCall.to as Array<{ name: string; address: string }>
             expect(to[0].address).toBe('sender@test.com')
+        })
+
+        test('원본 메시지가 없으면 에러를 발생시킨다', async () => {
+            const deps = createDeps({
+                db: { getById: mock(() => Promise.resolve(null)) } as never,
+            })
+            const service = createMailMessageService(deps)
+            await expect(service.reply('user-1', 999, { bodyText: 'Reply' })).rejects.toMatchObject({
+                code: 'MAIL_MESSAGE_NOT_FOUND',
+            })
         })
     })
 
@@ -353,6 +375,28 @@ describe('createMailMessageService', () => {
             const service = createMailMessageService(deps)
             await service.moveToFolder('user-1', [1], 2)
             expect(deps.db.moveToFolder).toHaveBeenCalledWith([1], 2)
+        })
+
+        test('moveToFolder에서 원본 폴더의 remoteFolderId를 조회한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: {
+                    getFolderById: mock((id: number) => {
+                        if (id === 1) return Promise.resolve({ id: 1, accountId: 1, remoteFolderId: 'INBOX' })
+                        if (id === 2) return Promise.resolve({ id: 2, accountId: 1, remoteFolderId: 'ARCHIVE' })
+                        return Promise.resolve(null)
+                    }),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.moveToFolder('user-1', [1], 2)
+
+            expect(accountService._provider.moveMessage).toHaveBeenCalledWith(
+                ['remote-1'],
+                'ARCHIVE',
+                'INBOX',
+            )
         })
     })
 

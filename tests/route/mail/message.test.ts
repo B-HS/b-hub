@@ -116,6 +116,25 @@ describe('GET /mail/messages/:messageId', () => {
         const res = await app.request('/mail/messages/1')
         expect(res.status).toBe(200)
     })
+
+    test('메시지가 없으면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.mailMessageService.getById = mock(() => {
+            const err = { code: 'MAIL_MESSAGE_NOT_FOUND', message: 'Not found', statusCode: 404 }
+            return Promise.reject(err)
+        })
+        const { app } = createApp(deps)
+        const res = await app.request('/mail/messages/999')
+        expect(res.status).toBe(404)
+    })
+
+    test('인증 없이 요청하면 401을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/mail/messages/1')
+        expect(res.status).toBe(401)
+    })
 })
 
 describe('POST /mail/messages/mark-read', () => {

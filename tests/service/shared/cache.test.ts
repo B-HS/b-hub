@@ -77,4 +77,31 @@ describe('createCache', () => {
         expect(cache.get('a')).toBe('2')
         expect(cache.size()).toBe(1)
     })
+
+    test('maxSize=1일 때 두 번째 항목 추가 시 첫 항목이 제거된다', () => {
+        const cache = createCache<string>({ maxSize: 1 })
+        cache.set('a', '1')
+        expect(cache.get('a')).toBe('1')
+        cache.set('b', '2')
+        expect(cache.get('a')).toBeNull()
+        expect(cache.get('b')).toBe('2')
+        expect(cache.size()).toBe(1)
+    })
+
+    test('같은 키로 set하면 TTL이 갱신된다', async () => {
+        const cache = createCache<string>({ defaultTtlMs: 80 })
+        cache.set('a', '1')
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        cache.set('a', '2')
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(cache.get('a')).toBe('2')
+    })
+
+    test('만료된 항목은 has에서 false를 반환한다', async () => {
+        const cache = createCache<string>({ defaultTtlMs: 50 })
+        cache.set('a', '1')
+        expect(cache.has('a')).toBe(true)
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        expect(cache.has('a')).toBe(false)
+    })
 })

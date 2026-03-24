@@ -133,5 +133,54 @@ describe('createSpotifyDataService', () => {
             await service.getPlaylists(1, 10, 5)
             expect(provider.getPlaylists).toHaveBeenCalledWith(10, 5)
         })
+
+        test('items가 null이면 빈 배열을 반환한다', async () => {
+            const provider = createMockProvider({
+                getPlaylists: mock(() =>
+                    Promise.resolve({
+                        items: null,
+                        total: 0,
+                        limit: 20,
+                        offset: 0,
+                    }),
+                ),
+            })
+
+            const service = createSpotifyDataService({
+                createProvider: mock(() => Promise.resolve(provider)),
+            })
+
+            const result = await service.getPlaylists(1, 20, 0)
+            expect(result.items).toEqual([])
+            expect(result.total).toBe(0)
+        })
+    })
+
+    describe('getNowPlaying', () => {
+        test('artists가 비어있으면 빈 문자열을 반환한다', async () => {
+            const provider = createMockProvider({
+                getCurrentlyPlaying: mock(() =>
+                    Promise.resolve({
+                        is_playing: true,
+                        progress_ms: 5000,
+                        item: {
+                            name: 'Instrumental Track',
+                            artists: [],
+                            album: { name: 'No Artist Album', images: [] },
+                            external_urls: { spotify: 'https://open.spotify.com/track/456' },
+                            duration_ms: 200000,
+                        },
+                    }),
+                ),
+            })
+
+            const service = createSpotifyDataService({
+                createProvider: mock(() => Promise.resolve(provider)),
+            })
+
+            const result = await service.getNowPlaying(1)
+            expect(result.isPlaying).toBe(true)
+            expect(result.track?.artist).toBe('')
+        })
     })
 })

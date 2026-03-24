@@ -88,4 +88,13 @@ describe('paginationQuerySchema', () => {
     test('limit이 0이면 실패한다', () => {
         expect(() => paginationQuerySchema.parse({ limit: 0 })).toThrow()
     })
+
+    test('page가 소수점이면 int 검증에 실패한다', () => {
+        expect(() => paginationQuerySchema.parse({ page: 1.5 })).toThrow()
+        expect(() => paginationQuerySchema.parse({ page: 2.7 })).toThrow()
+    })
+
+    test('limit가 소수점이면 int 검증에 실패한다', () => {
+        expect(() => paginationQuerySchema.parse({ limit: 10.5 })).toThrow()
+    })
 })

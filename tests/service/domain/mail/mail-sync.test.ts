@@ -204,6 +204,50 @@ describe('createMailSyncService', () => {
             expect(result.added).toBeGreaterThanOrEqual(0)
         })
 
+        test('삭제된 메시지와 새 메시지를 동시에 처리한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.fetchMessages = mock(() => Promise.resolve({
+                messages: [mockMessage('new-1'), mockMessage('new-2')],
+                deletedIds: ['del-1', 'del-3'],
+                newSyncCursor: 'cursor-mix',
+            }))
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            const result = await service.syncAccount(1, 'user-1')
+
+            expect(result.added).toBeGreaterThanOrEqual(0)
+            expect(result.deleted).toBe(2)
+            expect(deps.db.deleteMessagesByRemoteIds).toHaveBeenCalledWith(1, ['del-1', 'del-3'])
+            expect(deps.db.upsertMessage).toHaveBeenCalledTimes(2)
+        })
+
+        test('첨부파일이 있는 메시지를 처리한다', async () => {
+            const accountService = createMockAccountService()
+            const msgWithAttachment = {
+                ...mockMessage('msg-att-1'),
+                attachments: [
+                    { id: 'att-1', filename: 'doc.pdf', mimeType: 'application/pdf', sizeBytes: 2048, contentId: null, isInline: false },
+                    { id: 'att-2', filename: 'img.png', mimeType: 'image/png', sizeBytes: 4096, contentId: 'cid-1', isInline: true },
+                ],
+            }
+            accountService._provider.fetchMessages = mock(() => Promise.resolve({
+                messages: [msgWithAttachment],
+                deletedIds: [],
+                newSyncCursor: 'cursor-att',
+            }))
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.upsertAttachment).toHaveBeenCalledTimes(2)
+            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(
+                expect.objectContaining({ filename: 'doc.pdf', isInline: false }),
+            )
+            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(
+                expect.objectContaining({ filename: 'img.png', isInline: true }),
+            )
+        })
+
         test('에러 시 error 상태로 로그 업데이트', async () => {
             const accountService = createMockAccountService()
             accountService._provider.connect = mock(() => Promise.reject(new Error('Connection failed')))

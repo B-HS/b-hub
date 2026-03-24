@@ -32,4 +32,18 @@ describe('requireAdmin middleware', () => {
         const res = await createApp(getSession).request('/test')
         expect(res.status).toBe(200)
     })
+
+    test('role이 null이면 403을 반환한다', async () => {
+        const nullRoleUser = { ...mockUser, role: null }
+        const getSession = mock(() => Promise.resolve({ user: nullRoleUser }))
+        const res = await createApp(getSession).request('/test')
+        expect(res.status).toBe(403)
+    })
+
+    test('role이 빈 문자열이면 403을 반환한다', async () => {
+        const emptyRoleUser = { ...mockUser, role: '' }
+        const getSession = mock(() => Promise.resolve({ user: emptyRoleUser }))
+        const res = await createApp(getSession).request('/test')
+        expect(res.status).toBe(403)
+    })
 })

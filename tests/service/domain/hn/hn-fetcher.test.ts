@@ -116,4 +116,44 @@ describe('createHnFetcherService', () => {
         expect(result.best).toBeDefined()
         expect(result.new).toBeDefined()
     })
+
+    test('syncStories에서 모든 아이템이 null이면 빈 결과를 반환한다', async () => {
+        let callCount = 0
+        const fetchFn = mock(() => {
+            callCount++
+            if (callCount === 1) {
+                return Promise.resolve({
+                    json: () => Promise.resolve([1, 2, 3]),
+                } as Response)
+            }
+            return Promise.reject(new Error('Failed'))
+        })
+        const db = createMockDb()
+        db.getExistingStoryIds = mock(() => Promise.resolve([]))
+        const service = createHnFetcherService({ fetchFn, db })
+
+        const result = await service.syncStories('top', 3)
+        expect(result.synced).toBe(0)
+        expect(result.updated).toBe(0)
+    })
+
+    test('fetchCommentsRecursive에서 depth가 maxDepth에 도달하면 재귀를 중단한다', async () => {
+        const fetchFn = mock(() =>
+            Promise.resolve({
+                json: () =>
+                    Promise.resolve({
+                        id: 200,
+                        type: 'comment',
+                        by: 'user',
+                        text: 'Deep comment',
+                        parent: 100,
+                        kids: [300],
+                    }),
+            } as Response),
+        )
+        const service = createHnFetcherService({ fetchFn, db: createMockDb() })
+
+        const comments = await service.fetchCommentsRecursive(1, [200], 3, 3)
+        expect(comments).toHaveLength(0)
+    })
 })

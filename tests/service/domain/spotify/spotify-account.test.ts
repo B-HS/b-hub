@@ -96,5 +96,24 @@ describe('createSpotifyAccountService', () => {
                 code: 'SPOTIFY_ACCOUNT_NOT_FOUND',
             })
         })
+
+        test('계정이 없으면 에러를 발생시킨다', async () => {
+            const db = createMockDb()
+            const service = createSpotifyAccountService({ db })
+            await expect(service.remove(999, 'user-1')).rejects.toMatchObject({
+                code: 'SPOTIFY_ACCOUNT_NOT_FOUND',
+            })
+        })
+    })
+
+    describe('getById', () => {
+        test('null을 반환하면 에러를 던진다', async () => {
+            const db = createMockDb()
+            db.getById = mock(() => Promise.resolve(null))
+            const service = createSpotifyAccountService({ db })
+            await expect(service.getById(42, 'user-1')).rejects.toMatchObject({
+                code: 'SPOTIFY_ACCOUNT_NOT_FOUND',
+            })
+        })
     })
 })

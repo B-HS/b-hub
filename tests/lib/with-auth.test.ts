@@ -102,4 +102,26 @@ describe('withApiToken', () => {
         })
         expect(res.status).toBe(401)
     })
+
+    test('빈 토큰 헤더는 401을 반환한다', async () => {
+        const validateToken = mock(() => Promise.resolve(mockUser))
+        const app = new Hono()
+        app.get('/test', withErrorHandling(withApiToken({ validateToken })(async (c) => c.json({ ok: true }))))
+
+        const res = await app.request('/test', {
+            headers: { 'X-API-Token': '' },
+        })
+        expect(res.status).toBe(401)
+    })
+
+    test('validateToken 에러가 전파된다', async () => {
+        const validateToken = mock(() => Promise.reject(new Error('token service down')))
+        const app = new Hono()
+        app.get('/test', withErrorHandling(withApiToken({ validateToken })(async (c) => c.json({ ok: true }))))
+
+        const res = await app.request('/test', {
+            headers: { 'X-API-Token': 'some-token' },
+        })
+        expect(res.status).toBe(500)
+    })
 })
