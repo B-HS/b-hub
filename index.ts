@@ -5,6 +5,7 @@ import { swaggerUI } from '@hono/swagger-ui'
 import { securityHeaders } from './middleware/security-headers'
 import { errorHandler } from './middleware/error-handler'
 import { createRouter } from './route/index'
+import { createCalendarCaldavRoute } from './route/calendar/caldav'
 import { homeRoute } from './route/home'
 import { policyRoute } from './route/policy'
 import { compose } from './compose'
@@ -75,10 +76,28 @@ const router = createRouter({
     spotifyWidgetTokenService: deps.spotifyWidgetTokenService,
     spotifyWidgetService: deps.spotifyWidgetService,
     resumeService: deps.resumeService,
+    calendarService: deps.calendarService,
+    caldavService: deps.caldavService,
     baseUrl: deps.baseUrl,
 })
 app.route('/policy', policyRoute)
 app.route('/api', router)
+
+// CalDAV route (outside /api for CalDAV client compatibility)
+if (deps.calendarService && deps.caldavService) {
+    const caldavRoute = createCalendarCaldavRoute({
+        calendarService: deps.calendarService,
+        caldavService: deps.caldavService,
+    })
+    app.route('/caldav', caldavRoute)
+}
+
+// CalDAV well-known discovery
+app.get('/.well-known/caldav', (c) => {
+    const token = c.req.query('token')
+    if (token) return c.redirect(`/caldav/${token}/`, 301)
+    return c.text('CalDAV server. Use /caldav/:token/', 200)
+})
 
 if (process.env.NODE_ENV !== 'production') {
     app.get('/docs', async (c) => {

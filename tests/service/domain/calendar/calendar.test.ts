@@ -1,0 +1,640 @@
+import { describe, test, expect, mock, beforeEach } from 'bun:test'
+import { createCalendarService } from '../../../../service/domain/calendar/calendar'
+import type { CalendarServiceDb } from '../../../../service/domain/calendar/calendar'
+
+const createMockDb = (): CalendarServiceDb => ({
+    getEventsByMonthRange: mock(() => Promise.resolve([])),
+    getAllEvents: mock(() => Promise.resolve([])),
+    getEventByUid: mock(() => Promise.resolve(null)),
+    getEventByUidWithDomain: mock(() => Promise.resolve(null)),
+    insertEvent: mock(() => Promise.resolve()),
+    updateEvent: mock(() => Promise.resolve()),
+    deleteEventByUid: mock(() => Promise.resolve()),
+    getSubscription: mock(() => Promise.resolve(null)),
+    getSubscriptionByToken: mock(() => Promise.resolve(null)),
+    getSubscriptionByIcsToken: mock(() => Promise.resolve(null)),
+    insertSubscription: mock(() => Promise.resolve()),
+    updateSubscription: mock(() => Promise.resolve()),
+    updateSubscriptionToken: mock(() => Promise.resolve()),
+    updateSubscriptionIcsToken: mock(() => Promise.resolve()),
+    updateSubscriptionLastAccessed: mock(() => Promise.resolve()),
+    incrementCtag: mock(() => Promise.resolve()),
+    insertDeletedEvent: mock(() => Promise.resolve()),
+    getUserTimezone: mock(() => Promise.resolve(null)),
+    updateUserTimezone: mock(() => Promise.resolve()),
+})
+
+let mockDb: CalendarServiceDb
+
+describe('CalendarService', () => {
+    beforeEach(() => {
+        mockDb = createMockDb()
+    })
+
+    describe('getAllEvents', () => {
+        test('이벤트가 없으면 빈 배열을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getAllEvents('user-123')
+
+            expect(events).toEqual([])
+        })
+
+        test('매핑된 이벤트를 반환한다', async () => {
+            const mockRow = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test Event',
+                description: 'Test Description',
+                location: 'Test Location',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: 'CONFIRMED',
+                transp: 'OPAQUE',
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date('2024-01-01'),
+                updatedAt: new Date('2024-01-01'),
+            }
+            ;(mockDb.getAllEvents as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getAllEvents('user-123')
+
+            expect(events).toHaveLength(1)
+            expect(events[0].uid).toBe('uid-123@b-calendar')
+            expect(events[0].summary).toBe('Test Event')
+            expect(events[0].description).toBe('Test Description')
+            expect(events[0].location).toBe('Test Location')
+        })
+    })
+
+    describe('getEventByUid', () => {
+        test('이벤트가 없으면 null을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const event = await service.getEventByUid('user-123', 'non-existent')
+
+            expect(event).toBeNull()
+        })
+
+        test('이벤트를 찾으면 반환한다', async () => {
+            const mockRow = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test Event',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date('2024-01-01'),
+                updatedAt: new Date('2024-01-01'),
+            }
+            ;(mockDb.getEventByUid as ReturnType<typeof mock>).mockResolvedValue(mockRow)
+            const service = createCalendarService({ db: mockDb })
+
+            const event = await service.getEventByUid('user-123', 'uid-123@b-calendar')
+
+            expect(event).not.toBeNull()
+            expect(event?.uid).toBe('uid-123@b-calendar')
+        })
+
+        test('도메인 접미사 없이도 찾는다', async () => {
+            const mockRow = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test Event',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date('2024-01-01'),
+                updatedAt: new Date('2024-01-01'),
+            }
+            ;(mockDb.getEventByUid as ReturnType<typeof mock>).mockResolvedValue(null)
+            ;(mockDb.getEventByUidWithDomain as ReturnType<typeof mock>).mockResolvedValue(mockRow)
+            const service = createCalendarService({ db: mockDb })
+
+            const event = await service.getEventByUid('user-123', 'uid-123')
+
+            expect(event).not.toBeNull()
+            expect(event?.uid).toBe('uid-123@b-calendar')
+        })
+    })
+
+    describe('createEvent', () => {
+        test('uid에 @b-calendar 접미사를 생성한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const event = await service.createEvent('user-123', {
+                summary: 'New Event',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+            })
+
+            expect(event.uid).toContain('@b-calendar')
+            expect(event.summary).toBe('New Event')
+            expect(event.created).toBeDefined()
+            expect(event.lastModified).toBeDefined()
+        })
+
+        test('rrule을 처리한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const event = await service.createEvent('user-123', {
+                summary: 'Recurring Event',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'WEEKLY', interval: 1 },
+            })
+
+            expect(event.rrule?.freq).toBe('WEEKLY')
+        })
+
+        test('incrementCtag을 호출한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.createEvent('user-123', {
+                summary: 'Test',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+            })
+
+            expect(mockDb.incrementCtag).toHaveBeenCalledWith('user-123')
+        })
+
+        test('description이 null이면 null로 전달한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.createEvent('user-123', {
+                summary: 'Test',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                description: undefined,
+            })
+
+            const insertCall = (mockDb.insertEvent as ReturnType<typeof mock>).mock.calls[0]
+            expect(insertCall[0].description).toBeNull()
+        })
+
+        test('categories 빈 배열이면 null로 전달한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.createEvent('user-123', {
+                summary: 'Test',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                categories: [],
+            })
+
+            const insertCall = (mockDb.insertEvent as ReturnType<typeof mock>).mock.calls[0]
+            expect(insertCall[0].categories).toBeNull()
+        })
+    })
+
+    describe('deleteEvent', () => {
+        test('insertDeletedEvent, deleteEventByUid, incrementCtag을 호출한다', async () => {
+            const mockRow = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test',
+                description: null,
+                location: null,
+                dtstart: new Date(),
+                dtend: new Date(),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            }
+            ;(mockDb.getEventByUid as ReturnType<typeof mock>).mockResolvedValue(mockRow)
+            const service = createCalendarService({ db: mockDb })
+
+            await service.deleteEvent('user-123', 'uid-123@b-calendar')
+
+            expect(mockDb.insertDeletedEvent).toHaveBeenCalled()
+            expect(mockDb.deleteEventByUid).toHaveBeenCalledWith('user-123', 'uid-123@b-calendar')
+            expect(mockDb.incrementCtag).toHaveBeenCalledWith('user-123')
+        })
+
+        test('이벤트가 없으면 아무 작업도 하지 않는다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.deleteEvent('user-123', 'non-existent')
+
+            expect(mockDb.insertDeletedEvent).not.toHaveBeenCalled()
+            expect(mockDb.deleteEventByUid).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('getEventsByMonth', () => {
+        test('빈 배열을 반환한다 (이벤트 없음)', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByMonth('user-123', 2024, 0)
+
+            expect(events).toEqual([])
+            expect(mockDb.getEventsByMonthRange).toHaveBeenCalled()
+        })
+
+        test('반복 이벤트를 포함한다', async () => {
+            const mockRow = {
+                uid: 'uid-recurring@b-calendar',
+                summary: 'Weekly Meeting',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-01-01T10:00:00Z'),
+                dtend: new Date('2024-01-01T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'WEEKLY' as const, interval: 1 },
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date('2024-01-01'),
+                updatedAt: new Date('2024-01-01'),
+            }
+            ;(mockDb.getEventsByMonthRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByMonth('user-123', 2024, 0)
+
+            expect(events.length).toBeGreaterThanOrEqual(1)
+            expect(events[0].rrule?.freq).toBe('WEEKLY')
+        })
+
+        test('반복 발생이 범위 밖이면 제외한다', async () => {
+            const mockRow = {
+                uid: 'uid-past@b-calendar',
+                summary: 'Past Recurring',
+                description: null,
+                location: null,
+                dtstart: new Date('2023-06-01T10:00:00Z'),
+                dtend: new Date('2023-06-01T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'YEARLY' as const, count: 1 },
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date('2023-06-01'),
+                updatedAt: new Date('2023-06-01'),
+            }
+            ;(mockDb.getEventsByMonthRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByMonth('user-123', 2024, 0)
+
+            const found = events.find((e) => e.uid === 'uid-past@b-calendar')
+            expect(found).toBeUndefined()
+        })
+    })
+
+    describe('updateEvent', () => {
+        test('sequence를 자동으로 1 증가시킨다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const eventData = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                sequence: 2,
+            }
+
+            const result = await service.updateEvent('user-123', eventData)
+
+            expect(result.sequence).toBe(3)
+        })
+
+        test('rrule until의 Date를 ISO string으로 변환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const untilDate = new Date('2024-12-31T23:59:59Z')
+            const eventData = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Recurring',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'WEEKLY' as const, until: untilDate },
+            }
+
+            await service.updateEvent('user-123', eventData)
+
+            const updateCall = (mockDb.updateEvent as ReturnType<typeof mock>).mock.calls[0]
+            expect(updateCall[2].rrule.until).toBe(untilDate.toISOString())
+        })
+    })
+
+    describe('upsertEventByUid', () => {
+        test('기존 이벤트가 있으면 업데이트한다', async () => {
+            const mockRow = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Existing Event',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                sequence: 0,
+                createdAt: new Date('2024-01-01'),
+                updatedAt: new Date('2024-01-01'),
+            }
+            ;(mockDb.getEventByUid as ReturnType<typeof mock>).mockResolvedValue(mockRow)
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.upsertEventByUid('user-123', 'uid-123@b-calendar', {
+                summary: 'Updated Event',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+            })
+
+            expect(result.created).toBe(false)
+            expect(result.event.summary).toBe('Updated Event')
+            expect(mockDb.updateEvent).toHaveBeenCalled()
+        })
+
+        test('기존 이벤트가 없으면 생성한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.upsertEventByUid('user-123', 'new-uid@b-calendar', {
+                summary: 'New Event',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+            })
+
+            expect(result.created).toBe(true)
+            expect(result.event.uid).toBe('new-uid@b-calendar')
+            expect(mockDb.insertEvent).toHaveBeenCalled()
+        })
+    })
+
+    describe('getEventEtag', () => {
+        test('lastModified가 undefined이면 현재시간 기반 etag을 생성한다', () => {
+            const service = createCalendarService({ db: mockDb })
+            const event = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test',
+                dtstart: new Date(),
+                dtend: new Date(),
+                isAllDay: false,
+            }
+
+            const etag = service.getEventEtag(event)
+
+            expect(etag).toBeDefined()
+            expect(typeof etag).toBe('string')
+            expect(etag.length).toBeGreaterThan(0)
+        })
+
+        test('etag 형식이 "timestamp-uid" 패턴이다', () => {
+            const service = createCalendarService({ db: mockDb })
+            const event = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test',
+                dtstart: new Date(),
+                dtend: new Date(),
+                isAllDay: false,
+                lastModified: new Date('2024-01-01T00:00:00Z'),
+            }
+
+            const etag = service.getEventEtag(event)
+
+            expect(etag).toMatch(/^[a-z0-9]+-uid-123@$/)
+        })
+    })
+
+    describe('regenerateSubscriptionToken', () => {
+        test('새 토큰을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const token = await service.regenerateSubscriptionToken('user-123')
+
+            expect(typeof token).toBe('string')
+            expect(token.length).toBeGreaterThan(0)
+            expect(mockDb.updateSubscriptionToken).toHaveBeenCalledWith('user-123', token)
+        })
+    })
+
+    describe('regenerateIcsToken', () => {
+        test('새 ICS 토큰을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const token = await service.regenerateIcsToken('user-123')
+
+            expect(typeof token).toBe('string')
+            expect(token.length).toBeGreaterThan(0)
+            expect(mockDb.updateSubscriptionIcsToken).toHaveBeenCalledWith('user-123', token)
+        })
+    })
+
+    describe('updateUserTimezone', () => {
+        test('타임존을 업데이트한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.updateUserTimezone('user-123', 'America/New_York')
+
+            expect(mockDb.updateUserTimezone).toHaveBeenCalledWith('user-123', 'America/New_York')
+        })
+    })
+
+    describe('getSubscriptionByIcsToken', () => {
+        test('ICS 토큰으로 구독을 반환한다', async () => {
+            const sub = {
+                id: 'sub-1',
+                userId: 'user-123',
+                token: 'token-123',
+                icsToken: 'ics-token-123',
+                name: 'My Calendar',
+                isActive: true,
+                ctag: 'abc',
+                lastAccessedAt: null,
+            }
+            ;(mockDb.getSubscriptionByIcsToken as ReturnType<typeof mock>).mockResolvedValue(sub)
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.getSubscriptionByIcsToken('ics-token-123')
+
+            expect(result).not.toBeNull()
+            expect(result?.icsToken).toBe('ics-token-123')
+        })
+
+        test('토큰이 없으면 null을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.getSubscriptionByIcsToken('non-existent')
+
+            expect(result).toBeNull()
+        })
+    })
+
+    describe('getSubscription', () => {
+        test('구독이 없으면 null을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const sub = await service.getSubscription('user-123')
+
+            expect(sub).toBeNull()
+        })
+    })
+
+    describe('createSubscription', () => {
+        test('기존 구독이 있으면 기존 것을 반환한다', async () => {
+            const existingSub = {
+                id: 'sub-1',
+                userId: 'user-123',
+                token: 'existing-token',
+                icsToken: 'existing-ics-token',
+                name: 'My Calendar',
+                isActive: true,
+                ctag: '0',
+                lastAccessedAt: null,
+            }
+            ;(mockDb.getSubscription as ReturnType<typeof mock>).mockResolvedValue(existingSub)
+            const service = createCalendarService({ db: mockDb })
+
+            const sub = await service.createSubscription('user-123')
+
+            expect(sub.token).toBe('existing-token')
+            expect(mockDb.insertSubscription).not.toHaveBeenCalled()
+        })
+
+        test('구독이 없으면 새로 생성한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const sub = await service.createSubscription('user-123', 'Test Calendar')
+
+            expect(sub.name).toBe('Test Calendar')
+            expect(sub.isActive).toBe(true)
+            expect(sub.ctag).toBe('0')
+            expect(mockDb.insertSubscription).toHaveBeenCalled()
+        })
+    })
+
+    describe('getSubscriptionByToken', () => {
+        test('토큰으로 구독을 찾으면 lastAccessedAt을 업데이트한다', async () => {
+            const sub = {
+                id: 'sub-1',
+                userId: 'user-123',
+                token: 'token-123',
+                icsToken: 'ics-token-123',
+                name: 'My Calendar',
+                isActive: true,
+                ctag: 'abc',
+                lastAccessedAt: null,
+            }
+            ;(mockDb.getSubscriptionByToken as ReturnType<typeof mock>).mockResolvedValue(sub)
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.getSubscriptionByToken('token-123')
+
+            expect(result).not.toBeNull()
+            expect(mockDb.updateSubscriptionLastAccessed).toHaveBeenCalledWith('sub-1')
+        })
+
+        test('ctag을 변경하지 않는다 (Bug #6 수정)', async () => {
+            const sub = {
+                id: 'sub-1',
+                userId: 'user-123',
+                token: 'token-123',
+                icsToken: 'ics-token-123',
+                name: 'My Calendar',
+                isActive: true,
+                ctag: 'original-ctag',
+                lastAccessedAt: null,
+            }
+            ;(mockDb.getSubscriptionByToken as ReturnType<typeof mock>).mockResolvedValue(sub)
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.getSubscriptionByToken('token-123')
+
+            expect(result?.ctag).toBe('original-ctag')
+            expect(mockDb.incrementCtag).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('getUserTimezone', () => {
+        test('타임존이 null이면 기본값 Asia/Seoul을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const tz = await service.getUserTimezone('user-123')
+
+            expect(tz).toBe('Asia/Seoul')
+        })
+
+        test('사용자 타임존을 반환한다', async () => {
+            ;(mockDb.getUserTimezone as ReturnType<typeof mock>).mockResolvedValue('America/New_York')
+            const service = createCalendarService({ db: mockDb })
+
+            const tz = await service.getUserTimezone('user-123')
+
+            expect(tz).toBe('America/New_York')
+        })
+    })
+
+    describe('getEventEtag', () => {
+        test('etag을 생성한다', () => {
+            const service = createCalendarService({ db: mockDb })
+            const event = {
+                uid: 'uid-123@b-calendar',
+                summary: 'Test',
+                dtstart: new Date(),
+                dtend: new Date(),
+                isAllDay: false,
+                lastModified: new Date('2024-01-01T00:00:00Z'),
+            }
+
+            const etag = service.getEventEtag(event)
+
+            expect(etag).toContain('uid-123@')
+        })
+    })
+})

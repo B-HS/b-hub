@@ -1,4 +1,4 @@
-import { mysqlTable, int, varchar, text, longtext, boolean, datetime, timestamp, bigint, json, index, unique } from 'drizzle-orm/mysql-core'
+import { mysqlTable, int, varchar, text, longtext, boolean, datetime, timestamp, bigint, json, index, unique, mysqlEnum, tinyint } from 'drizzle-orm/mysql-core'
 
 export const user = mysqlTable('user', {
     id: varchar('id', { length: 36 }).primaryKey(),
@@ -15,6 +15,7 @@ export const user = mysqlTable('user', {
     banned: boolean('banned').default(false),
     banReason: text('ban_reason'),
     banExpires: timestamp('ban_expires', { fsp: 3 }),
+    timezone: varchar('timezone', { length: 64 }).notNull().default('Asia/Seoul'),
 })
 
 export const session = mysqlTable('session', {
@@ -768,3 +769,97 @@ export type MailAttachment = typeof mailAttachments.$inferSelect
 export type MailSyncLog = typeof mailSyncLogs.$inferSelect
 export type MailSyncSession = typeof mailSyncSessions.$inferSelect
 export type MailUpload = typeof mailUploads.$inferSelect
+
+// Calendar
+
+export type RRuleType = {
+    freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+    interval?: number
+    count?: number
+    until?: string
+    byDay?: string[]
+    byMonth?: number[]
+    byMonthDay?: number[]
+} | null
+
+export const calendarEvent = mysqlTable(
+    'calendar_event',
+    {
+        id: varchar('id', { length: 36 }).primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        uid: varchar('uid', { length: 255 }).notNull().unique(),
+        summary: varchar('summary', { length: 500 }).notNull(),
+        description: text('description'),
+        location: varchar('location', { length: 500 }),
+        dtstart: datetime('dtstart').notNull(),
+        dtend: datetime('dtend').notNull(),
+        isAllDay: boolean('is_all_day').notNull().default(false),
+        rrule: json('rrule').$type<RRuleType>(),
+        exdate: json('exdate').$type<string[]>(),
+        status: mysqlEnum('status', ['TENTATIVE', 'CONFIRMED', 'CANCELLED']).default('CONFIRMED'),
+        transp: mysqlEnum('transp', ['TRANSPARENT', 'OPAQUE']).default('OPAQUE'),
+        priority: tinyint('priority'),
+        categories: json('categories').$type<string[]>(),
+        color: varchar('color', { length: 50 }),
+        sequence: tinyint('sequence').notNull().default(0),
+        dtstamp: datetime('dtstamp').notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index('idx_calendar_event_user').on(table.userId),
+        index('idx_calendar_event_user_dtstart').on(table.userId, table.dtstart),
+        index('idx_calendar_event_uid').on(table.uid),
+    ],
+)
+
+export const deletedCalendarEvent = mysqlTable(
+    'deleted_calendar_event',
+    {
+        id: varchar('id', { length: 36 }).primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        uid: varchar('uid', { length: 255 }).notNull(),
+        deletedAt: timestamp('deleted_at', { fsp: 3 }).defaultNow().notNull(),
+        syncToken: varchar('sync_token', { length: 64 }).notNull(),
+    },
+    (table) => [index('idx_deleted_event_user_sync').on(table.userId, table.syncToken)],
+)
+
+export const calendarSubscription = mysqlTable(
+    'calendar_subscription',
+    {
+        id: varchar('id', { length: 36 }).primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        token: varchar('token', { length: 64 }).notNull().unique(),
+        icsToken: varchar('ics_token', { length: 64 }).notNull().unique(),
+        name: varchar('name', { length: 255 }),
+        isActive: boolean('is_active').notNull().default(true),
+        ctag: varchar('ctag', { length: 64 }).notNull().default('0'),
+        lastAccessedAt: datetime('last_accessed_at'),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index('idx_subscription_token').on(table.token),
+        index('idx_subscription_ics_token').on(table.icsToken),
+        index('idx_subscription_user').on(table.userId),
+    ],
+)
+
+export type CalendarEvent = typeof calendarEvent.$inferSelect
+export type NewCalendarEvent = typeof calendarEvent.$inferInsert
+export type CalendarSubscription = typeof calendarSubscription.$inferSelect
+export type NewCalendarSubscription = typeof calendarSubscription.$inferInsert
+export type DeletedCalendarEvent = typeof deletedCalendarEvent.$inferSelect

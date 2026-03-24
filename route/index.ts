@@ -30,6 +30,9 @@ import { createSpotifyDataRoute } from './spotify/data'
 import { createSpotifyPlayingRoute } from './spotify/playing'
 import { createSpotifyWidgetTokenRoute } from './spotify/widget-token'
 import { createResumeRoute } from './resume/resume'
+import { createCalendarEventRoute } from './calendar/event'
+import { createCalendarSubscriptionRoute } from './calendar/subscription'
+import { createCalendarIcsRoute } from './calendar/ics'
 import type { AuthProvider } from '../service/shared/auth-provider'
 import type { ApiTokenService } from '../service/shared/api-token'
 import type { BadgeService } from '../service/domain/badge/badge'
@@ -57,6 +60,8 @@ import type { SpotifyDataService } from '../service/domain/spotify/spotify-data'
 import type { SpotifyWidgetTokenService } from '../service/domain/spotify/spotify-widget-token'
 import type { SpotifyWidgetService } from '../service/domain/spotify/spotify-widget'
 import type { ResumeService } from '../service/domain/resume/resume'
+import type { CalendarService } from '../service/domain/calendar/calendar'
+import type { CaldavService } from '../service/domain/calendar/caldav'
 import { createAppError } from '../lib/error'
 
 type HnStoryDb = Parameters<typeof createStoryRoute>[0]['db']
@@ -111,6 +116,8 @@ type RouterDeps = {
     spotifyWidgetTokenService?: SpotifyWidgetTokenService
     spotifyWidgetService?: SpotifyWidgetService
     resumeService?: ResumeService
+    calendarService?: CalendarService
+    caldavService?: CaldavService
     baseUrl?: string
 }
 
@@ -351,6 +358,28 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createResumeRoute({
             resumeService: stub(deps.resumeService),
             getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+
+    router.route(
+        '/calendar/events',
+        createCalendarEventRoute({
+            calendarService: stub(deps.calendarService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/calendar/subscription',
+        createCalendarSubscriptionRoute({
+            calendarService: stub(deps.calendarService),
+            getSession: stubFn(deps.getSession) as never,
+            baseUrl: deps.baseUrl,
+        }),
+    )
+    router.route(
+        '/calendar',
+        createCalendarIcsRoute({
+            calendarService: stub(deps.calendarService),
         }),
     )
 

@@ -77,6 +77,12 @@ const STATUS_MAP: Record<string, number> = {
 
     RESUME_NOT_FOUND: 404,
     RESUME_NOT_OWNER: 403,
+
+    CALENDAR_EVENT_NOT_FOUND: 404,
+    CALENDAR_SUBSCRIPTION_NOT_FOUND: 404,
+    CALENDAR_CALDAV_AUTH_FAILED: 401,
+    CALENDAR_ICS_PARSE_FAILED: 422,
+    CALENDAR_ICS_TOO_LARGE: 413,
 }
 
 export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500
