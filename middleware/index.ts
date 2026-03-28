@@ -25,7 +25,7 @@ const isAllowedOrigin = (origin: string, allowedDomains: string[]) => {
 
 export const createMiddleware = (app: Hono<AuthContext>, deps: MiddlewareDeps) => {
     app.use(
-        '*',
+        '/api/*',
         cors({
             origin: (origin) => (origin && isAllowedOrigin(origin, deps.allowedDomains) ? origin : ''),
             credentials: true,
