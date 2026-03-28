@@ -74,7 +74,7 @@ describe('isAllowedRedirect', () => {
     test('허용된 도메인을 허용한다', () => {
         expect(isAllowedRedirect('https://gumyo.net/dashboard')).toBe(true)
         expect(isAllowedRedirect('https://hyns.dev/settings')).toBe(true)
-        expect(isAllowedRedirect('https://hub.gumyo.net/callback')).toBe(true)
+        expect(isAllowedRedirect('https://api.gumyo.net/callback')).toBe(true)
         expect(isAllowedRedirect('https://sub.hyns.dev')).toBe(true)
     })
 

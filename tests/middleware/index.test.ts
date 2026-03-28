@@ -24,9 +24,9 @@ describe('createMiddleware', () => {
         test('서브도메인도 허용한다', async () => {
             const app = createApp()
             const res = await app.request('/api/test', {
-                headers: { Origin: 'https://hub.gumyo.net' },
+                headers: { Origin: 'https://api.gumyo.net' },
             })
-            expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://hub.gumyo.net')
+            expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://api.gumyo.net')
         })
 
         test('허용되지 않은 도메인은 빈 문자열을 반환한다', async () => {

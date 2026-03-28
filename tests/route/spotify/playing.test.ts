@@ -35,7 +35,7 @@ const createDeps = (isValid = true) => ({
             }),
         ),
     },
-    baseUrl: 'https://hub.gumyo.net',
+    baseUrl: 'https://api.gumyo.net',
 })
 
 const createApp = (deps: ReturnType<typeof createDeps>) => {

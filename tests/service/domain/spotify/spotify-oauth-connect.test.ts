@@ -23,7 +23,7 @@ describe('createSpotifyOAuthConnectService', () => {
         test('Spotify OAuth URL을 생성한다', async () => {
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net')
             expect(url).toContain('accounts.spotify.com/authorize')
             expect(url).toContain('client_id=client-id')
         })
@@ -31,7 +31,7 @@ describe('createSpotifyOAuthConnectService', () => {
         test('state에 userId가 포함된다', async () => {
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net')
             const state = new URL(url).searchParams.get('state')
             expect(state).toBeTruthy()
         })
@@ -39,7 +39,7 @@ describe('createSpotifyOAuthConnectService', () => {
         test('redirect가 state에 포함된다', async () => {
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net', '/dashboard')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net', '/dashboard')
             const state = new URL(url).searchParams.get('state')!
             const redirect = service.parseRedirectFromState(state)
             expect(redirect).toBe('/dashboard')
@@ -66,10 +66,10 @@ describe('createSpotifyOAuthConnectService', () => {
 
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net')
             const state = new URL(url).searchParams.get('state')!
 
-            const result = await service.handleCallback('valid-code', state, 'user-1', 'https://hub.gumyo.net')
+            const result = await service.handleCallback('valid-code', state, 'user-1', 'https://api.gumyo.net')
             expect(result.spotifyAccountId).toBe(1)
             expect(result.spotifyUserId).toBe('spotify-user-1')
             expect(deps.createSpotifyAccount).toHaveBeenCalledTimes(1)
@@ -78,7 +78,7 @@ describe('createSpotifyOAuthConnectService', () => {
         test('잘못된 state는 에러를 발생시킨다', async () => {
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            await expect(service.handleCallback('code', 'invalid-state', 'user-1', 'https://hub.gumyo.net')).rejects.toMatchObject({
+            await expect(service.handleCallback('code', 'invalid-state', 'user-1', 'https://api.gumyo.net')).rejects.toMatchObject({
                 code: 'SPOTIFY_OAUTH_STATE_INVALID',
             })
         })
@@ -86,10 +86,10 @@ describe('createSpotifyOAuthConnectService', () => {
         test('userId 불일치 시 에러를 발생시킨다', async () => {
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net')
             const state = new URL(url).searchParams.get('state')!
 
-            await expect(service.handleCallback('code', state, 'user-2', 'https://hub.gumyo.net')).rejects.toMatchObject({
+            await expect(service.handleCallback('code', state, 'user-2', 'https://api.gumyo.net')).rejects.toMatchObject({
                 code: 'SPOTIFY_OAUTH_STATE_INVALID',
             })
         })
@@ -99,10 +99,10 @@ describe('createSpotifyOAuthConnectService', () => {
 
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net')
             const state = new URL(url).searchParams.get('state')!
 
-            await expect(service.handleCallback('bad-code', state, 'user-1', 'https://hub.gumyo.net')).rejects.toMatchObject({
+            await expect(service.handleCallback('bad-code', state, 'user-1', 'https://api.gumyo.net')).rejects.toMatchObject({
                 code: 'SPOTIFY_OAUTH_EXCHANGE_FAILED',
             })
         })
@@ -116,10 +116,10 @@ describe('createSpotifyOAuthConnectService', () => {
             const deps = createMockDeps()
             deps.findSpotifyAccountByUserId = mock(() => Promise.resolve({ id: 5 }))
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net')
             const state = new URL(url).searchParams.get('state')!
 
-            const result = await service.handleCallback('valid-code', state, 'user-1', 'https://hub.gumyo.net')
+            const result = await service.handleCallback('valid-code', state, 'user-1', 'https://api.gumyo.net')
             expect(result.spotifyAccountId).toBe(5)
             expect(deps.updateSpotifyAccount).toHaveBeenCalledTimes(1)
             expect(deps.createSpotifyAccount).not.toHaveBeenCalled()
@@ -130,7 +130,7 @@ describe('createSpotifyOAuthConnectService', () => {
         test('redirect URL을 파싱한다', async () => {
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)
-            const url = await service.generateAuthUrl('user-1', 'https://hub.gumyo.net', '/settings')
+            const url = await service.generateAuthUrl('user-1', 'https://api.gumyo.net', '/settings')
             const state = new URL(url).searchParams.get('state')!
             expect(service.parseRedirectFromState(state)).toBe('/settings')
         })

@@ -83,9 +83,9 @@ describe('createSpotifyWidgetService', () => {
     test('generateHtmlWidget가 HTML 문서를 반환한다', () => {
         const deps = createMockDeps()
         const service = createSpotifyWidgetService(deps)
-        const html = service.generateHtmlWidget('abc123', 'https://hub.gumyo.net')
+        const html = service.generateHtmlWidget('abc123', 'https://api.gumyo.net')
         expect(html).toContain('<!DOCTYPE html>')
-        expect(html).toContain('https://hub.gumyo.net/api/spotify/playing/abc123/data')
+        expect(html).toContain('https://api.gumyo.net/api/spotify/playing/abc123/data')
     })
 
     test('getNowPlayingData가 spotify data 서비스를 호출한다', async () => {
@@ -120,7 +120,7 @@ describe('createSpotifyWidgetService', () => {
         const deps = createMockDeps()
         const service = createSpotifyWidgetService(deps)
         const theme = { ...DEFAULT_THEME, bg: '222222', accent: 'ff5500', radius: 20 }
-        const html = service.generateHtmlWidget('abc123', 'https://hub.gumyo.net', theme)
+        const html = service.generateHtmlWidget('abc123', 'https://api.gumyo.net', theme)
         expect(html).toContain('#222222')
         expect(html).toContain('#ff5500')
         expect(html).toContain('20px')

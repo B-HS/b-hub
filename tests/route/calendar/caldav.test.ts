@@ -47,7 +47,7 @@ const createMockCaldavService = () => ({
     getChangesFromToken: mock(() =>
         Promise.resolve({
             changed: [mockEvent],
-            deleted: [],
+            deleted: [] as string[],
             syncToken: 'http://b-calendar/sync/1',
         }),
     ),
@@ -315,6 +315,53 @@ describe('CalDAV GET /:token 전체 캘린더', () => {
     })
 })
 
+describe('CalDAV PROPFIND /default (calendar collection)', () => {
+    test('Depth:0이면 캘린더 속성만 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default/', {
+            method: 'PROPFIND',
+            headers: { 'Content-Type': 'application/xml', 'Depth': '0' },
+            body: '<propfind xmlns="DAV:"><allprop/></propfind>',
+        })
+        expect(res.status).toBe(207)
+        expect(res.headers.get('Content-Type')).toContain('application/xml')
+        const body = await res.text()
+        expect(body).toContain('/default/')
+    })
+
+    test('Depth:1이면 이벤트 목록을 포함한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default/', {
+            method: 'PROPFIND',
+            headers: { 'Content-Type': 'application/xml', 'Depth': '1' },
+            body: '<propfind xmlns="DAV:"><allprop/></propfind>',
+        })
+        expect(res.status).toBe(207)
+        const body = await res.text()
+        expect(body).toContain('test-uid')
+    })
+
+    test('trailing slash 없이도 동작한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default', {
+            method: 'PROPFIND',
+            headers: { 'Content-Type': 'application/xml', 'Depth': '0' },
+            body: '<propfind xmlns="DAV:"><allprop/></propfind>',
+        })
+        expect(res.status).toBe(207)
+    })
+
+    test('유효하지 않은 토큰이면 404를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/invalid-token/default/', {
+            method: 'PROPFIND',
+            headers: { 'Content-Type': 'application/xml', 'Depth': '0' },
+            body: '<propfind xmlns="DAV:"><allprop/></propfind>',
+        })
+        expect(res.status).toBe(404)
+    })
+})
+
 describe('CalDAV REPORT', () => {
     test('calendar-query를 처리한다', async () => {
         const { app } = createApp()
@@ -387,5 +434,238 @@ describe('CalDAV REPORT', () => {
             body: reportBody,
         })
         expect(res.status).toBe(400)
+    })
+
+    test('calendar-multiget으로 개별 이벤트를 조회한다', async () => {
+        const { app } = createApp()
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+  <D:href>/caldav/valid-token/test-uid.ics</D:href>
+</C:calendar-multiget>`
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+        expect(res.status).toBe(207)
+        const body = await res.text()
+        expect(body).toContain('BEGIN:VCALENDAR')
+    })
+
+    test('calendar-multiget에서 존재하지 않는 이벤트는 404를 포함한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getEventByUid = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+  <D:href>/caldav/valid-token/nonexistent.ics</D:href>
+</C:calendar-multiget>`
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+        expect(res.status).toBe(207)
+        const body = await res.text()
+        expect(body).toContain('404')
+    })
+
+    test('알 수 없는 report 타입이면 400을 반환한다', async () => {
+        const { app } = createApp()
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:unknown-report xmlns:D="DAV:">
+</D:unknown-report>`
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+        expect(res.status).toBe(400)
+    })
+
+    test('유효하지 않은 토큰이면 404를 반환한다', async () => {
+        const { app } = createApp()
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop><D:getetag/></D:prop>
+  <C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter>
+</C:calendar-query>`
+
+        const res = await app.request('/caldav/invalid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+        expect(res.status).toBe(404)
+    })
+
+    test('/default 경로에서도 REPORT가 동작한다', async () => {
+        const { app } = createApp()
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop><D:getetag/><C:calendar-data/></D:prop>
+  <C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter>
+</C:calendar-query>`
+
+        const res = await app.request('/caldav/valid-token/default/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+        expect(res.status).toBe(207)
+    })
+
+    test('sync-collection에서 삭제된 이벤트도 포함한다', async () => {
+        const deps = createMockDeps()
+        deps.caldavService.getChangesFromToken = mock(() =>
+            Promise.resolve({
+                changed: [] as typeof mockEvent[],
+                deleted: ['deleted-uid@b-calendar'],
+                syncToken: 'http://b-calendar/sync/2',
+            }),
+        )
+        const { app } = createApp(deps)
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:sync-collection xmlns:D="DAV:">
+  <D:sync-token>http://b-calendar/sync/1</D:sync-token>
+  <D:prop><D:getetag/></D:prop>
+</D:sync-collection>`
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+        expect(res.status).toBe(207)
+        const body = await res.text()
+        expect(body).toContain('deleted-uid')
+        expect(body).toContain('404 Not Found')
+        expect(body).toContain('http://b-calendar/sync/2')
+    })
+})
+
+describe('CalDAV GET /:token/default 전체 캘린더', () => {
+    test('trailing slash로 전체 캘린더를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default/')
+        expect(res.status).toBe(200)
+        expect(res.headers.get('Content-Type')).toContain('text/calendar')
+        expect(res.headers.get('DAV')).toContain('calendar-access')
+    })
+
+    test('trailing slash 없이도 전체 캘린더를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default')
+        expect(res.status).toBe(200)
+        const body = await res.text()
+        expect(body).toContain('BEGIN:VCALENDAR')
+    })
+
+    test('유효하지 않은 토큰이면 404를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/invalid-token/default/')
+        expect(res.status).toBe(404)
+    })
+})
+
+describe('CalDAV GET /:token/default/:uid', () => {
+    test('단일 이벤트를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default/test-uid.ics')
+        expect(res.status).toBe(200)
+        expect(res.headers.get('Content-Type')).toContain('text/calendar')
+        expect(res.headers.get('ETag')).toBeTruthy()
+    })
+
+    test('존재하지 않는 이벤트면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getEventByUid = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/caldav/valid-token/default/nonexistent.ics')
+        expect(res.status).toBe(404)
+    })
+})
+
+describe('CalDAV PROPFIND 특정 속성 요청', () => {
+    test('allprop 대신 특정 prop을 요청할 수 있다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'PROPFIND',
+            headers: { 'Content-Type': 'application/xml', 'Depth': '0' },
+            body: `<?xml version="1.0" encoding="UTF-8"?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:resourcetype/>
+    <D:displayname/>
+  </D:prop>
+</D:propfind>`,
+        })
+        expect(res.status).toBe(207)
+    })
+
+    test('빈 body로도 PROPFIND가 동작한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'PROPFIND',
+            headers: { 'Depth': '0' },
+        })
+        expect(res.status).toBe(207)
+    })
+})
+
+describe('CalDAV PROPPATCH 경로 변형', () => {
+    test('trailing slash 없이도 동작한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token', {
+            method: 'PROPPATCH',
+            headers: { 'Content-Type': 'application/xml' },
+            body: '<propertyupdate xmlns="DAV:"><set><prop><displayname>Test</displayname></prop></set></propertyupdate>',
+        })
+        expect(res.status).toBe(207)
+    })
+
+    test('하위 경로에서도 동작한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default/', {
+            method: 'PROPPATCH',
+            headers: { 'Content-Type': 'application/xml' },
+            body: '<propertyupdate xmlns="DAV:"><set><prop><displayname>Test</displayname></prop></set></propertyupdate>',
+        })
+        expect(res.status).toBe(207)
+        const body = await res.text()
+        expect(body).toContain('/caldav/valid-token/default/')
+    })
+})
+
+describe('CalDAV OPTIONS 경로 변형', () => {
+    test('하위 경로에서도 DAV 헤더를 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/caldav/valid-token/default/', { method: 'OPTIONS' })
+        expect(res.status).toBe(200)
+        expect(res.headers.get('DAV')).toContain('calendar-access')
+        expect(res.headers.get('Allow')).toContain('PROPFIND')
+    })
+})
+
+describe('CalDAV 에러 핸들링', () => {
+    test('서비스 예외 시 500을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getSubscriptionByToken = mock(() => {
+            throw new Error('DB connection failed')
+        })
+        const { app } = createApp(deps)
+        const res = await app.request('/caldav/valid-token/')
+        expect(res.status).toBe(500)
     })
 })
