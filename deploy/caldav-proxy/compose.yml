@@ -1,0 +1,10 @@
+# docker compose up -d --build caldav-proxy
+
+services:
+    caldav-proxy:
+        build: .
+        restart: unless-stopped
+        ports:
+            - '4000:4000'
+        environment:
+            - PORT=4000

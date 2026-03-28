@@ -486,11 +486,11 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
             userId,
             token,
             icsToken,
-            name: name ?? 'My Calendar',
+            name: name ?? 'Schedule',
             isActive: true,
         })
 
-        return { id, userId, token, icsToken, name: name ?? 'My Calendar', isActive: true, ctag: '0', lastAccessedAt: null }
+        return { id, userId, token, icsToken, name: name ?? 'Schedule', isActive: true, ctag: '0', lastAccessedAt: null }
     }
 
     const regenerateSubscriptionToken = async (userId: string): Promise<string> => {
