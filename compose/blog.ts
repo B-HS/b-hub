@@ -60,7 +60,10 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
 
                 const data = await query.orderBy(desc(posts.createdAt), desc(posts.postId)).limit(params.limit).offset(params.offset)
 
-                let countQuery = db.select({ count: sql<number>`COUNT(*)` }).from(posts).$dynamic()
+                let countQuery = db
+                    .select({ count: sql<number>`COUNT(*)` })
+                    .from(posts)
+                    .$dynamic()
                 if (params.tagId) countQuery = countQuery.leftJoin(postTags, eq(posts.postId, postTags.postId))
                 if (conditions.length > 0) countQuery = countQuery.where(and(...conditions))
                 const [{ count }] = await countQuery

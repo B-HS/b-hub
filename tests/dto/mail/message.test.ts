@@ -106,43 +106,53 @@ describe('mailComposeSchema', () => {
     })
 
     test('to가 비어있으면 실패한다', () => {
-        expect(() => mailComposeSchema.parse({
-            accountId: 1,
-            to: [],
-            subject: 'Hello',
-        })).toThrow()
+        expect(() =>
+            mailComposeSchema.parse({
+                accountId: 1,
+                to: [],
+                subject: 'Hello',
+            }),
+        ).toThrow()
     })
 
     test('subject 최대 길이를 검증한다', () => {
-        expect(() => mailComposeSchema.parse({
-            accountId: 1,
-            to: [{ name: 'Test', address: 'test@test.com' }],
-            subject: 'a'.repeat(1001),
-        })).toThrow()
+        expect(() =>
+            mailComposeSchema.parse({
+                accountId: 1,
+                to: [{ name: 'Test', address: 'test@test.com' }],
+                subject: 'a'.repeat(1001),
+            }),
+        ).toThrow()
     })
 
     test('subject에 CRLF가 포함되면 실패한다', () => {
-        expect(() => mailComposeSchema.parse({
-            accountId: 1,
-            to: [{ name: 'Test', address: 'test@test.com' }],
-            subject: 'Hello\r\nBcc: evil@test.com',
-        })).toThrow()
+        expect(() =>
+            mailComposeSchema.parse({
+                accountId: 1,
+                to: [{ name: 'Test', address: 'test@test.com' }],
+                subject: 'Hello\r\nBcc: evil@test.com',
+            }),
+        ).toThrow()
     })
 
     test('subject에 \\n이 포함되면 실패한다', () => {
-        expect(() => mailComposeSchema.parse({
-            accountId: 1,
-            to: [{ name: 'Test', address: 'test@test.com' }],
-            subject: 'Hello\nEvil',
-        })).toThrow()
+        expect(() =>
+            mailComposeSchema.parse({
+                accountId: 1,
+                to: [{ name: 'Test', address: 'test@test.com' }],
+                subject: 'Hello\nEvil',
+            }),
+        ).toThrow()
     })
 
     test('subject에 \\r이 포함되면 실패한다', () => {
-        expect(() => mailComposeSchema.parse({
-            accountId: 1,
-            to: [{ name: 'Test', address: 'test@test.com' }],
-            subject: 'Hello\rEvil',
-        })).toThrow()
+        expect(() =>
+            mailComposeSchema.parse({
+                accountId: 1,
+                to: [{ name: 'Test', address: 'test@test.com' }],
+                subject: 'Hello\rEvil',
+            }),
+        ).toThrow()
     })
 })
 

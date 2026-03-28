@@ -18,10 +18,12 @@ const createMockDeps = () => ({
         send: mock(() => Promise.resolve({ messageId: 'sent-1' })),
         reply: mock(() => Promise.resolve({ messageId: 'reply-1' })),
         forward: mock(() => Promise.resolve({ messageId: 'fwd-1' })),
-        getSenderList: mock(() => Promise.resolve([
-            { address: 'alice@test.com', name: 'Alice' },
-            { address: 'bob@test.com', name: 'Bob' },
-        ])),
+        getSenderList: mock(() =>
+            Promise.resolve([
+                { address: 'alice@test.com', name: 'Alice' },
+                { address: 'bob@test.com', name: 'Bob' },
+            ]),
+        ),
     },
     getSession: mock(() => Promise.resolve({ user: { id: 'user-1', name: 'Test', email: 'test@test.com', role: 'user', image: null } })),
 })

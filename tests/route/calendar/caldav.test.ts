@@ -66,7 +66,6 @@ const createApp = (deps = createMockDeps()) => {
     return { app, deps }
 }
 
-
 describe('CalDAV OPTIONS', () => {
     test('DAV 헤더를 반환한다', async () => {
         const { app } = createApp()
@@ -81,7 +80,7 @@ describe('CalDAV PROPFIND', () => {
         const { app } = createApp()
         const res = await app.request('/caldav/valid-token/', {
             method: 'PROPFIND',
-            headers: { 'Content-Type': 'application/xml', Depth: '0' },
+            headers: { 'Content-Type': 'application/xml', 'Depth': '0' },
             body: '<propfind xmlns="DAV:"><allprop/></propfind>',
         })
         expect(res.status).toBe(207)
@@ -92,7 +91,7 @@ describe('CalDAV PROPFIND', () => {
         const { app } = createApp()
         const res = await app.request('/caldav/invalid-token/', {
             method: 'PROPFIND',
-            headers: { 'Content-Type': 'application/xml', Depth: '0' },
+            headers: { 'Content-Type': 'application/xml', 'Depth': '0' },
             body: '<propfind xmlns="DAV:"><allprop/></propfind>',
         })
         expect(res.status).toBe(404)
@@ -190,7 +189,7 @@ describe('CalDAV PROPFIND Depth:1', () => {
         const { app } = createApp()
         const res = await app.request('/caldav/valid-token/', {
             method: 'PROPFIND',
-            headers: { 'Content-Type': 'application/xml', Depth: '1' },
+            headers: { 'Content-Type': 'application/xml', 'Depth': '1' },
             body: '<propfind xmlns="DAV:"><allprop/></propfind>',
         })
         expect(res.status).toBe(207)

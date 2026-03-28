@@ -20,7 +20,15 @@ type SpotifyAccountRouteDeps = {
     baseUrl?: string
 }
 
-const formatAccount = (a: { id: number; spotifyUserId: string; displayName: string | null; email: string | null; isActive: boolean; createdAt: Date; updatedAt: Date }) => ({
+const formatAccount = (a: {
+    id: number
+    spotifyUserId: string
+    displayName: string | null
+    email: string | null
+    isActive: boolean
+    createdAt: Date
+    updatedAt: Date
+}) => ({
     id: a.id,
     spotifyUserId: a.spotifyUserId,
     displayName: a.displayName,
@@ -41,7 +49,9 @@ export const createSpotifyAccountRoute = (deps: SpotifyAccountRouteDeps) => {
             responses: {
                 200: {
                     description: '계정 목록',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(spotifyAccountResponseSchema) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(spotifyAccountResponseSchema) })) },
+                    },
                 },
                 ...errorResponses(['UNAUTHORIZED']),
             },

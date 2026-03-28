@@ -95,9 +95,7 @@ describe('createSpotifyOAuthConnectService', () => {
         })
 
         test('토큰 교환 실패 시 에러를 발생시킨다', async () => {
-            globalThis.fetch = mock(() =>
-                Promise.resolve(new Response('error', { status: 400 })),
-            ) as typeof fetch
+            globalThis.fetch = mock(() => Promise.resolve(new Response('error', { status: 400 }))) as typeof fetch
 
             const deps = createMockDeps()
             const service = createSpotifyOAuthConnectService(deps)

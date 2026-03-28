@@ -12,13 +12,15 @@ const mockAccount = {
     updatedAt: new Date(),
 }
 
-const createDeps = (sessionUser: { id: string; name: string; email: string; role: string | null; image: string | null } | null = {
-    id: 'user-1',
-    name: 'Test',
-    email: 'test@test.com',
-    role: null,
-    image: null,
-}) => ({
+const createDeps = (
+    sessionUser: { id: string; name: string; email: string; role: string | null; image: string | null } | null = {
+        id: 'user-1',
+        name: 'Test',
+        email: 'test@test.com',
+        role: null,
+        image: null,
+    },
+) => ({
     spotifyAccountService: {
         list: mock(() => Promise.resolve([mockAccount])),
         getById: mock((id: number, userId: string) => {

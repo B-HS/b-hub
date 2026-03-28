@@ -18,7 +18,16 @@ const mockEvent = {
     lastModified: now,
 }
 
-const mockGroup = { id: 'group-1', userId: 'user-1', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+const mockGroup = {
+    id: 'group-1',
+    userId: 'user-1',
+    name: '개인',
+    color: 'bg-blue-500',
+    sortOrder: 0,
+    isVisible: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+}
 
 const createMockCalendarService = () => ({
     getEventsByMonth: mock(() => Promise.resolve([mockEvent])),

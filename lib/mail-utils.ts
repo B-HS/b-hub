@@ -11,12 +11,7 @@ export const sanitizeEmailName = (name: string): string => {
 }
 
 export const escapeHtml = (str: string): string => {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;')
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 const isPrivateIPv4 = (a: number, b: number): boolean => {
@@ -100,9 +95,10 @@ export const sanitizeFilename = (filename: string): string => {
         decoded = filename
     }
     const basename = decoded.split(/[/\\]/).pop() ?? ''
-    return (basename
-        .replace(/\.\./g, '')
-        .replace(/[\x00-\x1f\x7f"]/g, '')
-        .trim() || 'file'
+    return (
+        basename
+            .replace(/\.\./g, '')
+            .replace(/[\x00-\x1f\x7f"]/g, '')
+            .trim() || 'file'
     ).slice(0, 255)
 }

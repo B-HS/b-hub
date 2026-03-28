@@ -130,9 +130,7 @@ describe('GET /subscription URL 형식', () => {
 describe('POST /subscription name 필드', () => {
     test('name 필드를 전달하면 저장된다', async () => {
         const deps = createMockDeps()
-        deps.calendarService.createSubscription = mock(() =>
-            Promise.resolve({ ...mockSubscription, name: '업무 캘린더' }),
-        ) as never
+        deps.calendarService.createSubscription = mock(() => Promise.resolve({ ...mockSubscription, name: '업무 캘린더' })) as never
         const { app } = createApp(deps)
         const res = await app.request('/subscription', {
             method: 'POST',

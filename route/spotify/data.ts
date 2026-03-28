@@ -38,10 +38,12 @@ export const createSpotifyDataRoute = (deps: SpotifyDataRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'SPOTIFY_KEY_INVALID', 'SPOTIFY_API_ERROR']),
             },
         }),
-        withErrorHandling(auth(async (c, authResult) => {
-            const data = await deps.spotifyDataService.getNowPlaying(authResult.spotifyAccountId)
-            return c.json(successResponse(data))
-        })),
+        withErrorHandling(
+            auth(async (c, authResult) => {
+                const data = await deps.spotifyDataService.getNowPlaying(authResult.spotifyAccountId)
+                return c.json(successResponse(data))
+            }),
+        ),
     )
 
     route.get(
@@ -55,11 +57,13 @@ export const createSpotifyDataRoute = (deps: SpotifyDataRouteDeps) => {
             },
         }),
         validator('query', playlistsQuerySchema),
-        withErrorHandling(auth(async (c, authResult) => {
-            const query = c.req.valid('query' as never) as z.infer<typeof playlistsQuerySchema>
-            const data = await deps.spotifyDataService.getPlaylists(authResult.spotifyAccountId, query.limit, query.offset)
-            return c.json(successResponse(data))
-        })),
+        withErrorHandling(
+            auth(async (c, authResult) => {
+                const query = c.req.valid('query' as never) as z.infer<typeof playlistsQuerySchema>
+                const data = await deps.spotifyDataService.getPlaylists(authResult.spotifyAccountId, query.limit, query.offset)
+                return c.json(successResponse(data))
+            }),
+        ),
     )
 
     return route

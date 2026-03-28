@@ -13,14 +13,12 @@ const cvPayloadSchema = z.object({
     data: cvDataSchema,
 })
 
-export const resumeCreateSchema = z
-    .discriminatedUnion('type', [resumePayloadSchema, cvPayloadSchema])
-    .and(
-        z.object({
-            title: z.string().min(1).max(255),
-            isPublic: z.boolean().default(false),
-        }),
-    )
+export const resumeCreateSchema = z.discriminatedUnion('type', [resumePayloadSchema, cvPayloadSchema]).and(
+    z.object({
+        title: z.string().min(1).max(255),
+        isPublic: z.boolean().default(false),
+    }),
+)
 
 export const resumeUpdateSchema = z.object({
     title: z.string().min(1).max(255).optional(),

@@ -59,8 +59,8 @@ const HomePage = () => (
             <img src='/favicon.ico' alt='gumyo.net' class={faviconStyle} />
             <p class={nameStyle}>gumyo.net</p>
             <p class={descStyle}>
-                블로그, 날씨, 메일, 음악 등 개인 서비스를 통합 제공하는 API 플랫폼입니다.
-                Google 계정을 통해 안전하게 로그인하고 다양한 기능을 이용할 수 있습니다.
+                블로그, 날씨, 메일, 음악 등 개인 서비스를 통합 제공하는 API 플랫폼입니다. Google 계정을 통해 안전하게 로그인하고 다양한 기능을 이용할
+                수 있습니다.
             </p>
             <a href='/policy' class={linkStyle}>
                 개인정보처리방침 · 서비스 이용약관

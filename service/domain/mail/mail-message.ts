@@ -19,14 +19,23 @@ type MailMessageDb = {
     }) => Promise<{ data: MailMessageSummary[]; total: number }>
     getById: (id: number) => Promise<(MailMessage & { attachments: MailAttachment[] }) | null>
     getThread: (accountId: number, threadId: string) => Promise<MailMessageSummary[]>
-    search: (params: { q: string; accountId?: number; userId: string; page: number; limit: number }) => Promise<{ data: MailMessageSummary[]; total: number }>
+    search: (params: {
+        q: string
+        accountId?: number
+        userId: string
+        page: number
+        limit: number
+    }) => Promise<{ data: MailMessageSummary[]; total: number }>
     updateFlags: (messageIds: number[], flags: Partial<Pick<MailMessage, 'isRead' | 'isStarred'>>) => Promise<void>
     moveToFolder: (messageIds: number[], targetFolderId: number) => Promise<void>
     deleteMessages: (messageIds: number[]) => Promise<void>
     getByIds: (ids: number[]) => Promise<MailMessage[]>
     getAttachment: (attachmentId: number) => Promise<MailAttachment | null>
     updateAttachmentR2Key: (attachmentId: number, r2Key: string) => Promise<void>
-    getAccountIdsByMessageIds: (messageIds: number[], userId: string) => Promise<{ messageId: number; accountId: number; remoteMessageId: string; folderId: number }[]>
+    getAccountIdsByMessageIds: (
+        messageIds: number[],
+        userId: string,
+    ) => Promise<{ messageId: number; accountId: number; remoteMessageId: string; folderId: number }[]>
     getSenderList: (params: { userId: string; accountId?: number; limit: number }) => Promise<{ address: string; name: string }[]>
     countMessagesByFolder: (folderId: number) => Promise<number>
     countUnreadByFolder: (folderId: number) => Promise<number>
@@ -48,14 +57,17 @@ type MailMessageServiceDeps = {
 }
 
 export const createMailMessageService = (deps: MailMessageServiceDeps) => {
-    const list = async (userId: string, query: {
-        accountId?: number
-        folderId?: number
-        isRead?: boolean
-        isStarred?: boolean
-        page?: number
-        limit?: number
-    }) => {
+    const list = async (
+        userId: string,
+        query: {
+            accountId?: number
+            folderId?: number
+            isRead?: boolean
+            isStarred?: boolean
+            page?: number
+            limit?: number
+        },
+    ) => {
         return deps.db.list({
             userId,
             accountId: query.accountId,
@@ -86,19 +98,18 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         return deps.db.getThread(accountId, threadId)
     }
 
-    const applyFlagAction = async (
-        userId: string,
-        messageIds: number[],
-        action: 'markRead' | 'markUnread' | 'markStarred' | 'unmarkStarred',
-    ) => {
+    const applyFlagAction = async (userId: string, messageIds: number[], action: 'markRead' | 'markUnread' | 'markStarred' | 'unmarkStarred') => {
         const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
         if (msgInfos.length !== messageIds.length) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
         const flagUpdate: Partial<Pick<MailMessage, 'isRead' | 'isStarred'>> =
-            action === 'markRead' ? { isRead: true }
-            : action === 'markUnread' ? { isRead: false }
-            : action === 'markStarred' ? { isStarred: true }
-            : { isStarred: false }
+            action === 'markRead'
+                ? { isRead: true }
+                : action === 'markUnread'
+                  ? { isRead: false }
+                  : action === 'markStarred'
+                    ? { isStarred: true }
+                    : { isStarred: false }
 
         const grouped = new Map<string, { accountId: number; folderId: number; remoteIds: string[] }>()
         for (const info of msgInfos) {
@@ -115,8 +126,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 await provider.connect()
                 await provider[action](remoteIds, folder?.remoteFolderId)
                 await provider.disconnect()
-            } catch {
-            }
+            } catch {}
         }
 
         await deps.db.updateFlags(messageIds, flagUpdate)
@@ -125,10 +135,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             const affectedFolderIds = [...new Set(msgInfos.map((m) => m.folderId))]
             await Promise.all(
                 affectedFolderIds.map(async (fid) => {
-                    const [msgCount, unreadCount] = await Promise.all([
-                        deps.db.countMessagesByFolder(fid),
-                        deps.db.countUnreadByFolder(fid),
-                    ])
+                    const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(fid), deps.db.countUnreadByFolder(fid)])
                     await deps.db.updateFolderCounts(fid, msgCount, unreadCount)
                 }),
             )
@@ -171,8 +178,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 }
                 await provider.moveMessage(remoteIds, targetFolder?.remoteFolderId ?? targetFolderId.toString(), sourceFolderRemoteId)
                 await provider.disconnect()
-            } catch {
-            }
+            } catch {}
         }
 
         await deps.db.moveToFolder(messageIds, targetFolderId)
@@ -195,8 +201,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 await provider.connect()
                 await provider.deleteMessage(remoteIds)
                 await provider.disconnect()
-            } catch {
-            }
+            } catch {}
         }
 
         await deps.db.deleteMessages(messageIds)
@@ -271,13 +276,17 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         }
     }
 
-    const reply = async (userId: string, messageId: number, data: {
-        bodyHtml?: string
-        bodyText?: string
-        to?: EmailAddress[]
-        cc?: EmailAddress[]
-        attachmentIds?: number[]
-    }) => {
+    const reply = async (
+        userId: string,
+        messageId: number,
+        data: {
+            bodyHtml?: string
+            bodyText?: string
+            to?: EmailAddress[]
+            cc?: EmailAddress[]
+            attachmentIds?: number[]
+        },
+    ) => {
         const original = await getById(userId, messageId)
 
         const to = data.to ?? (original.fromAddress ? [original.fromAddress] : [])
@@ -296,13 +305,17 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         })
     }
 
-    const forward = async (userId: string, messageId: number, data: {
-        to: EmailAddress[]
-        cc?: EmailAddress[]
-        bcc?: EmailAddress[]
-        bodyHtml?: string
-        attachmentIds?: number[]
-    }) => {
+    const forward = async (
+        userId: string,
+        messageId: number,
+        data: {
+            to: EmailAddress[]
+            cc?: EmailAddress[]
+            bcc?: EmailAddress[]
+            bodyHtml?: string
+            attachmentIds?: number[]
+        },
+    ) => {
         const original = await getById(userId, messageId)
 
         const body = data.bodyHtml ?? original.bodyHtml ?? original.bodyText ?? ''
@@ -327,11 +340,20 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
     }
 
     return {
-        list, getById, getThread,
-        markRead, markUnread, markStarred, unmarkStarred,
-        moveToFolder, deleteMessages,
-        search, downloadAttachment,
-        send, reply, forward,
+        list,
+        getById,
+        getThread,
+        markRead,
+        markUnread,
+        markStarred,
+        unmarkStarred,
+        moveToFolder,
+        deleteMessages,
+        search,
+        downloadAttachment,
+        send,
+        reply,
+        forward,
         getSenderList,
     }
 }

@@ -57,7 +57,14 @@ const createMockProviderFactory = () => ({
     })),
 })
 
-const createDeps = (overrides: { db?: Partial<ReturnType<typeof createMockDb>>; crypto?: Partial<ReturnType<typeof createMockCrypto>>; providerFactory?: Partial<ReturnType<typeof createMockProviderFactory>>; verifyBetterAuthOwnership?: (id: string, userId: string) => Promise<boolean> } = {}) => ({
+const createDeps = (
+    overrides: {
+        db?: Partial<ReturnType<typeof createMockDb>>
+        crypto?: Partial<ReturnType<typeof createMockCrypto>>
+        providerFactory?: Partial<ReturnType<typeof createMockProviderFactory>>
+        verifyBetterAuthOwnership?: (id: string, userId: string) => Promise<boolean>
+    } = {},
+) => ({
     db: { ...createMockDb(), ...overrides.db } as ReturnType<typeof createMockDb>,
     crypto: { ...createMockCrypto(), ...overrides.crypto } as ReturnType<typeof createMockCrypto>,
     providerFactory: { ...createMockProviderFactory(), ...overrides.providerFactory } as ReturnType<typeof createMockProviderFactory>,
@@ -148,9 +155,9 @@ describe('createMailAccountService', () => {
         test('10개 제한 초과 시 에러를 발생시킨다', async () => {
             const deps = createDeps({ db: { countByUser: mock(() => Promise.resolve(10)) } })
             const service = createMailAccountService(deps)
-            await expect(
-                service.create('user-1', { provider: 'gmail', email: 'test@gmail.com' }),
-            ).rejects.toMatchObject({ code: 'MAIL_ACCOUNT_LIMIT_EXCEEDED' })
+            await expect(service.create('user-1', { provider: 'gmail', email: 'test@gmail.com' })).rejects.toMatchObject({
+                code: 'MAIL_ACCOUNT_LIMIT_EXCEEDED',
+            })
         })
 
         test('betterAuthAccountId 소유권 검증을 통과한다', async () => {

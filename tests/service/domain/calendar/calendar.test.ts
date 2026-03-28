@@ -833,8 +833,26 @@ describe('CalendarService', () => {
     describe('getGroups', () => {
         test('사용자의 그룹 목록을 조회한다', async () => {
             const mockGroups = [
-                { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() },
-                { id: 'g2', userId: 'user-123', name: '업무', color: 'bg-red-500', sortOrder: 1, isVisible: true, createdAt: new Date(), updatedAt: new Date() },
+                {
+                    id: 'g1',
+                    userId: 'user-123',
+                    name: '개인',
+                    color: 'bg-blue-500',
+                    sortOrder: 0,
+                    isVisible: true,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
+                {
+                    id: 'g2',
+                    userId: 'user-123',
+                    name: '업무',
+                    color: 'bg-red-500',
+                    sortOrder: 1,
+                    isVisible: true,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                },
             ]
             ;(mockDb.getGroupsByUser as ReturnType<typeof mock>).mockResolvedValue(mockGroups)
             const service = createCalendarService({ db: mockDb })
@@ -868,7 +886,16 @@ describe('CalendarService', () => {
         })
 
         test('그룹을 수정한다', async () => {
-            const mockGroup = { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+            const mockGroup = {
+                id: 'g1',
+                userId: 'user-123',
+                name: '개인',
+                color: 'bg-blue-500',
+                sortOrder: 0,
+                isVisible: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            }
             ;(mockDb.getGroupById as ReturnType<typeof mock>).mockResolvedValue(mockGroup)
             const service = createCalendarService({ db: mockDb })
 
@@ -880,7 +907,16 @@ describe('CalendarService', () => {
 
     describe('deleteGroup', () => {
         test('이벤트가 있는 그룹 삭제 시 에러를 던진다', async () => {
-            const mockGroup = { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+            const mockGroup = {
+                id: 'g1',
+                userId: 'user-123',
+                name: '개인',
+                color: 'bg-blue-500',
+                sortOrder: 0,
+                isVisible: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            }
             ;(mockDb.getGroupById as ReturnType<typeof mock>).mockResolvedValue(mockGroup)
             ;(mockDb.countEventsByGroup as ReturnType<typeof mock>).mockResolvedValue(3)
             const service = createCalendarService({ db: mockDb })
@@ -889,7 +925,16 @@ describe('CalendarService', () => {
         })
 
         test('빈 그룹을 삭제한다', async () => {
-            const mockGroup = { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+            const mockGroup = {
+                id: 'g1',
+                userId: 'user-123',
+                name: '개인',
+                color: 'bg-blue-500',
+                sortOrder: 0,
+                isVisible: true,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            }
             ;(mockDb.getGroupById as ReturnType<typeof mock>).mockResolvedValue(mockGroup)
             ;(mockDb.countEventsByGroup as ReturnType<typeof mock>).mockResolvedValue(0)
             const service = createCalendarService({ db: mockDb })

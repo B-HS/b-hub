@@ -7,9 +7,7 @@ type SecurityHeadersOptions = {
 
 export const securityHeaders = (options?: SecurityHeadersOptions) => async (c: Context, next: Next) => {
     await next()
-    const isExcluded =
-        options?.excludePaths?.some((p) => c.req.path.startsWith(p)) ||
-        options?.excludeExactPaths?.includes(c.req.path)
+    const isExcluded = options?.excludePaths?.some((p) => c.req.path.startsWith(p)) || options?.excludeExactPaths?.includes(c.req.path)
     c.header('X-Content-Type-Options', 'nosniff')
     if (!isExcluded) c.header('X-Frame-Options', 'DENY')
     c.header('X-XSS-Protection', '1; mode=block')

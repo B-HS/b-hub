@@ -8,8 +8,14 @@ const emailAddressSchema = z.object({
 export const mailMessageListQuerySchema = z.object({
     accountId: z.coerce.number().int().positive().optional(),
     folderId: z.coerce.number().int().positive().optional(),
-    isRead: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
-    isStarred: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+    isRead: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
+    isStarred: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
 })
@@ -45,7 +51,10 @@ export const mailComposeSchema = z.object({
     to: z.array(emailAddressSchema).min(1),
     cc: z.array(emailAddressSchema).optional(),
     bcc: z.array(emailAddressSchema).optional(),
-    subject: z.string().max(1000).refine((v) => !/[\r\n]/.test(v), { message: 'Subject must not contain CRLF characters' }),
+    subject: z
+        .string()
+        .max(1000)
+        .refine((v) => !/[\r\n]/.test(v), { message: 'Subject must not contain CRLF characters' }),
     bodyHtml: z.string().max(1_000_000).optional(),
     bodyText: z.string().max(1_000_000).optional(),
     attachmentIds: z.array(z.number().int().positive()).optional(),

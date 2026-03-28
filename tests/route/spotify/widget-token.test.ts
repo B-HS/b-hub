@@ -6,11 +6,7 @@ const sessionUser = { id: 'user-1', name: 'Test', email: 'test@test.com', role: 
 
 const createDeps = (withSession = true) => ({
     spotifyWidgetTokenService: {
-        listByUser: mock(() =>
-            Promise.resolve([
-                { id: 1, spotifyAccountId: 1, name: 'Widget', isActive: true, createdAt: new Date() },
-            ]),
-        ),
+        listByUser: mock(() => Promise.resolve([{ id: 1, spotifyAccountId: 1, name: 'Widget', isActive: true, createdAt: new Date() }])),
         create: mock(() => Promise.resolve({ token: 'abc123def45678901234567890abcdef' })),
         revoke: mock(() => Promise.resolve()),
         toggleActive: mock(() => Promise.resolve()),

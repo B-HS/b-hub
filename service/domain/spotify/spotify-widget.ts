@@ -36,7 +36,6 @@ type SpotifyWidgetServiceDeps = {
     albumArtCache: ReturnType<typeof createCache<string>>
 }
 
-
 const truncateText = (text: string, maxLen: number) => (text.length > maxLen ? text.slice(0, maxLen) + '...' : text)
 
 const escapeXml = (str: string) =>

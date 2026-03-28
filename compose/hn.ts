@@ -49,12 +49,18 @@ export const composeHn = ({ db, env }: ComposeHnArgs) => {
                 .offset(offset)
 
             const storyIds = stories.map((s) => s.id)
-            const summaries = storyIds.length > 0 ? await db.select().from(schema.hnSummaries).where(inArray(schema.hnSummaries.storyId, storyIds)) : []
+            const summaries =
+                storyIds.length > 0 ? await db.select().from(schema.hnSummaries).where(inArray(schema.hnSummaries.storyId, storyIds)) : []
 
             return { stories, summaries }
         },
         searchStories: async (q: string, limit: number) => {
-            return db.select().from(schema.hnStories).where(sql`${schema.hnStories.title} LIKE ${`%${escapeLikePattern(q)}%`} ESCAPE '\\\\'`).orderBy(desc(schema.hnStories.score)).limit(limit)
+            return db
+                .select()
+                .from(schema.hnStories)
+                .where(sql`${schema.hnStories.title} LIKE ${`%${escapeLikePattern(q)}%`} ESCAPE '\\\\'`)
+                .orderBy(desc(schema.hnStories.score))
+                .limit(limit)
         },
         getStoryCounts: async () => {
             const types = ['top', 'new', 'best'] as const
@@ -73,7 +79,12 @@ export const composeHn = ({ db, env }: ComposeHnArgs) => {
 
     const hnDigestDb = {
         getDigestsByType: async (type: string, limit: number) => {
-            return db.select().from(schema.hnDigests).where(eq(schema.hnDigests.digestType, type)).orderBy(desc(schema.hnDigests.createdAt)).limit(limit)
+            return db
+                .select()
+                .from(schema.hnDigests)
+                .where(eq(schema.hnDigests.digestType, type))
+                .orderBy(desc(schema.hnDigests.createdAt))
+                .limit(limit)
         },
         getDigestByTypeAndKey: async (type: string, key: string) => {
             const [digest] = await db
@@ -171,10 +182,7 @@ export const composeHn = ({ db, env }: ComposeHnArgs) => {
 
     const hnWebhookDb = {
         getActiveWebhooks: async (digestType: string) => {
-            const list = await db
-                .select()
-                .from(schema.hnWebhooks)
-                .where(eq(schema.hnWebhooks.isActive, true))
+            const list = await db.select().from(schema.hnWebhooks).where(eq(schema.hnWebhooks.isActive, true))
 
             return list
                 .filter((w) => (w.digestTypes ?? []).includes(digestType))
@@ -250,11 +258,7 @@ export const composeHn = ({ db, env }: ComposeHnArgs) => {
 
     const translatorDb = {
         getExistingTags: async () => {
-            const list = await db
-                .select({ name: schema.hnTags.name })
-                .from(schema.hnTags)
-                .orderBy(desc(schema.hnTags.usageCount))
-                .limit(50)
+            const list = await db.select({ name: schema.hnTags.name }).from(schema.hnTags).orderBy(desc(schema.hnTags.usageCount)).limit(50)
             return list.map((t) => t.name)
         },
         updateTagUsage: async (tagNames: string[]) => {

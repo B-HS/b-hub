@@ -5,7 +5,16 @@ import { createAppError } from '../../../lib/error'
 import { maskProviderError } from '../../../lib/mail-utils'
 
 type MailSyncDb = {
-    upsertFolder: (data: { accountId: number; remoteFolderId: string; name: string; type: string; parentId: number | null; messageCount: number; unreadCount: number; uidValidity: number | null }) => Promise<MailFolder>
+    upsertFolder: (data: {
+        accountId: number
+        remoteFolderId: string
+        name: string
+        type: string
+        parentId: number | null
+        messageCount: number
+        unreadCount: number
+        uidValidity: number | null
+    }) => Promise<MailFolder>
     getFoldersByAccount: (accountId: number) => Promise<MailFolder[]>
     getFolderById: (id: number) => Promise<MailFolder | null>
     updateFolderCounts: (folderId: number, messageCount: number, unreadCount: number) => Promise<void>
@@ -48,12 +57,33 @@ type MailSyncDb = {
     }) => Promise<MailAttachment>
 
     createSyncLog: (data: { accountId: number; syncType: string; status: string; folderId: number | null; startedAt: Date }) => Promise<MailSyncLog>
-    updateSyncLog: (id: number, data: { status: string; messagesAdded?: number; messagesUpdated?: number; messagesDeleted?: number; durationMs?: number; errorMessage?: string; completedAt?: Date }) => Promise<void>
+    updateSyncLog: (
+        id: number,
+        data: {
+            status: string
+            messagesAdded?: number
+            messagesUpdated?: number
+            messagesDeleted?: number
+            durationMs?: number
+            errorMessage?: string
+            completedAt?: Date
+        },
+    ) => Promise<void>
     getLatestSyncLog: (accountId: number) => Promise<MailSyncLog | null>
 
     getActiveSession: (accountId: number) => Promise<MailSyncSession | null>
-    createSession: (data: { accountId: number; folderId: number | null; syncType: string; status: string; totalEstimate: number | null; startedAt: Date }) => Promise<MailSyncSession>
-    updateSession: (id: number, data: { status?: string; syncedCount?: number; cursor?: string; totalEstimate?: number; lastBatchAt?: Date; completedAt?: Date }) => Promise<void>
+    createSession: (data: {
+        accountId: number
+        folderId: number | null
+        syncType: string
+        status: string
+        totalEstimate: number | null
+        startedAt: Date
+    }) => Promise<MailSyncSession>
+    updateSession: (
+        id: number,
+        data: { status?: string; syncedCount?: number; cursor?: string; totalEstimate?: number; lastBatchAt?: Date; completedAt?: Date },
+    ) => Promise<void>
 
     countMessagesByFolder: (folderId: number) => Promise<number>
     countUnreadByFolder: (folderId: number) => Promise<number>
@@ -123,12 +153,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
         return { added, updated }
     }
 
-    const syncFolder = async (
-        provider: MailProvider,
-        accountId: number,
-        folder: MailFolder,
-        fallbackCursor?: string,
-    ) => {
+    const syncFolder = async (provider: MailProvider, accountId: number, folder: MailFolder, fallbackCursor?: string) => {
         const cursor = folder.syncCursor ?? fallbackCursor ?? undefined
         const result = await provider.fetchMessages({
             folderId: folder.remoteFolderId,
@@ -146,10 +171,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             await deps.db.updateFolderSyncCursor(folder.id, result.newSyncCursor)
         }
 
-        const [msgCount, unreadCount] = await Promise.all([
-            deps.db.countMessagesByFolder(folder.id),
-            deps.db.countUnreadByFolder(folder.id),
-        ])
+        const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(folder.id), deps.db.countUnreadByFolder(folder.id)])
         await deps.db.updateFolderCounts(folder.id, msgCount, unreadCount)
 
         return { added, updated, deleted: result.deletedIds.length }
@@ -202,9 +224,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             let totalUpdated = 0
             let totalDeleted = 0
 
-            const foldersToSync = folderId
-                ? dbFolders.filter((f) => f.id === folderId)
-                : dbFolders
+            const foldersToSync = folderId ? dbFolders.filter((f) => f.id === folderId) : dbFolders
 
             if (isIncremental) {
                 const results = await Promise.all(
@@ -255,11 +275,15 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
         }
     }
 
-    const syncHistorical = async (accountId: number, userId: string, options: {
-        folderId?: number
-        batchSize?: number
-        cursor?: string
-    }) => {
+    const syncHistorical = async (
+        accountId: number,
+        userId: string,
+        options: {
+            folderId?: number
+            batchSize?: number
+            cursor?: string
+        },
+    ) => {
         const { provider } = await deps.accountService.getProvider(accountId, userId)
         const batchSize = options.batchSize ?? 100
 
@@ -336,10 +360,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 ...(result.newSyncCursor ? {} : { completedAt: new Date() }),
             })
 
-            const [msgCount, unreadCount] = await Promise.all([
-                deps.db.countMessagesByFolder(folder.id),
-                deps.db.countUnreadByFolder(folder.id),
-            ])
+            const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(folder.id), deps.db.countUnreadByFolder(folder.id)])
             await deps.db.updateFolderCounts(folder.id, msgCount, unreadCount)
 
             await provider.disconnect()

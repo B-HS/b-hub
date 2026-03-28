@@ -47,7 +47,7 @@ export const createContentParser = (deps: ContentParserDeps) => {
                 signal: controller.signal,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (compatible; HNDigestBot/1.0)',
-                    Accept: 'text/html,application/xhtml+xml',
+                    'Accept': 'text/html,application/xhtml+xml',
                 },
             })
 

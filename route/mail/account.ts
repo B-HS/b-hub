@@ -20,7 +20,17 @@ type MailAccountRouteDeps = {
     baseUrl?: string
 }
 
-const formatAccount = (a: { id: number; provider: string; email: string; displayName: string | null; isActive: boolean; lastSyncAt: Date | null; lastSyncStatus: string | null; createdAt: Date; updatedAt: Date }) => ({
+const formatAccount = (a: {
+    id: number
+    provider: string
+    email: string
+    displayName: string | null
+    isActive: boolean
+    lastSyncAt: Date | null
+    lastSyncStatus: string | null
+    createdAt: Date
+    updatedAt: Date
+}) => ({
     id: a.id,
     provider: a.provider,
     email: a.email,
@@ -43,7 +53,9 @@ export const createMailAccountRoute = (deps: MailAccountRouteDeps) => {
             responses: {
                 200: {
                     description: '계정 목록',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(mailAccountResponseSchema) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(mailAccountResponseSchema) })) },
+                    },
                 },
                 ...errorResponses(['UNAUTHORIZED']),
             },
@@ -200,7 +212,7 @@ export const createMailAccountRoute = (deps: MailAccountRouteDeps) => {
                 } catch (err) {
                     const redirect = deps.mailOAuthConnect.parseRedirectFromState(state)
                     const target = redirect && isAllowedRedirect(redirect) ? redirect : deps.baseUrl
-                    const errorCode = (err && typeof err === 'object' && 'code' in err) ? (err as { code: string }).code : 'unknown'
+                    const errorCode = err && typeof err === 'object' && 'code' in err ? (err as { code: string }).code : 'unknown'
                     return c.redirect(`${target}?error=${errorCode}`, 302)
                 }
             }),

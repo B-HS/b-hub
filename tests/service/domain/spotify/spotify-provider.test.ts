@@ -17,9 +17,7 @@ describe('createSpotifyProvider', () => {
     describe('getCurrentlyPlaying', () => {
         test('재생 중인 트랙을 반환한다', async () => {
             const mockData = { is_playing: true, item: { name: 'Song' } }
-            globalThis.fetch = mock(() =>
-                Promise.resolve(new Response(JSON.stringify(mockData), { status: 200 })),
-            ) as typeof fetch
+            globalThis.fetch = mock(() => Promise.resolve(new Response(JSON.stringify(mockData), { status: 200 }))) as typeof fetch
 
             const deps = createMockDeps()
             const provider = createSpotifyProvider(deps)
@@ -28,9 +26,7 @@ describe('createSpotifyProvider', () => {
         })
 
         test('204 응답 시 null을 반환한다', async () => {
-            globalThis.fetch = mock(() =>
-                Promise.resolve(new Response(null, { status: 204 })),
-            ) as typeof fetch
+            globalThis.fetch = mock(() => Promise.resolve(new Response(null, { status: 204 }))) as typeof fetch
 
             const deps = createMockDeps()
             const provider = createSpotifyProvider(deps)
@@ -75,9 +71,7 @@ describe('createSpotifyProvider', () => {
     describe('getRecentlyPlayed', () => {
         test('최근 재생 트랙 목록을 반환한다', async () => {
             const mockData = { items: [{ track: { name: 'Song' }, played_at: '2024-01-01T00:00:00Z' }] }
-            globalThis.fetch = mock(() =>
-                Promise.resolve(new Response(JSON.stringify(mockData), { status: 200 })),
-            ) as typeof fetch
+            globalThis.fetch = mock(() => Promise.resolve(new Response(JSON.stringify(mockData), { status: 200 }))) as typeof fetch
 
             const deps = createMockDeps()
             const provider = createSpotifyProvider(deps)
@@ -89,9 +83,7 @@ describe('createSpotifyProvider', () => {
     describe('getPlaylists', () => {
         test('플레이리스트 목록을 반환한다', async () => {
             const mockData = { items: [], total: 0 }
-            globalThis.fetch = mock(() =>
-                Promise.resolve(new Response(JSON.stringify(mockData), { status: 200 })),
-            ) as typeof fetch
+            globalThis.fetch = mock(() => Promise.resolve(new Response(JSON.stringify(mockData), { status: 200 }))) as typeof fetch
 
             const deps = createMockDeps()
             const provider = createSpotifyProvider(deps)
@@ -114,9 +106,7 @@ describe('createSpotifyProvider', () => {
 
     describe('disconnect', () => {
         test('토큰을 초기화한다', async () => {
-            globalThis.fetch = mock(() =>
-                Promise.resolve(new Response(JSON.stringify({}), { status: 200 })),
-            ) as typeof fetch
+            globalThis.fetch = mock(() => Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))) as typeof fetch
 
             const deps = createMockDeps()
             const provider = createSpotifyProvider(deps)

@@ -1,4 +1,19 @@
-import { mysqlTable, int, varchar, text, longtext, boolean, datetime, timestamp, bigint, json, index, unique, mysqlEnum, tinyint } from 'drizzle-orm/mysql-core'
+import {
+    mysqlTable,
+    int,
+    varchar,
+    text,
+    longtext,
+    boolean,
+    datetime,
+    timestamp,
+    bigint,
+    json,
+    index,
+    unique,
+    mysqlEnum,
+    tinyint,
+} from 'drizzle-orm/mysql-core'
 
 export const user = mysqlTable('user', {
     id: varchar('id', { length: 36 }).primaryKey(),
@@ -339,10 +354,7 @@ export const weatherApiLog = mysqlTable(
         errorCode: varchar('error_code', { length: 50 }),
         createdAt: timestamp('created_at').defaultNow().notNull(),
     },
-    (table) => [
-        index('idx_weather_api_log_user').on(table.userId),
-        index('idx_weather_api_log_key_created').on(table.keyId, table.createdAt),
-    ],
+    (table) => [index('idx_weather_api_log_user').on(table.userId), index('idx_weather_api_log_key_created').on(table.keyId, table.createdAt)],
 )
 
 export const hnStories = mysqlTable(
@@ -491,10 +503,7 @@ export const mailAccounts = mysqlTable(
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [
-        index('idx_mail_accounts_user').on(table.userId),
-        unique('uq_mail_accounts_user_email').on(table.userId, table.email),
-    ],
+    (table) => [index('idx_mail_accounts_user').on(table.userId), unique('uq_mail_accounts_user_email').on(table.userId, table.email)],
 )
 
 export const mailFolders = mysqlTable(
@@ -633,9 +642,7 @@ export const mailSyncSessions = mysqlTable(
         completedAt: timestamp('completed_at', { fsp: 3 }),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
     },
-    (table) => [
-        index('idx_mail_sync_sessions_account_status').on(table.accountId, table.status),
-    ],
+    (table) => [index('idx_mail_sync_sessions_account_status').on(table.accountId, table.status)],
 )
 
 export const mailUploads = mysqlTable(

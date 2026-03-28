@@ -31,5 +31,4 @@ export const convertTailwindToCSS = (tailwindClasses: string): Record<string, st
     }
 }
 
-export const mergeStyles = (...styles: Array<Record<string, string | number>>): Record<string, string | number> =>
-    Object.assign({}, ...styles)
+export const mergeStyles = (...styles: Array<Record<string, string | number>>): Record<string, string | number> => Object.assign({}, ...styles)

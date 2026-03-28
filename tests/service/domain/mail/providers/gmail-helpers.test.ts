@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { splitAddresses, parseEmailAddress, getHeader, decodeBase64Url, getBody, getAttachments } from '../../../../../service/domain/mail/providers/gmail-helpers'
+import {
+    splitAddresses,
+    parseEmailAddress,
+    getHeader,
+    decodeBase64Url,
+    getBody,
+    getAttachments,
+} from '../../../../../service/domain/mail/providers/gmail-helpers'
 
 describe('splitAddresses', () => {
     test('단일 주소를 반환한다', () => {
@@ -7,25 +14,15 @@ describe('splitAddresses', () => {
     })
 
     test('여러 주소를 분리한다', () => {
-        expect(splitAddresses('a@test.com, b@test.com, c@test.com')).toEqual([
-            'a@test.com',
-            'b@test.com',
-            'c@test.com',
-        ])
+        expect(splitAddresses('a@test.com, b@test.com, c@test.com')).toEqual(['a@test.com', 'b@test.com', 'c@test.com'])
     })
 
     test('따옴표 안의 쉼표를 무시한다', () => {
-        expect(splitAddresses('"Last, First" <a@test.com>, b@test.com')).toEqual([
-            '"Last, First" <a@test.com>',
-            'b@test.com',
-        ])
+        expect(splitAddresses('"Last, First" <a@test.com>, b@test.com')).toEqual(['"Last, First" <a@test.com>', 'b@test.com'])
     })
 
     test('꺾쇠괄호 안의 쉼표를 무시한다', () => {
-        expect(splitAddresses('Name <a@test.com>, Other <b@test.com>')).toEqual([
-            'Name <a@test.com>',
-            'Other <b@test.com>',
-        ])
+        expect(splitAddresses('Name <a@test.com>, Other <b@test.com>')).toEqual(['Name <a@test.com>', 'Other <b@test.com>'])
     })
 
     test('빈 문자열은 빈 배열을 반환한다', () => {
@@ -43,21 +40,15 @@ describe('splitAddresses', () => {
 
 describe('parseEmailAddress', () => {
     test('Name <email> 형식을 파싱한다', () => {
-        expect(parseEmailAddress('John Doe <john@example.com>')).toEqual([
-            { name: 'John Doe', address: 'john@example.com' },
-        ])
+        expect(parseEmailAddress('John Doe <john@example.com>')).toEqual([{ name: 'John Doe', address: 'john@example.com' }])
     })
 
     test('"Name" <email> 형식을 파싱한다', () => {
-        expect(parseEmailAddress('"John Doe" <john@example.com>')).toEqual([
-            { name: 'John Doe', address: 'john@example.com' },
-        ])
+        expect(parseEmailAddress('"John Doe" <john@example.com>')).toEqual([{ name: 'John Doe', address: 'john@example.com' }])
     })
 
     test('bare email을 파싱한다', () => {
-        expect(parseEmailAddress('john@example.com')).toEqual([
-            { name: '', address: 'john@example.com' },
-        ])
+        expect(parseEmailAddress('john@example.com')).toEqual([{ name: '', address: 'john@example.com' }])
     })
 
     test('빈 문자열은 빈 배열을 반환한다', () => {
@@ -84,21 +75,17 @@ describe('parseEmailAddress', () => {
     })
 
     test('이름 없는 <email> 형식을 파싱한다', () => {
-        expect(parseEmailAddress('<user@test.com>')).toEqual([
-            { name: '', address: 'user@test.com' },
-        ])
+        expect(parseEmailAddress('<user@test.com>')).toEqual([{ name: '', address: 'user@test.com' }])
     })
 
     test('특수문자가 포함된 이름을 파싱한다', () => {
-        const result = parseEmailAddress("\"O'Brien, James\" <james@test.com>")
+        const result = parseEmailAddress('"O\'Brien, James" <james@test.com>')
         expect(result[0].address).toBe('james@test.com')
         expect(result[0].name).toBe("O'Brien, James")
     })
 
     test('잘못된 형식은 원본을 address로 반환한다', () => {
-        expect(parseEmailAddress('not-an-email')).toEqual([
-            { name: '', address: 'not-an-email' },
-        ])
+        expect(parseEmailAddress('not-an-email')).toEqual([{ name: '', address: 'not-an-email' }])
     })
 
     test('따옴표 안 쉼표가 포함된 이름을 파싱한다', () => {

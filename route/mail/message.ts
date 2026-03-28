@@ -35,7 +35,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.get(
         '/',
-        describeRoute({ tags: ['Mail'], summary: '메일 메시지 목록', responses: { 200: { description: '메시지 목록' }, ...errorResponses(['UNAUTHORIZED']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '메일 메시지 목록',
+            responses: { 200: { description: '메시지 목록' }, ...errorResponses(['UNAUTHORIZED']) },
+        }),
         validator('query', mailMessageListQuerySchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -48,7 +52,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.get(
         '/search',
-        describeRoute({ tags: ['Mail'], summary: '메일 검색', responses: { 200: { description: '검색 결과' }, ...errorResponses(['UNAUTHORIZED']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '메일 검색',
+            responses: { 200: { description: '검색 결과' }, ...errorResponses(['UNAUTHORIZED']) },
+        }),
         validator('query', mailMessageSearchQuerySchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -61,7 +69,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.get(
         '/thread',
-        describeRoute({ tags: ['Mail'], summary: '스레드 조회', responses: { 200: { description: '스레드 메시지' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_ACCOUNT_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '스레드 조회',
+            responses: { 200: { description: '스레드 메시지' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_ACCOUNT_NOT_FOUND']) },
+        }),
         validator('query', mailThreadQuerySchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -74,7 +86,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.get(
         '/senders',
-        describeRoute({ tags: ['Mail'], summary: '발신자 목록', responses: { 200: { description: '발신자 목록' }, ...errorResponses(['UNAUTHORIZED']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '발신자 목록',
+            responses: { 200: { description: '발신자 목록' }, ...errorResponses(['UNAUTHORIZED']) },
+        }),
         validator('query', mailSenderListQuerySchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -87,7 +103,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.get(
         '/:messageId',
-        describeRoute({ tags: ['Mail'], summary: '메일 메시지 상세', responses: { 200: { description: '메시지 상세' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '메일 메시지 상세',
+            responses: { 200: { description: '메시지 상세' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('param', mailMessageParamSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -100,7 +120,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/mark-read',
-        describeRoute({ tags: ['Mail'], summary: '읽음 표시', responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '읽음 표시',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('json', mailMessageIdsSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -113,7 +137,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/mark-unread',
-        describeRoute({ tags: ['Mail'], summary: '안읽음 표시', responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '안읽음 표시',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('json', mailMessageIdsSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -126,7 +154,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/star',
-        describeRoute({ tags: ['Mail'], summary: '별표', responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '별표',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('json', mailMessageIdsSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -139,7 +171,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/unstar',
-        describeRoute({ tags: ['Mail'], summary: '별표 해제', responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '별표 해제',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('json', mailMessageIdsSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -152,7 +188,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/move',
-        describeRoute({ tags: ['Mail'], summary: '폴더 이동', responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '폴더 이동',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('json', mailMoveSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -165,7 +205,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/delete',
-        describeRoute({ tags: ['Mail'], summary: '삭제', responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '삭제',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND']) },
+        }),
         validator('json', mailMessageIdsSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
@@ -178,28 +222,36 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/send',
-        describeRoute({ tags: ['Mail'], summary: '메일 발송', responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_SEND_FAILED', 'RATE_LIMIT_EXCEEDED']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '메일 발송',
+            responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_SEND_FAILED', 'RATE_LIMIT_EXCEEDED']) },
+        }),
         validator('json', mailComposeSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(
                 deps.checkLimit
                     ? withRateLimit({ checkLimit: deps.checkLimit })(async (c, user) => {
-                        const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
-                        const result = await deps.mailMessageService.send(user.id, body.accountId, body)
-                        return c.json(successResponse(result))
-                    })
+                          const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
+                          const result = await deps.mailMessageService.send(user.id, body.accountId, body)
+                          return c.json(successResponse(result))
+                      })
                     : async (c, user) => {
-                        const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
-                        const result = await deps.mailMessageService.send(user.id, body.accountId, body)
-                        return c.json(successResponse(result))
-                    },
+                          const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
+                          const result = await deps.mailMessageService.send(user.id, body.accountId, body)
+                          return c.json(successResponse(result))
+                      },
             ),
         ),
     )
 
     route.post(
         '/:messageId/reply',
-        describeRoute({ tags: ['Mail'], summary: '답장', responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '답장',
+            responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED']) },
+        }),
         validator('param', mailMessageParamSchema),
         validator('json', mailReplySchema),
         withErrorHandling(
@@ -214,7 +266,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.post(
         '/:messageId/forward',
-        describeRoute({ tags: ['Mail'], summary: '전달', responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '전달',
+            responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED']) },
+        }),
         validator('param', mailMessageParamSchema),
         validator('json', mailForwardSchema),
         withErrorHandling(
@@ -229,7 +285,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
 
     route.get(
         '/:messageId/attachments/:attachmentId',
-        describeRoute({ tags: ['Mail'], summary: '첨부파일 다운로드', responses: { 200: { description: '파일 바이너리' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_ATTACHMENT_NOT_FOUND']) } }),
+        describeRoute({
+            tags: ['Mail'],
+            summary: '첨부파일 다운로드',
+            responses: { 200: { description: '파일 바이너리' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_ATTACHMENT_NOT_FOUND']) },
+        }),
         validator('param', mailAttachmentDownloadParamSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {

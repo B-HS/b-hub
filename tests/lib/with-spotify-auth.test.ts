@@ -40,9 +40,11 @@ const createApp = (deps: ReturnType<typeof createDeps>) => {
 
     app.get(
         '/test',
-        withErrorHandling(auth(async (c, authResult) => {
-            return c.json({ spotifyAccountId: authResult.spotifyAccountId, userId: authResult.userId })
-        })),
+        withErrorHandling(
+            auth(async (c, authResult) => {
+                return c.json({ spotifyAccountId: authResult.spotifyAccountId, userId: authResult.userId })
+            }),
+        ),
     )
 
     return app

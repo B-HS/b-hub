@@ -51,9 +51,7 @@ describe('createSpotifyApiKeyService', () => {
 
     test('validate가 만료된 토큰에 대해 null을 반환한다', async () => {
         const db = createMockDb()
-        db.findByToken = mock(() =>
-            Promise.resolve({ id: 1, userId: 'user-1', spotifyAccountId: 1, expiresAt: new Date('2000-01-01') }),
-        )
+        db.findByToken = mock(() => Promise.resolve({ id: 1, userId: 'user-1', spotifyAccountId: 1, expiresAt: new Date('2000-01-01') }))
         const service = createSpotifyApiKeyService({ db })
         const result = await service.validate('any-token')
         expect(result).toBeNull()

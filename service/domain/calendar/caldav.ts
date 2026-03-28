@@ -20,7 +20,15 @@ type CalendarEventRow = {
     dtstart: Date
     dtend: Date
     isAllDay: boolean
-    rrule: { freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'; interval?: number; count?: number; until?: string; byDay?: string[]; byMonth?: number[]; byMonthDay?: number[] } | null
+    rrule: {
+        freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+        interval?: number
+        count?: number
+        until?: string
+        byDay?: string[]
+        byMonth?: number[]
+        byMonthDay?: number[]
+    } | null
     exdate: string[] | null
     status: string | null
     transp: string | null

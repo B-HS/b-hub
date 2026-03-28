@@ -74,9 +74,7 @@ describe('createSpotifyDataService', () => {
 
         test('isPlaying 플래그가 올바르다', async () => {
             const provider = createMockProvider({
-                getCurrentlyPlaying: mock(() =>
-                    Promise.resolve({ is_playing: false, item: null }),
-                ),
+                getCurrentlyPlaying: mock(() => Promise.resolve({ is_playing: false, item: null })),
                 getRecentlyPlayed: mock(() => Promise.resolve({ items: [] })),
             })
 

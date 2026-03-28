@@ -57,10 +57,12 @@ const createMockDb = () => ({
     getAttachment: mock((id: number) => Promise.resolve(id === 10 ? mockAttachment() : null)),
     updateAttachmentR2Key: mock(() => Promise.resolve()),
     getAccountIdsByMessageIds: mock(() => Promise.resolve([{ messageId: 1, accountId: 1, remoteMessageId: 'remote-1', folderId: 1 }])),
-    getSenderList: mock(() => Promise.resolve([
-        { address: 'alice@test.com', name: 'Alice' },
-        { address: 'bob@test.com', name: '' },
-    ])),
+    getSenderList: mock(() =>
+        Promise.resolve([
+            { address: 'alice@test.com', name: 'Alice' },
+            { address: 'bob@test.com', name: '' },
+        ]),
+    ),
     countMessagesByFolder: mock(() => Promise.resolve(10)),
     countUnreadByFolder: mock(() => Promise.resolve(3)),
     updateFolderCounts: mock(() => Promise.resolve()),
@@ -99,7 +101,13 @@ const createMockAccountService = () => {
     }
 }
 
-const createDeps = (overrides: { db?: Partial<ReturnType<typeof createMockDb>>; accountService?: Partial<ReturnType<typeof createMockAccountService>>; storageService?: unknown } = {}) => {
+const createDeps = (
+    overrides: {
+        db?: Partial<ReturnType<typeof createMockDb>>
+        accountService?: Partial<ReturnType<typeof createMockAccountService>>
+        storageService?: unknown
+    } = {},
+) => {
     const accountService = { ...createMockAccountService(), ...overrides.accountService }
     return {
         db: { ...createMockDb(), ...overrides.db } as ReturnType<typeof createMockDb>,
@@ -129,12 +137,14 @@ describe('createMailMessageService', () => {
             const deps = createDeps()
             const service = createMailMessageService(deps)
             await service.list('user-1', { accountId: 1, isRead: true, page: 2, limit: 10 })
-            expect(deps.db.list).toHaveBeenCalledWith(expect.objectContaining({
-                accountId: 1,
-                isRead: true,
-                page: 2,
-                limit: 10,
-            }))
+            expect(deps.db.list).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    accountId: 1,
+                    isRead: true,
+                    page: 2,
+                    limit: 10,
+                }),
+            )
         })
     })
 
@@ -392,11 +402,7 @@ describe('createMailMessageService', () => {
             const service = createMailMessageService(deps)
             await service.moveToFolder('user-1', [1], 2)
 
-            expect(accountService._provider.moveMessage).toHaveBeenCalledWith(
-                ['remote-1'],
-                'ARCHIVE',
-                'INBOX',
-            )
+            expect(accountService._provider.moveMessage).toHaveBeenCalledWith(['remote-1'], 'ARCHIVE', 'INBOX')
         })
     })
 

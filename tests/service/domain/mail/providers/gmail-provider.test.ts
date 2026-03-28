@@ -7,8 +7,7 @@ let fetchCalls: { url: string; options: RequestInit }[] = []
 let fetchResponses: Map<string, () => Response> = new Map()
 const originalFetch = globalThis.fetch
 
-const mockResponse = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+const mockResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 const setFetchResponse = (pathPattern: string, body: unknown, status = 200) => {
     fetchResponses.set(pathPattern, () => mockResponse(body, status))
@@ -358,10 +357,7 @@ describe('fetchMessages', () => {
 
     test('incremental: History API로 변경분만 가져온다', async () => {
         setFetchResponse('/history?', {
-            history: [
-                { messagesAdded: [{ message: { id: 'new-1' } }] },
-                { messagesDeleted: [{ message: { id: 'del-1' } }] },
-            ],
+            history: [{ messagesAdded: [{ message: { id: 'new-1' } }] }, { messagesDeleted: [{ message: { id: 'del-1' } }] }],
             historyId: '99999',
         })
         setFetchResponse('/messages/new-1', makeFullMessage('new-1'))
@@ -377,10 +373,7 @@ describe('fetchMessages', () => {
 
     test('incremental: UNREAD 라벨 제거를 메시지 삭제로 오인하지 않는다', async () => {
         setFetchResponse('/history?', {
-            history: [
-                { messagesAdded: [{ message: { id: 'new-1' } }] },
-                { labelsRemoved: [{ message: { id: 'new-1' }, labelIds: ['UNREAD'] }] },
-            ],
+            history: [{ messagesAdded: [{ message: { id: 'new-1' } }] }, { labelsRemoved: [{ message: { id: 'new-1' }, labelIds: ['UNREAD'] }] }],
             historyId: '99999',
         })
         setFetchResponse('/messages/new-1', makeFullMessage('new-1'))
@@ -395,9 +388,7 @@ describe('fetchMessages', () => {
 
     test('incremental: 폴더 라벨(INBOX) 제거 시에만 삭제 처리한다', async () => {
         setFetchResponse('/history?', {
-            history: [
-                { labelsRemoved: [{ message: { id: 'moved-1' }, labelIds: ['INBOX'] }] },
-            ],
+            history: [{ labelsRemoved: [{ message: { id: 'moved-1' }, labelIds: ['INBOX'] }] }],
             historyId: '99999',
         })
 
@@ -506,8 +497,7 @@ describe('Gmail API 에러 마스킹', () => {
         const provider = createGmailProvider(createDeps())
         try {
             await provider.fetchMessageDetail('test-err')
-        } catch {
-        }
+        } catch {}
         const msg = await provider.fetchMessageDetail('test-err')
         expect(msg).toBeNull()
     })
@@ -568,9 +558,7 @@ describe('fetchMessages History API fallback', () => {
         fetchResponses.set('/history?', () => mockResponse({ error: { code: 500 } }, 500))
 
         const provider = createGmailProvider(createDeps())
-        await expect(provider.fetchMessages({ folderId: 'INBOX', cursor: '12345' })).rejects.toThrow(
-            /Gmail API error 500/,
-        )
+        await expect(provider.fetchMessages({ folderId: 'INBOX', cursor: '12345' })).rejects.toThrow(/Gmail API error 500/)
     })
 })
 

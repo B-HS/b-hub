@@ -109,7 +109,12 @@ describe('CaldavService', () => {
         })
 
         test('여러 속성을 한 번에 반환한다', () => {
-            const { found } = service.getCalendarProperties(mockSubscription, ['resourcetype', 'displayname', 'getctag'], '/caldav/token/', 'Asia/Seoul')
+            const { found } = service.getCalendarProperties(
+                mockSubscription,
+                ['resourcetype', 'displayname', 'getctag'],
+                '/caldav/token/',
+                'Asia/Seoul',
+            )
             expect(found['D:resourcetype']).toBeDefined()
             expect(found['D:displayname']).toBe('My Calendar')
             expect(found['CS:getctag']).toBe('ctag-123')

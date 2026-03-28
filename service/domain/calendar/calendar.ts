@@ -54,7 +54,15 @@ type CalendarEventRow = {
     dtstart: Date
     dtend: Date
     isAllDay: boolean
-    rrule: { freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'; interval?: number; count?: number; until?: string; byDay?: string[]; byMonth?: number[]; byMonthDay?: number[] } | null
+    rrule: {
+        freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+        interval?: number
+        count?: number
+        until?: string
+        byDay?: string[]
+        byMonth?: number[]
+        byMonthDay?: number[]
+    } | null
     exdate: string[] | null
     status: string | null
     transp: string | null
@@ -114,7 +122,15 @@ export type CalendarServiceDb = {
             dtstart: Date
             dtend: Date
             isAllDay: boolean
-            rrule: { freq: string; interval?: number; count?: number; until?: string; byDay?: string[]; byMonth?: number[]; byMonthDay?: number[] } | null
+            rrule: {
+                freq: string
+                interval?: number
+                count?: number
+                until?: string
+                byDay?: string[]
+                byMonth?: number[]
+                byMonthDay?: number[]
+            } | null
             exdate?: string[] | null
             status: EventStatus | null
             transp: EventTransparency | null
@@ -130,7 +146,11 @@ export type CalendarServiceDb = {
     getGroupsByUser: (userId: string) => Promise<CalendarGroupRow[]>
     getGroupById: (userId: string, groupId: string) => Promise<CalendarGroupRow | null>
     insertGroup: (data: { id: string; userId: string; name: string; color: string; sortOrder: number; isVisible: boolean }) => Promise<void>
-    updateGroup: (userId: string, groupId: string, data: Partial<{ name: string; color: string; sortOrder: number; isVisible: boolean }>) => Promise<void>
+    updateGroup: (
+        userId: string,
+        groupId: string,
+        data: Partial<{ name: string; color: string; sortOrder: number; isVisible: boolean }>,
+    ) => Promise<void>
     deleteGroup: (userId: string, groupId: string) => Promise<void>
     countEventsByGroup: (userId: string, groupId: string) => Promise<number>
     getSubscription: (userId: string) => Promise<CalendarSubscription | null>
@@ -412,7 +432,11 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
         return { id, userId, name: data.name, color: data.color, sortOrder, isVisible }
     }
 
-    const updateGroup = async (userId: string, groupId: string, data: Partial<{ name: string; color: string; sortOrder: number; isVisible: boolean }>) => {
+    const updateGroup = async (
+        userId: string,
+        groupId: string,
+        data: Partial<{ name: string; color: string; sortOrder: number; isVisible: boolean }>,
+    ) => {
         const existing = await db.getGroupById(userId, groupId)
         if (!existing) throw createAppError('CALENDAR_GROUP_NOT_FOUND')
         await db.updateGroup(userId, groupId, data)

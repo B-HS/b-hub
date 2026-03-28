@@ -10,29 +10,36 @@ const createMockDeps = () => ({
         download: mock((_key: string): Promise<Buffer | null> => Promise.resolve(Buffer.from('file-data'))),
     },
     db: {
-        insert: mock((_data: { userId: string; filename: string; mimeType: string; sizeBytes: number; r2Key: string; isInline: boolean }) => Promise.resolve({ id: 1 })),
-        getById: mock((_id: number): Promise<MailUpload | null> => Promise.resolve({
-            id: 1,
-            userId: 'user-1',
-            filename: 'photo.jpg',
-            mimeType: 'image/jpeg',
-            sizeBytes: 1024,
-            r2Key: 'mail/uploads/user-1/uuid-1/photo.jpg',
-            isInline: false,
-            createdAt: new Date(),
-        })),
-        getByIds: mock(() => Promise.resolve([
-            {
-                id: 1,
-                userId: 'user-1',
-                filename: 'photo.jpg',
-                mimeType: 'image/jpeg',
-                sizeBytes: 1024,
-                r2Key: 'mail/uploads/user-1/uuid-1/photo.jpg',
-                isInline: false,
-                createdAt: new Date(),
-            },
-        ])),
+        insert: mock((_data: { userId: string; filename: string; mimeType: string; sizeBytes: number; r2Key: string; isInline: boolean }) =>
+            Promise.resolve({ id: 1 }),
+        ),
+        getById: mock(
+            (_id: number): Promise<MailUpload | null> =>
+                Promise.resolve({
+                    id: 1,
+                    userId: 'user-1',
+                    filename: 'photo.jpg',
+                    mimeType: 'image/jpeg',
+                    sizeBytes: 1024,
+                    r2Key: 'mail/uploads/user-1/uuid-1/photo.jpg',
+                    isInline: false,
+                    createdAt: new Date(),
+                }),
+        ),
+        getByIds: mock(() =>
+            Promise.resolve([
+                {
+                    id: 1,
+                    userId: 'user-1',
+                    filename: 'photo.jpg',
+                    mimeType: 'image/jpeg',
+                    sizeBytes: 1024,
+                    r2Key: 'mail/uploads/user-1/uuid-1/photo.jpg',
+                    isInline: false,
+                    createdAt: new Date(),
+                },
+            ]),
+        ),
         deleteById: mock(() => Promise.resolve()),
     },
     generateId: () => 'test-uuid',
@@ -45,7 +52,7 @@ describe('createMailUploadService', () => {
             const service = createMailUploadService(deps)
 
             const jpegHeader = new Uint8Array(1024)
-            jpegHeader.set([0xFF, 0xD8, 0xFF])
+            jpegHeader.set([0xff, 0xd8, 0xff])
             const file = new File([jpegHeader], 'photo.jpg', { type: 'image/jpeg' })
             const result = await service.upload(file, 'user-1', true)
 
@@ -54,10 +61,12 @@ describe('createMailUploadService', () => {
             expect(result.filename).toBe('photo.jpg')
             expect(result.url).toContain('mail/uploads/user-1/test-uuid/photo.jpg')
             expect(deps.storage.upload).toHaveBeenCalled()
-            expect(deps.db.insert).toHaveBeenCalledWith(expect.objectContaining({
-                userId: 'user-1',
-                isInline: true,
-            }))
+            expect(deps.db.insert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: 'user-1',
+                    isInline: true,
+                }),
+            )
         })
 
         test('첨부파일을 업로드한다', async () => {
@@ -119,7 +128,7 @@ describe('createMailUploadService', () => {
             const service = createMailUploadService(deps)
 
             const pngData = new Uint8Array(10 * 1024 * 1024)
-            pngData.set([0x89, 0x50, 0x4E, 0x47])
+            pngData.set([0x89, 0x50, 0x4e, 0x47])
             const file = new File([pngData], 'exact.png', { type: 'image/png' })
             const result = await service.upload(file, 'user-1', true)
             expect(result.id).toBe(1)
@@ -349,10 +358,30 @@ describe('createMailUploadService', () => {
 
         test('여러 파일을 동시에 resolve한다', async () => {
             const deps = createMockDeps()
-            deps.db.getByIds = mock(() => Promise.resolve([
-                { id: 1, userId: 'user-1', filename: 'a.jpg', mimeType: 'image/jpeg', sizeBytes: 100, r2Key: 'mail/uploads/user-1/u1/a.jpg', isInline: false, createdAt: new Date() },
-                { id: 2, userId: 'user-1', filename: 'b.pdf', mimeType: 'application/pdf', sizeBytes: 200, r2Key: 'mail/uploads/user-1/u2/b.pdf', isInline: false, createdAt: new Date() },
-            ]))
+            deps.db.getByIds = mock(() =>
+                Promise.resolve([
+                    {
+                        id: 1,
+                        userId: 'user-1',
+                        filename: 'a.jpg',
+                        mimeType: 'image/jpeg',
+                        sizeBytes: 100,
+                        r2Key: 'mail/uploads/user-1/u1/a.jpg',
+                        isInline: false,
+                        createdAt: new Date(),
+                    },
+                    {
+                        id: 2,
+                        userId: 'user-1',
+                        filename: 'b.pdf',
+                        mimeType: 'application/pdf',
+                        sizeBytes: 200,
+                        r2Key: 'mail/uploads/user-1/u2/b.pdf',
+                        isInline: false,
+                        createdAt: new Date(),
+                    },
+                ]),
+            )
             const service = createMailUploadService(deps)
 
             const result = await service.resolveForSend([1, 2], 'user-1')

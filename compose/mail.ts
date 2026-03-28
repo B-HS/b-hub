@@ -80,7 +80,10 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             return result
         },
         update: async (id: number, data: Record<string, unknown>) => {
-            await db.update(schema.mailAccounts).set(data as never).where(eq(schema.mailAccounts.id, id))
+            await db
+                .update(schema.mailAccounts)
+                .set(data as never)
+                .where(eq(schema.mailAccounts.id, id))
         },
         remove: async (id: number) => {
             await db.delete(schema.mailAccounts).where(eq(schema.mailAccounts.id, id))
@@ -109,11 +112,7 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             const [acc] = await db
                 .select({ id: schema.account.id })
                 .from(schema.account)
-                .where(and(
-                    eq(schema.account.providerId, providerId),
-                    eq(schema.account.userId, userId),
-                    eq(schema.account.accountId, accountId),
-                ))
+                .where(and(eq(schema.account.providerId, providerId), eq(schema.account.userId, userId), eq(schema.account.accountId, accountId)))
                 .limit(1)
             return acc ?? null
         },
@@ -283,12 +282,18 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         },
 
         createSyncLog: async (data: { accountId: number; syncType: string; status: string; folderId: number | null; startedAt: Date }) => {
-            const [result] = await db.insert(schema.mailSyncLogs).values(data as never).$returningId()
+            const [result] = await db
+                .insert(schema.mailSyncLogs)
+                .values(data as never)
+                .$returningId()
             const [log] = await db.select().from(schema.mailSyncLogs).where(eq(schema.mailSyncLogs.id, result.id)).limit(1)
             return log
         },
         updateSyncLog: async (id: number, data: Record<string, unknown>) => {
-            await db.update(schema.mailSyncLogs).set(data as never).where(eq(schema.mailSyncLogs.id, id))
+            await db
+                .update(schema.mailSyncLogs)
+                .set(data as never)
+                .where(eq(schema.mailSyncLogs.id, id))
         },
         getLatestSyncLog: async (accountId: number) => {
             const [log] = await db
@@ -309,13 +314,26 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                 .limit(1)
             return session ?? null
         },
-        createSession: async (data: { accountId: number; folderId: number | null; syncType: string; status: string; totalEstimate: number | null; startedAt: Date }) => {
-            const [result] = await db.insert(schema.mailSyncSessions).values(data as never).$returningId()
+        createSession: async (data: {
+            accountId: number
+            folderId: number | null
+            syncType: string
+            status: string
+            totalEstimate: number | null
+            startedAt: Date
+        }) => {
+            const [result] = await db
+                .insert(schema.mailSyncSessions)
+                .values(data as never)
+                .$returningId()
             const [session] = await db.select().from(schema.mailSyncSessions).where(eq(schema.mailSyncSessions.id, result.id)).limit(1)
             return session
         },
         updateSession: async (id: number, data: Record<string, unknown>) => {
-            await db.update(schema.mailSyncSessions).set(data as never).where(eq(schema.mailSyncSessions.id, id))
+            await db
+                .update(schema.mailSyncSessions)
+                .set(data as never)
+                .where(eq(schema.mailSyncSessions.id, id))
         },
 
         countMessagesByFolder: async (folderId: number) => {
@@ -366,19 +384,31 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
     }
 
     const mailMessageDb = {
-        list: async (params: { accountId?: number; folderId?: number; isRead?: boolean; isStarred?: boolean; userId: string; page: number; limit: number }) => {
+        list: async (params: {
+            accountId?: number
+            folderId?: number
+            isRead?: boolean
+            isStarred?: boolean
+            userId: string
+            page: number
+            limit: number
+        }) => {
             const offset = (params.page - 1) * params.limit
 
             let accountIds: number[]
             if (params.accountId) {
-                const [owned] = await db.select({ id: schema.mailAccounts.id })
+                const [owned] = await db
+                    .select({ id: schema.mailAccounts.id })
                     .from(schema.mailAccounts)
                     .where(and(eq(schema.mailAccounts.id, params.accountId), eq(schema.mailAccounts.userId, params.userId)))
                     .limit(1)
                 if (!owned) return { data: [], total: 0 }
                 accountIds = [params.accountId]
             } else {
-                const userAccounts = await db.select({ id: schema.mailAccounts.id }).from(schema.mailAccounts).where(eq(schema.mailAccounts.userId, params.userId))
+                const userAccounts = await db
+                    .select({ id: schema.mailAccounts.id })
+                    .from(schema.mailAccounts)
+                    .where(eq(schema.mailAccounts.userId, params.userId))
                 accountIds = userAccounts.map((a) => a.id)
                 if (accountIds.length === 0) return { data: [], total: 0 }
             }
@@ -424,14 +454,18 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
 
             let accountIds: number[]
             if (params.accountId) {
-                const [owned] = await db.select({ id: schema.mailAccounts.id })
+                const [owned] = await db
+                    .select({ id: schema.mailAccounts.id })
                     .from(schema.mailAccounts)
                     .where(and(eq(schema.mailAccounts.id, params.accountId), eq(schema.mailAccounts.userId, params.userId)))
                     .limit(1)
                 if (!owned) return { data: [], total: 0 }
                 accountIds = [params.accountId]
             } else {
-                const userAccounts = await db.select({ id: schema.mailAccounts.id }).from(schema.mailAccounts).where(eq(schema.mailAccounts.userId, params.userId))
+                const userAccounts = await db
+                    .select({ id: schema.mailAccounts.id })
+                    .from(schema.mailAccounts)
+                    .where(eq(schema.mailAccounts.userId, params.userId))
                 accountIds = userAccounts.map((a) => a.id)
                 if (accountIds.length === 0) return { data: [], total: 0 }
             }
@@ -461,7 +495,10 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             return { data, total: count }
         },
         updateFlags: async (messageIds: number[], flags: Record<string, unknown>) => {
-            await db.update(schema.mailMessages).set(flags as never).where(inArray(schema.mailMessages.id, messageIds))
+            await db
+                .update(schema.mailMessages)
+                .set(flags as never)
+                .where(inArray(schema.mailMessages.id, messageIds))
         },
         moveToFolder: async (messageIds: number[], targetFolderId: number) => {
             await db.update(schema.mailMessages).set({ folderId: targetFolderId }).where(inArray(schema.mailMessages.id, messageIds))
@@ -496,14 +533,18 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         getSenderList: async (params: { userId: string; accountId?: number; limit: number }) => {
             let accountIds: number[]
             if (params.accountId) {
-                const [owned] = await db.select({ id: schema.mailAccounts.id })
+                const [owned] = await db
+                    .select({ id: schema.mailAccounts.id })
                     .from(schema.mailAccounts)
                     .where(and(eq(schema.mailAccounts.id, params.accountId), eq(schema.mailAccounts.userId, params.userId)))
                     .limit(1)
                 if (!owned) return []
                 accountIds = [params.accountId]
             } else {
-                const userAccounts = await db.select({ id: schema.mailAccounts.id }).from(schema.mailAccounts).where(eq(schema.mailAccounts.userId, params.userId))
+                const userAccounts = await db
+                    .select({ id: schema.mailAccounts.id })
+                    .from(schema.mailAccounts)
+                    .where(eq(schema.mailAccounts.userId, params.userId))
                 accountIds = userAccounts.map((a) => a.id)
                 if (accountIds.length === 0) return []
             }
@@ -517,7 +558,7 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
 
             const senderMap = new Map<string, string>()
             for (const row of rows) {
-                const addr = (row.fromAddress as { address?: string; name?: string } | null)
+                const addr = row.fromAddress as { address?: string; name?: string } | null
                 if (!addr?.address) continue
                 if (!senderMap.has(addr.address)) {
                     senderMap.set(addr.address, addr.name ?? '')

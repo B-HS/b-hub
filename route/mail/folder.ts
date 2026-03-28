@@ -10,15 +10,17 @@ import { mailFolderListQuerySchema, mailFolderResponseSchema } from '../../dto/m
 import type { AuthContext } from '../../lib/hono-types'
 
 type MailFolderDb = {
-    getFoldersByAccount: (accountId: number) => Promise<{
-        id: number
-        accountId: number
-        name: string
-        type: string
-        parentId: number | null
-        messageCount: number
-        unreadCount: number
-    }[]>
+    getFoldersByAccount: (accountId: number) => Promise<
+        {
+            id: number
+            accountId: number
+            name: string
+            type: string
+            parentId: number | null
+            messageCount: number
+            unreadCount: number
+        }[]
+    >
 }
 
 type MailFolderRouteDeps = {
@@ -38,7 +40,9 @@ export const createMailFolderRoute = (deps: MailFolderRouteDeps) => {
             responses: {
                 200: {
                     description: '폴더 목록',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(mailFolderResponseSchema) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(mailFolderResponseSchema) })) },
+                    },
                 },
                 ...errorResponses(['UNAUTHORIZED', 'MAIL_ACCOUNT_NOT_FOUND']),
             },

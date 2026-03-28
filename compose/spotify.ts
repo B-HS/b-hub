@@ -20,7 +20,10 @@ export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
             return account ?? null
         },
         update: async (id: number, data: Record<string, unknown>) => {
-            await db.update(schema.spotifyAccounts).set(data as never).where(eq(schema.spotifyAccounts.id, id))
+            await db
+                .update(schema.spotifyAccounts)
+                .set(data as never)
+                .where(eq(schema.spotifyAccounts.id, id))
         },
         remove: async (id: number) => {
             await db.delete(schema.spotifyAccounts).where(eq(schema.spotifyAccounts.id, id))
@@ -121,7 +124,10 @@ export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
             return result
         },
         updateSpotifyAccount: async (id, data) => {
-            await db.update(schema.spotifyAccounts).set(data as never).where(eq(schema.spotifyAccounts.id, id))
+            await db
+                .update(schema.spotifyAccounts)
+                .set(data as never)
+                .where(eq(schema.spotifyAccounts.id, id))
         },
     })
 
@@ -145,7 +151,7 @@ export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        Authorization: `Basic ${Buffer.from(`${env.SPOTIFY_CLIENT_ID ?? ''}:${env.SPOTIFY_CLIENT_SECRET ?? ''}`).toString('base64')}`,
+                        'Authorization': `Basic ${Buffer.from(`${env.SPOTIFY_CLIENT_ID ?? ''}:${env.SPOTIFY_CLIENT_SECRET ?? ''}`).toString('base64')}`,
                     },
                     body: new URLSearchParams({
                         grant_type: 'refresh_token',

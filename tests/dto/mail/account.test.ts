@@ -29,10 +29,12 @@ describe('mailAccountCreateSchema', () => {
     })
 
     test('provider enum을 검증한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'yahoo',
-            email: 'test@yahoo.com',
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'yahoo',
+                email: 'test@yahoo.com',
+            }),
+        ).toThrow()
     })
 
     test('naver, daum 프로바이더를 허용한다', () => {
@@ -44,10 +46,12 @@ describe('mailAccountCreateSchema', () => {
     })
 
     test('email 형식을 검증한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'gmail',
-            email: 'not-an-email',
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'gmail',
+                email: 'not-an-email',
+            }),
+        ).toThrow()
     })
 
     test('credentials에 username을 포함할 수 있다', () => {
@@ -71,59 +75,73 @@ describe('mailAccountCreateSchema', () => {
     })
 
     test('포트 범위를 검증한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'imap',
-            email: 'test@test.com',
-            imapPort: 0,
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'imap',
+                email: 'test@test.com',
+                imapPort: 0,
+            }),
+        ).toThrow()
 
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'imap',
-            email: 'test@test.com',
-            imapPort: 70000,
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'imap',
+                email: 'test@test.com',
+                imapPort: 70000,
+            }),
+        ).toThrow()
     })
 
     test('displayName 최대 길이를 검증한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'gmail',
-            email: 'test@gmail.com',
-            displayName: 'a'.repeat(101),
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'gmail',
+                email: 'test@gmail.com',
+                displayName: 'a'.repeat(101),
+            }),
+        ).toThrow()
     })
 
     test('내부 IP imapHost를 차단한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'imap',
-            email: 'test@test.com',
-            imapHost: '127.0.0.1',
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'imap',
+                email: 'test@test.com',
+                imapHost: '127.0.0.1',
+            }),
+        ).toThrow()
     })
 
     test('내부 IP smtpHost를 차단한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'imap',
-            email: 'test@test.com',
-            smtpHost: '169.254.169.254',
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'imap',
+                email: 'test@test.com',
+                smtpHost: '169.254.169.254',
+            }),
+        ).toThrow()
     })
 
     test('localhost를 차단한다', () => {
-        expect(() => mailAccountCreateSchema.parse({
-            provider: 'imap',
-            email: 'test@test.com',
-            imapHost: 'localhost',
-        })).toThrow()
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'imap',
+                email: 'test@test.com',
+                imapHost: 'localhost',
+            }),
+        ).toThrow()
     })
 
     test('private 네트워크 대역을 차단한다', () => {
         const blockedHosts = ['10.0.0.1', '172.16.0.1', '192.168.1.1', '0.0.0.0']
         for (const host of blockedHosts) {
-            expect(() => mailAccountCreateSchema.parse({
-                provider: 'imap',
-                email: 'test@test.com',
-                imapHost: host,
-            })).toThrow()
+            expect(() =>
+                mailAccountCreateSchema.parse({
+                    provider: 'imap',
+                    email: 'test@test.com',
+                    imapHost: host,
+                }),
+            ).toThrow()
         }
     })
 

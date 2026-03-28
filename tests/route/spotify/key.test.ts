@@ -7,9 +7,7 @@ const sessionUser = { id: 'user-1', name: 'Test', email: 'test@test.com', role: 
 const createDeps = (withSession = true) => ({
     spotifyApiKeyService: {
         listByUser: mock(() =>
-            Promise.resolve([
-                { id: 1, spotifyAccountId: 1, name: 'Key', expiresAt: null, lastUsedAt: null, createdAt: new Date() },
-            ]),
+            Promise.resolve([{ id: 1, spotifyAccountId: 1, name: 'Key', expiresAt: null, lastUsedAt: null, createdAt: new Date() }]),
         ),
         create: mock(() => Promise.resolve('generated-token-64chars'.padEnd(64, '0'))),
         revoke: mock(() => Promise.resolve()),

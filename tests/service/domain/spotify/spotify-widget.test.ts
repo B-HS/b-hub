@@ -45,9 +45,7 @@ describe('createSpotifyWidgetService', () => {
 
     test('generateSvg가 미재생 시 Not Playing SVG를 반환한다', async () => {
         const deps = createMockDeps()
-        deps.spotifyDataService.getNowPlaying = mock(() =>
-            Promise.resolve({ isPlaying: false, track: null, lastPlayedAt: null }),
-        )
+        deps.spotifyDataService.getNowPlaying = mock(() => Promise.resolve({ isPlaying: false, track: null, lastPlayedAt: null }))
         const service = createSpotifyWidgetService(deps)
         const svg = await service.generateSvg(1)
         expect(svg).toContain('Not Playing')

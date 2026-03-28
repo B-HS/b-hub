@@ -43,10 +43,12 @@ describe('mailHistoricalSyncSchema', () => {
     })
 
     test('cursor 최대 길이(500)를 초과하면 실패한다', () => {
-        expect(() => mailHistoricalSyncSchema.parse({
-            accountId: 1,
-            cursor: 'a'.repeat(501),
-        })).toThrow()
+        expect(() =>
+            mailHistoricalSyncSchema.parse({
+                accountId: 1,
+                cursor: 'a'.repeat(501),
+            }),
+        ).toThrow()
     })
 
     test('accountId 변환', () => {

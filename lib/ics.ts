@@ -81,13 +81,7 @@ const formatDateTimeICS = (date: Date, isAllDay: boolean) => {
 }
 
 const escapeICSText = (text: string) =>
-    text
-        .replace(/\\/g, '\\\\')
-        .replace(/;/g, '\\;')
-        .replace(/,/g, '\\,')
-        .replace(/\r\n/g, '\\n')
-        .replace(/\r/g, '\\n')
-        .replace(/\n/g, '\\n')
+    text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n/g, '\\n').replace(/\r/g, '\\n').replace(/\n/g, '\\n')
 
 const formatRRule = (rrule: RecurrenceRule): string => {
     const parts = [`FREQ=${rrule.freq}`]

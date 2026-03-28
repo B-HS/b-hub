@@ -32,11 +32,14 @@ type MailOAuthConnectDeps = {
         scope: string
     }) => Promise<{ id: string }>
     findMailAccountByEmail: (userId: string, email: string) => Promise<{ id: number; betterAuthAccountId: string | null } | null>
-    createMailAccount: (userId: string, input: {
-        provider: string
-        email: string
-        betterAuthAccountId: string
-    }) => Promise<{ id: number }>
+    createMailAccount: (
+        userId: string,
+        input: {
+            provider: string
+            email: string
+            betterAuthAccountId: string
+        },
+    ) => Promise<{ id: number }>
     updateMailAccountBetterAuthId: (id: number, betterAuthAccountId: string) => Promise<void>
 }
 
@@ -97,7 +100,7 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED', { detail: errorBody })
         }
 
-        const tokenData = await tokenRes.json() as {
+        const tokenData = (await tokenRes.json()) as {
             access_token: string
             refresh_token?: string
             expires_in: number
@@ -117,7 +120,7 @@ export const createMailOAuthConnectService = (deps: MailOAuthConnectDeps) => {
             throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
         }
 
-        const userinfo = await userinfoRes.json() as { sub: string; email: string }
+        const userinfo = (await userinfoRes.json()) as { sub: string; email: string }
         if (!userinfo.email || !userinfo.sub) {
             throw createAppError('MAIL_OAUTH_EXCHANGE_FAILED')
         }

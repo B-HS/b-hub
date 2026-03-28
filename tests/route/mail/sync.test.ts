@@ -5,22 +5,26 @@ import { createMailSyncRoute } from '../../../route/mail/sync'
 const createMockDeps = () => ({
     mailSyncService: {
         syncAccount: mock(() => Promise.resolve({ added: 5, updated: 2, deleted: 1, durationMs: 1000 })),
-        syncHistorical: mock(() => Promise.resolve({
-            synced: 10,
-            totalEstimate: 100,
-            syncedSoFar: 60,
-            cursor: 'next-page',
-            hasMore: true,
-            folderId: 1,
-            sessionId: 1,
-        })),
-        getSyncStatus: mock(() => Promise.resolve({
-            accountId: 1,
-            lastSyncAt: new Date().toISOString(),
-            lastSyncStatus: 'success',
-            historicalSync: null,
-            latestLog: null,
-        })),
+        syncHistorical: mock(() =>
+            Promise.resolve({
+                synced: 10,
+                totalEstimate: 100,
+                syncedSoFar: 60,
+                cursor: 'next-page',
+                hasMore: true,
+                folderId: 1,
+                sessionId: 1,
+            }),
+        ),
+        getSyncStatus: mock(() =>
+            Promise.resolve({
+                accountId: 1,
+                lastSyncAt: new Date().toISOString(),
+                lastSyncStatus: 'success',
+                historicalSync: null,
+                latestLog: null,
+            }),
+        ),
     },
     getSession: mock(() => Promise.resolve({ user: { id: 'user-1', name: 'Test', email: 'test@test.com', role: 'user', image: null } })),
 })

@@ -36,8 +36,8 @@ const INLINE_ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'imag
 const INLINE_MAX_SIZE = 10 * 1024 * 1024
 
 const MAGIC_BYTES: Record<string, number[][]> = {
-    'image/jpeg': [[0xFF, 0xD8, 0xFF]],
-    'image/png': [[0x89, 0x50, 0x4E, 0x47]],
+    'image/jpeg': [[0xff, 0xd8, 0xff]],
+    'image/png': [[0x89, 0x50, 0x4e, 0x47]],
     'image/gif': [[0x47, 0x49, 0x46, 0x38]],
     'image/webp': [[0x52, 0x49, 0x46, 0x46]],
 }
@@ -55,9 +55,7 @@ const ATTACHMENT_BLOCKED_MIME_TYPES = [
     'application/hta',
     'application/x-ms-shortcut',
 ]
-const ATTACHMENT_BLOCKED_EXTENSIONS = new Set([
-    '.exe', '.bat', '.cmd', '.scr', '.msi', '.pif', '.vbs', '.js', '.ps1', '.sh', '.com',
-])
+const ATTACHMENT_BLOCKED_EXTENSIONS = new Set(['.exe', '.bat', '.cmd', '.scr', '.msi', '.pif', '.vbs', '.js', '.ps1', '.sh', '.com'])
 
 const ATTACHMENT_MAX_SIZE = 25 * 1024 * 1024
 
@@ -98,9 +96,7 @@ export const createMailUploadService = (deps: MailUploadDeps) => {
         if (inline) {
             const signatures = MAGIC_BYTES[file.type]
             if (signatures) {
-                const matches = signatures.some((sig) =>
-                    sig.every((byte, i) => buffer[i] === byte),
-                )
+                const matches = signatures.some((sig) => sig.every((byte, i) => buffer[i] === byte))
                 if (!matches) {
                     throw createAppError('MAIL_UPLOAD_INVALID_TYPE')
                 }

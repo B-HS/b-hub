@@ -6,8 +6,14 @@ export const createEventBodySchema = z.object({
     title: z.string().min(1).max(500),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
-    endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    startTime: z
+        .string()
+        .regex(/^\d{2}:\d{2}$/)
+        .optional(),
+    endTime: z
+        .string()
+        .regex(/^\d{2}:\d{2}$/)
+        .optional(),
     isAllDay: z.boolean().default(false),
     groupId: z.string().min(1).optional().nullable(),
     description: z.string().max(5000).optional(),

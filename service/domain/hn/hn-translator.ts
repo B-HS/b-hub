@@ -93,11 +93,7 @@ const safeJsonParse = (text: string, storyInputs: StoryInput[]): StoryTranslatio
 }
 
 export const createHnTranslator = (deps: TranslatorDeps) => {
-    const translateBatchWithRetry = async (
-        storyInputs: StoryInput[],
-        existingTags: string[],
-        retryCount = 0,
-    ): Promise<StoryTranslation[]> => {
+    const translateBatchWithRetry = async (storyInputs: StoryInput[], existingTags: string[], retryCount = 0): Promise<StoryTranslation[]> => {
         const storiesData = storyInputs.map((s, idx) => ({
             idx,
             id: s.id,
@@ -137,8 +133,7 @@ IMPORTANT: Return ONLY valid JSON array, no other text. Make sure JSON is comple
             return results
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : String(error)
-            const isOverloaded =
-                errorMessage.includes('503') || errorMessage.includes('overloaded') || errorMessage.includes('UNAVAILABLE')
+            const isOverloaded = errorMessage.includes('503') || errorMessage.includes('overloaded') || errorMessage.includes('UNAVAILABLE')
 
             if (isOverloaded && retryCount < MAX_RETRIES) {
                 const waitTime = RETRY_DELAY * (retryCount + 1)

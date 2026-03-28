@@ -86,9 +86,7 @@ describe('sanitizeEmailName', () => {
 
 describe('escapeHtml', () => {
     test('HTML 특수문자를 이스케이프한다', () => {
-        expect(escapeHtml('<script>alert("xss")</script>')).toBe(
-            '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
-        )
+        expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;')
     })
 
     test('앰퍼샌드를 이스케이프한다', () => {

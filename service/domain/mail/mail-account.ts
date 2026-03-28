@@ -10,7 +10,10 @@ type MailAccountDb = {
     list: (userId: string) => Promise<MailAccount[]>
     getById: (id: number) => Promise<MailAccount | null>
     insert: (data: NewMailAccount) => Promise<{ id: number }>
-    update: (id: number, data: Partial<Pick<MailAccount, 'displayName' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>) => Promise<void>
+    update: (
+        id: number,
+        data: Partial<Pick<MailAccount, 'displayName' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
+    ) => Promise<void>
     remove: (id: number) => Promise<void>
     countByUser: (userId: string) => Promise<number>
 }
@@ -37,19 +40,22 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
         return assertOwnership(accountId, userId)
     }
 
-    const create = async (userId: string, input: {
-        provider: string
-        email: string
-        displayName?: string
-        credentials?: { username?: string; password: string }
-        imapHost?: string
-        imapPort?: number
-        imapTls?: boolean
-        smtpHost?: string
-        smtpPort?: number
-        smtpTls?: boolean
-        betterAuthAccountId?: string
-    }) => {
+    const create = async (
+        userId: string,
+        input: {
+            provider: string
+            email: string
+            displayName?: string
+            credentials?: { username?: string; password: string }
+            imapHost?: string
+            imapPort?: number
+            imapTls?: boolean
+            smtpHost?: string
+            smtpPort?: number
+            smtpTls?: boolean
+            betterAuthAccountId?: string
+        },
+    ) => {
         const count = await deps.db.countByUser(userId)
         if (count >= MAX_ACCOUNTS_PER_USER) throw createAppError('MAIL_ACCOUNT_LIMIT_EXCEEDED')
 

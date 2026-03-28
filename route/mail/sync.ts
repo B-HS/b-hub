@@ -35,15 +35,15 @@ export const createMailSyncRoute = (deps: MailSyncRouteDeps) => {
             withAuth({ getSession: deps.getSession })(
                 deps.checkLimit
                     ? withRateLimit({ checkLimit: deps.checkLimit })(async (c, user) => {
-                        const body = c.req.valid('json' as never) as z.infer<typeof mailSyncTriggerSchema>
-                        const result = await deps.mailSyncService.syncAccount(body.accountId, user.id, body.folderId)
-                        return c.json(successResponse(result))
-                    })
+                          const body = c.req.valid('json' as never) as z.infer<typeof mailSyncTriggerSchema>
+                          const result = await deps.mailSyncService.syncAccount(body.accountId, user.id, body.folderId)
+                          return c.json(successResponse(result))
+                      })
                     : async (c, user) => {
-                        const body = c.req.valid('json' as never) as z.infer<typeof mailSyncTriggerSchema>
-                        const result = await deps.mailSyncService.syncAccount(body.accountId, user.id, body.folderId)
-                        return c.json(successResponse(result))
-                    },
+                          const body = c.req.valid('json' as never) as z.infer<typeof mailSyncTriggerSchema>
+                          const result = await deps.mailSyncService.syncAccount(body.accountId, user.id, body.folderId)
+                          return c.json(successResponse(result))
+                      },
             ),
         ),
     )

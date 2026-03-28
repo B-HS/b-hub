@@ -9,8 +9,7 @@ const KEY_LEN = 32
 export const createMailCrypto = (encryptionKey: string) => {
     const v1Key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32), 'utf-8')
 
-    const deriveKey = (salt: Buffer): Buffer =>
-        scryptSync(encryptionKey, salt, KEY_LEN, { N: 16384, r: 8, p: 1 }) as Buffer
+    const deriveKey = (salt: Buffer): Buffer => scryptSync(encryptionKey, salt, KEY_LEN, { N: 16384, r: 8, p: 1 }) as Buffer
 
     const encrypt = (plaintext: string): string => {
         const salt = randomBytes(SALT_LEN)

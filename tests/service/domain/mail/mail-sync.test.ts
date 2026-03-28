@@ -92,15 +92,15 @@ const mockProvider = () => ({
     connect: mock(() => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     testConnection: mock(() => Promise.resolve({ success: true })),
-    fetchFolders: mock(() => Promise.resolve([
-        { id: 'INBOX', name: 'Inbox', type: 'inbox' as const, messageCount: 10, unreadCount: 2 },
-    ])),
-    fetchMessages: mock(() => Promise.resolve({
-        messages: [mockMessage('msg-1'), mockMessage('msg-2')],
-        deletedIds: [],
-        newSyncCursor: 'new-cursor',
-        totalEstimate: 50,
-    })),
+    fetchFolders: mock(() => Promise.resolve([{ id: 'INBOX', name: 'Inbox', type: 'inbox' as const, messageCount: 10, unreadCount: 2 }])),
+    fetchMessages: mock(() =>
+        Promise.resolve({
+            messages: [mockMessage('msg-1'), mockMessage('msg-2')],
+            deletedIds: [],
+            newSyncCursor: 'new-cursor',
+            totalEstimate: 50,
+        }),
+    ),
     fetchMessageDetail: mock(() => Promise.resolve(null)),
     markRead: mock(() => Promise.resolve()),
     markUnread: mock(() => Promise.resolve()),
@@ -116,20 +116,24 @@ const createMockAccountService = () => {
     const provider = mockProvider()
     return {
         list: mock(() => Promise.resolve([])),
-        getById: mock(() => Promise.resolve({
-            id: 1,
-            userId: 'user-1',
-            lastSyncAt: null,
-            lastSyncStatus: 'pending',
-        })),
+        getById: mock(() =>
+            Promise.resolve({
+                id: 1,
+                userId: 'user-1',
+                lastSyncAt: null,
+                lastSyncStatus: 'pending',
+            }),
+        ),
         create: mock(() => Promise.resolve({ id: 1 })),
         update: mock(() => Promise.resolve()),
         remove: mock(() => Promise.resolve()),
         testConnection: mock(() => Promise.resolve({ success: true })),
-        getProvider: mock(() => Promise.resolve({
-            provider,
-            account: { id: 1, userId: 'user-1', syncCursor: null },
-        })),
+        getProvider: mock(() =>
+            Promise.resolve({
+                provider,
+                account: { id: 1, userId: 'user-1', syncCursor: null },
+            }),
+        ),
         updateSyncStatus: mock(() => Promise.resolve()),
         _provider: provider,
     }
@@ -150,10 +154,7 @@ describe('createMailSyncService', () => {
 
             expect(result.added).toBeGreaterThanOrEqual(0)
             expect(deps.db.createSyncLog).toHaveBeenCalledTimes(1)
-            expect(deps.db.updateSyncLog).toHaveBeenCalledWith(
-                1,
-                expect.objectContaining({ status: 'success' }),
-            )
+            expect(deps.db.updateSyncLog).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'success' }))
             expect(accountService.updateSyncStatus).toHaveBeenCalledWith(1, 'success')
         })
 
@@ -178,11 +179,13 @@ describe('createMailSyncService', () => {
 
         test('삭제 처리', async () => {
             const accountService = createMockAccountService()
-            accountService._provider.fetchMessages = mock(() => Promise.resolve({
-                messages: [],
-                deletedIds: ['del-1', 'del-2'],
-                newSyncCursor: 'cursor',
-            }))
+            accountService._provider.fetchMessages = mock(() =>
+                Promise.resolve({
+                    messages: [],
+                    deletedIds: ['del-1', 'del-2'],
+                    newSyncCursor: 'cursor',
+                }),
+            )
             const deps = createDeps({ accountService })
             const service = createMailSyncService(deps)
             const result = await service.syncAccount(1, 'user-1')
@@ -206,11 +209,13 @@ describe('createMailSyncService', () => {
 
         test('삭제된 메시지와 새 메시지를 동시에 처리한다', async () => {
             const accountService = createMockAccountService()
-            accountService._provider.fetchMessages = mock(() => Promise.resolve({
-                messages: [mockMessage('new-1'), mockMessage('new-2')],
-                deletedIds: ['del-1', 'del-3'],
-                newSyncCursor: 'cursor-mix',
-            }))
+            accountService._provider.fetchMessages = mock(() =>
+                Promise.resolve({
+                    messages: [mockMessage('new-1'), mockMessage('new-2')],
+                    deletedIds: ['del-1', 'del-3'],
+                    newSyncCursor: 'cursor-mix',
+                }),
+            )
             const deps = createDeps({ accountService })
             const service = createMailSyncService(deps)
             const result = await service.syncAccount(1, 'user-1')
@@ -230,22 +235,20 @@ describe('createMailSyncService', () => {
                     { id: 'att-2', filename: 'img.png', mimeType: 'image/png', sizeBytes: 4096, contentId: 'cid-1', isInline: true },
                 ],
             }
-            accountService._provider.fetchMessages = mock(() => Promise.resolve({
-                messages: [msgWithAttachment],
-                deletedIds: [],
-                newSyncCursor: 'cursor-att',
-            }))
+            accountService._provider.fetchMessages = mock(() =>
+                Promise.resolve({
+                    messages: [msgWithAttachment],
+                    deletedIds: [],
+                    newSyncCursor: 'cursor-att',
+                }),
+            )
             const deps = createDeps({ accountService })
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
             expect(deps.db.upsertAttachment).toHaveBeenCalledTimes(2)
-            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(
-                expect.objectContaining({ filename: 'doc.pdf', isInline: false }),
-            )
-            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(
-                expect.objectContaining({ filename: 'img.png', isInline: true }),
-            )
+            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(expect.objectContaining({ filename: 'doc.pdf', isInline: false }))
+            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(expect.objectContaining({ filename: 'img.png', isInline: true }))
         })
 
         test('에러 시 error 상태로 로그 업데이트', async () => {
@@ -257,10 +260,7 @@ describe('createMailSyncService', () => {
             await expect(service.syncAccount(1, 'user-1')).rejects.toMatchObject({
                 code: 'MAIL_PROVIDER_ERROR',
             })
-            expect(deps.db.updateSyncLog).toHaveBeenCalledWith(
-                1,
-                expect.objectContaining({ status: 'error', errorMessage: 'Connection failed' }),
-            )
+            expect(deps.db.updateSyncLog).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'error', errorMessage: 'Connection failed' }))
             expect(accountService.updateSyncStatus).toHaveBeenCalledWith(1, 'error')
         })
     })
@@ -293,20 +293,19 @@ describe('createMailSyncService', () => {
 
         test('커서 없으면 completed', async () => {
             const accountService = createMockAccountService()
-            accountService._provider.fetchMessages = mock(() => Promise.resolve({
-                messages: [],
-                deletedIds: [],
-                newSyncCursor: null,
-            }))
+            accountService._provider.fetchMessages = mock(() =>
+                Promise.resolve({
+                    messages: [],
+                    deletedIds: [],
+                    newSyncCursor: null,
+                }),
+            )
             const deps = createDeps({ accountService })
             const service = createMailSyncService(deps)
             const result = await service.syncHistorical(1, 'user-1', {})
 
             expect(result.hasMore).toBe(false)
-            expect(deps.db.updateSession).toHaveBeenCalledWith(
-                1,
-                expect.objectContaining({ status: 'completed' }),
-            )
+            expect(deps.db.updateSession).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'completed' }))
         })
 
         test('커서 있으면 paused 상태로 저장한다', async () => {
@@ -316,10 +315,7 @@ describe('createMailSyncService', () => {
             const result = await service.syncHistorical(1, 'user-1', {})
 
             expect(result.hasMore).toBe(true)
-            expect(deps.db.updateSession).toHaveBeenCalledWith(
-                1,
-                expect.objectContaining({ status: 'paused' }),
-            )
+            expect(deps.db.updateSession).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'paused' }))
         })
 
         test('inbox 자동 선택', async () => {
@@ -337,9 +333,7 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncHistorical(1, 'user-1', {})
 
-            expect(accountService._provider.fetchMessages).toHaveBeenCalledWith(
-                expect.objectContaining({ direction: 'backward' }),
-            )
+            expect(accountService._provider.fetchMessages).toHaveBeenCalledWith(expect.objectContaining({ direction: 'backward' }))
         })
 
         test('스테일 running 세션을 리셋하고 새 세션을 생성한다', async () => {

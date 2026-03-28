@@ -51,16 +51,19 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
 
         if (res.status === 401 && refreshToken) {
             if (!refreshPromise) {
-                refreshPromise = deps.refreshOAuthToken(deps.betterAuthAccountId, refreshToken).then((newToken) => {
-                    accessToken = newToken
-                    refreshPromise = null
-                    return newToken
-                }).catch((err) => {
-                    accessToken = null
-                    refreshToken = null
-                    refreshPromise = null
-                    throw err
-                })
+                refreshPromise = deps
+                    .refreshOAuthToken(deps.betterAuthAccountId, refreshToken)
+                    .then((newToken) => {
+                        accessToken = newToken
+                        refreshPromise = null
+                        return newToken
+                    })
+                    .catch((err) => {
+                        accessToken = null
+                        refreshToken = null
+                        refreshPromise = null
+                        throw err
+                    })
             }
             token = await refreshPromise
             res = await fetch(`${GMAIL_API}${path}`, {
@@ -158,7 +161,17 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             const res = await gmailFetch('/labels')
             const data = (await res.json()) as { labels: Record<string, unknown>[] }
 
-            const SKIP_LABELS = new Set(['IMPORTANT', 'CHAT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS', 'STARRED', 'UNREAD'])
+            const SKIP_LABELS = new Set([
+                'IMPORTANT',
+                'CHAT',
+                'CATEGORY_PERSONAL',
+                'CATEGORY_SOCIAL',
+                'CATEGORY_PROMOTIONS',
+                'CATEGORY_UPDATES',
+                'CATEGORY_FORUMS',
+                'STARRED',
+                'UNREAD',
+            ])
 
             const filtered = data.labels.filter((label) => !SKIP_LABELS.has(label.id as string))
 
@@ -275,10 +288,7 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             const listData = (await listRes.json()) as Record<string, unknown>
             const messageRefs = (listData.messages as { id: string }[]) ?? []
 
-            const [messages, profileRes] = await Promise.all([
-                fetchMessagesBatch(messageRefs.map((r) => r.id)),
-                gmailFetch('/profile'),
-            ])
+            const [messages, profileRes] = await Promise.all([fetchMessagesBatch(messageRefs.map((r) => r.id)), gmailFetch('/profile')])
 
             const profile = (await profileRes.json()) as Record<string, unknown>
 

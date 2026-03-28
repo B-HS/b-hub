@@ -88,7 +88,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
             status: 207,
             headers: {
                 'Content-Type': 'application/xml; charset=utf-8',
-                DAV: '1, 2, 3, calendar-access',
+                'DAV': '1, 2, 3, calendar-access',
             },
         })
     }
@@ -125,7 +125,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
             status: 207,
             headers: {
                 'Content-Type': 'application/xml; charset=utf-8',
-                DAV: '1, 2, calendar-access',
+                'DAV': '1, 2, calendar-access',
             },
         })
     }
@@ -355,7 +355,7 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
         return new Response(icsContent, {
             headers: {
                 'Content-Type': 'text/calendar; charset=utf-8',
-                ETag: `"${deps.calendarService.getEventEtag(event)}"`,
+                'ETag': `"${deps.calendarService.getEventEtag(event)}"`,
             },
         })
     }

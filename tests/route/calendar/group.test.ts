@@ -10,7 +10,9 @@ const mockGroups = [
 const createMockCalendarService = () => ({
     getGroups: mock(() => Promise.resolve(mockGroups)),
     getGroupById: mock(() => Promise.resolve(mockGroups[0])),
-    createGroup: mock(() => Promise.resolve({ id: 'g-new', userId: 'user-1', name: '새 그룹', color: 'bg-green-500', sortOrder: 0, isVisible: true })),
+    createGroup: mock(() =>
+        Promise.resolve({ id: 'g-new', userId: 'user-1', name: '새 그룹', color: 'bg-green-500', sortOrder: 0, isVisible: true }),
+    ),
     updateGroup: mock(() => Promise.resolve()),
     deleteGroup: mock(() => Promise.resolve()),
 })

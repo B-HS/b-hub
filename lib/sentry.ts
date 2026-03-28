@@ -6,8 +6,7 @@ export const initSentry = (dsn: string | undefined) => {
         const Sentry = require('@sentry/bun')
         Sentry.init({ dsn, tracesSampleRate: 0.1 })
         sentryInitialized = true
-    } catch {
-    }
+    } catch {}
 }
 
 export const captureException = (error: unknown) => {
@@ -15,6 +14,5 @@ export const captureException = (error: unknown) => {
     try {
         const Sentry = require('@sentry/bun')
         Sentry.captureException(error)
-    } catch {
-    }
+    } catch {}
 }

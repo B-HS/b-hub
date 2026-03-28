@@ -147,8 +147,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                     const status = await imap.status(mb.path, { messages: true, unseen: true })
                     messageCount = status.messages ?? 0
                     unreadCount = status.unseen ?? 0
-                } catch {
-                }
+                } catch {}
                 folders.push({
                     id: mb.path,
                     name: mb.name,
@@ -179,9 +178,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
 
                 const uids: number[] = []
                 if (lastUid > 0) {
-                    const range = direction === 'backward'
-                        ? `1:${lastUid - 1}`
-                        : `${lastUid + 1}:*`
+                    const range = direction === 'backward' ? `1:${lastUid - 1}` : `${lastUid + 1}:*`
                     for await (const msg of imap.fetch(range, { uid: true }, { uid: true })) {
                         uids.push(msg.uid)
                     }
@@ -201,14 +198,18 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 const messages: ProviderMessage[] = []
                 const uidRange = batchUids.join(',')
 
-                for await (const msg of imap.fetch(uidRange, {
-                    uid: true,
-                    envelope: true,
-                    flags: true,
-                    bodyStructure: true,
-                    source: true,
-                    internalDate: true,
-                }, { uid: true })) {
+                for await (const msg of imap.fetch(
+                    uidRange,
+                    {
+                        uid: true,
+                        envelope: true,
+                        flags: true,
+                        bodyStructure: true,
+                        source: true,
+                        internalDate: true,
+                    },
+                    { uid: true },
+                )) {
                     const flags = msg.flags ?? new Set()
                     const envelope = parseEnvelope(msg as unknown as Record<string, unknown>)
 
@@ -230,9 +231,11 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                             if (partId && (disposition === 'attachment' || disposition === 'inline')) {
                                 attachments.push({
                                     id: partId,
-                                    filename: ((node.dispositionParameters as Record<string, string>)?.filename ??
-                                        (node.parameters as Record<string, string>)?.name) || null,
-                                    mimeType: node.type as string || null,
+                                    filename:
+                                        ((node.dispositionParameters as Record<string, string>)?.filename ??
+                                            (node.parameters as Record<string, string>)?.name) ||
+                                        null,
+                                    mimeType: (node.type as string) || null,
                                     sizeBytes: (node.size as number) ?? null,
                                     contentId: ((node as Record<string, string>).id ?? '').replace(/[<>]/g, '') || null,
                                     isInline: disposition === 'inline',
@@ -294,14 +297,18 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
             const imap = getClient()
             const uid = parseInt(messageId, 10)
 
-            for await (const msg of imap.fetch(uid.toString(), {
-                uid: true,
-                envelope: true,
-                flags: true,
-                bodyStructure: true,
-                source: true,
-                internalDate: true,
-            }, { uid: true })) {
+            for await (const msg of imap.fetch(
+                uid.toString(),
+                {
+                    uid: true,
+                    envelope: true,
+                    flags: true,
+                    bodyStructure: true,
+                    source: true,
+                    internalDate: true,
+                },
+                { uid: true },
+            )) {
                 const flags = msg.flags ?? new Set()
                 const envelope = parseEnvelope(msg as unknown as Record<string, unknown>)
 

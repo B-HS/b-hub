@@ -28,13 +28,7 @@ export const createAuthProvider = (deps: AuthProviderDeps) => {
             google: {
                 clientId: deps.googleClientId,
                 clientSecret: deps.googleClientSecret,
-                scope: [
-                    'openid',
-                    'email',
-                    'profile',
-                    'https://www.googleapis.com/auth/gmail.modify',
-                    'https://www.googleapis.com/auth/gmail.send',
-                ],
+                scope: ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.send'],
                 accessType: 'offline',
                 prompt: 'consent',
             },

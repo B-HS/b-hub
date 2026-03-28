@@ -33,10 +33,7 @@ type SpotifyOAuthConnectDeps = {
         email: string | null
         betterAuthAccountId: string
     }) => Promise<{ id: number }>
-    updateSpotifyAccount: (
-        id: number,
-        data: { displayName?: string | null; email?: string | null; betterAuthAccountId?: string },
-    ) => Promise<void>
+    updateSpotifyAccount: (id: number, data: { displayName?: string | null; email?: string | null; betterAuthAccountId?: string }) => Promise<void>
 }
 
 export const createSpotifyOAuthConnectService = (deps: SpotifyOAuthConnectDeps) => {
@@ -81,7 +78,7 @@ export const createSpotifyOAuthConnectService = (deps: SpotifyOAuthConnectDeps) 
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
-                Authorization: `Basic ${Buffer.from(`${deps.spotifyClientId}:${deps.spotifyClientSecret}`).toString('base64')}`,
+                'Authorization': `Basic ${Buffer.from(`${deps.spotifyClientId}:${deps.spotifyClientSecret}`).toString('base64')}`,
             },
             body: new URLSearchParams({
                 code,
