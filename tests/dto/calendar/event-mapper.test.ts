@@ -379,4 +379,55 @@ describe('toEventPatch 추가 케이스', () => {
         const result = toEventPatch(existingWithRrule, { rrule: undefined })
         expect(result.rrule?.freq).toBe('WEEKLY')
     })
+
+    test('rrule을 null로 설정하면 undefined로 변환한다', () => {
+        const existingWithRrule: CalendarEvent = {
+            ...existing,
+            rrule: { freq: 'WEEKLY', interval: 1 },
+        }
+        const result = toEventPatch(existingWithRrule, { rrule: null } as unknown as Parameters<typeof toEventPatch>[1])
+        expect(result.rrule).toBeUndefined()
+    })
+
+    test('startDate만 변경 시 기존 startTime을 유지한다', () => {
+        const result = toEventPatch(existing, { startDate: '2024-06-01' })
+        expect(result.dtstart.getUTCHours()).toBe(existing.dtstart.getUTCHours())
+        expect(result.dtstart.getUTCMinutes()).toBe(existing.dtstart.getUTCMinutes())
+    })
+
+    test('startTime만 변경 시 기존 startDate를 유지한다', () => {
+        const result = toEventPatch(existing, { startTime: '09:00' })
+        expect(result.dtstart.getUTCFullYear()).toBe(existing.dtstart.getUTCFullYear())
+        expect(result.dtstart.getUTCMonth()).toBe(existing.dtstart.getUTCMonth())
+        expect(result.dtstart.getUTCDate()).toBe(existing.dtstart.getUTCDate())
+    })
+})
+
+describe('toEventResponse', () => {
+    const baseEvent: CalendarEvent = {
+        uid: 'resp-uid@b-calendar',
+        summary: 'Response Test',
+        dtstart: new Date('2024-03-15T14:00:00Z'),
+        dtend: new Date('2024-03-15T15:30:00Z'),
+        isAllDay: false,
+        sequence: 0,
+    }
+
+    test('종일 이벤트에 time을 undefined로 반환한다', () => {
+        const allDayEvent: CalendarEvent = { ...baseEvent, isAllDay: true }
+        const result = toEventResponse(allDayEvent)
+        expect(result.startTime).toBeUndefined()
+        expect(result.endTime).toBeUndefined()
+    })
+
+    test('시간 이벤트에 time을 포함한다', () => {
+        const result = toEventResponse(baseEvent)
+        expect(result.startTime).toBeDefined()
+        expect(result.endTime).toBeDefined()
+    })
+
+    test('status를 소문자로 반환한다', () => {
+        const result = toEventResponse({ ...baseEvent, status: 'CONFIRMED' })
+        expect(result.status).toBe('confirmed')
+    })
 })

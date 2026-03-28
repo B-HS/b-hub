@@ -180,4 +180,37 @@ describe('createHnWebhookService', () => {
         expect(payload.title).toContain('월간')
         expect(payload.type).toBe('monthly')
     })
+
+    test('createDigestPayload에서 weekly 타입은 주간 라벨을 사용한다', () => {
+        const db = createMockDb()
+        const service = createHnWebhookService({ db })
+
+        const payload = service.createDigestPayload('weekly', '2025-W01', 'weekly content', [])
+        expect(payload.title).toContain('주간')
+        expect(payload.type).toBe('weekly')
+    })
+
+    test('createDigestPayload에 스토리를 포함한다', () => {
+        const db = createMockDb()
+        const service = createHnWebhookService({ db })
+
+        const stories = [
+            { title: 'Story 1', titleKo: 'KO 1', url: 'https://example.com/1', score: 100 },
+            { title: 'Story 2', titleKo: 'KO 2', url: 'https://example.com/2', score: 200 },
+        ]
+        const payload = service.createDigestPayload('daily', '2025-01-15', 'content', stories)
+        expect(payload.stories).toHaveLength(2)
+    })
+
+    test('sendDigestWebhook은 활성 웹훅에 전송한다', async () => {
+        const db = createMockDb()
+        db.getActiveWebhooks = mock(() =>
+            Promise.resolve([{ id: 1, url: 'https://discord.webhook/1', isActive: true, createdAt: new Date() }]),
+        )
+        const service = createHnWebhookService({ db })
+
+        const payload = service.createDigestPayload('daily', '2025-01-15', 'content', [])
+        await service.sendDigestWebhook(payload)
+        expect(db.getActiveWebhooks).toHaveBeenCalled()
+    })
 })

@@ -154,11 +154,9 @@ const CSS_COLOR_NAMES = new Set([
 
 const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
-const colorSchema = z
-    .string()
-    .refine((val) => HEX_COLOR_REGEX.test(val) || CSS_COLOR_NAMES.has(val.toLowerCase()), {
-        message: 'Must be a hex color (#fff or #ffffff) or a CSS color name',
-    })
+const colorSchema = z.string().refine((val) => HEX_COLOR_REGEX.test(val) || CSS_COLOR_NAMES.has(val.toLowerCase()), {
+    message: 'Must be a hex color (#fff or #ffffff) or a CSS color name',
+})
 
 const VALID_FONT_WEIGHTS = new Set([100, 200, 300, 400, 500, 600, 700, 800, 900])
 

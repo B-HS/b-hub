@@ -272,8 +272,8 @@ describe('eventsToICS', () => {
             },
         ]
         const ics = eventsToICS(events, 'Test', 'test.com', 'Asia/Seoul')
-        expect(ics).toContain('DTSTART:20240115T100000Z')
-        expect(ics).toContain('DTEND:20240115T110000Z')
+        expect(ics).toContain('DTSTART;TZID=Asia/Seoul:20240115T100000')
+        expect(ics).toContain('DTEND;TZID=Asia/Seoul:20240115T110000')
     })
 
     it('VTIMEZONE 컴포넌트를 포함한다', () => {

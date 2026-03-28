@@ -201,4 +201,52 @@ describe('createPostService', () => {
 
         await expect(service.getById(1)).rejects.toThrow('DB connection failed')
     })
+
+    test('list는 keyword 필터를 DB에 전달한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.list({ page: 1, limit: 10, keyword: 'typescript' })
+        expect(db.getPostList).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'typescript' }))
+    })
+
+    test('list는 categoryId 필터를 DB에 전달한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.list({ page: 1, limit: 10, categoryId: 5 })
+        expect(db.getPostList).toHaveBeenCalledWith(expect.objectContaining({ categoryId: 5 }))
+    })
+
+    test('list는 offset을 올바르게 계산한다 (page=3, limit=10)', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.list({ page: 3, limit: 10 })
+        expect(db.getPostList).toHaveBeenCalledWith(expect.objectContaining({ offset: 20 }))
+    })
+
+    test('update는 존재하지 않는 게시글에 null을 반환한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        const result = await service.update(999, { title: 'New Title' })
+        expect(result).toBeNull()
+    })
+
+    test('delete는 존재하지 않는 게시글에 null을 반환한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        const result = await service.delete(999)
+        expect(result).toBeNull()
+    })
+
+    test('getById는 incrementViews를 호출한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.getById(1)
+        expect(db.incrementViews).toHaveBeenCalledWith(1)
+    })
 })

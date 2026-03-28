@@ -34,93 +34,11 @@ import { createCalendarEventRoute } from './calendar/event'
 import { createCalendarSubscriptionRoute } from './calendar/subscription'
 import { createCalendarIcsRoute } from './calendar/ics'
 import { createCalendarGroupRoute } from './calendar/group'
-import type { AuthProvider } from '../service/shared/auth-provider'
-import type { ApiTokenService } from '../service/shared/api-token'
-import type { BadgeService } from '../service/domain/badge/badge'
-import type { KmaApiService } from '../service/domain/weather/kma-api'
-import type { LocationService } from '../service/domain/weather/location'
-import type { WeatherApiKeyService } from '../service/domain/weather/weather-api-key'
-import type { HnFetcherService } from '../service/domain/hn/hn-fetcher'
-import type { HnDigestService } from '../service/domain/hn/hn-digest'
-import type { HnWebhookService } from '../service/domain/hn/hn-webhook'
-import type { PostService } from '../service/domain/blog/post'
-import type { CommentService } from '../service/domain/blog/comment'
-import type { MessageService } from '../service/domain/blog/message'
-import type { BlogImageService } from '../service/domain/blog/blog-image'
-import type { ImageGenerator } from '../service/shared/image-generator'
-import type { FontLoader } from '../service/shared/font-loader'
-import type { MailAccountService } from '../service/domain/mail/mail-account'
-import type { MailOAuthConnectService } from '../service/domain/mail/mail-oauth-connect'
-import type { MailSyncService } from '../service/domain/mail/mail-sync'
-import type { MailMessageService } from '../service/domain/mail/mail-message'
-import type { MailUploadService } from '../service/domain/mail/mail-upload'
-import type { SpotifyAccountService } from '../service/domain/spotify/spotify-account'
-import type { SpotifyApiKeyService } from '../service/domain/spotify/spotify-api-key'
-import type { SpotifyOAuthConnectService } from '../service/domain/spotify/spotify-oauth-connect'
-import type { SpotifyDataService } from '../service/domain/spotify/spotify-data'
-import type { SpotifyWidgetTokenService } from '../service/domain/spotify/spotify-widget-token'
-import type { SpotifyWidgetService } from '../service/domain/spotify/spotify-widget'
-import type { ResumeService } from '../service/domain/resume/resume'
-import type { CalendarService } from '../service/domain/calendar/calendar'
-import type { CaldavService } from '../service/domain/calendar/caldav'
+import { createCalendarCaldavRoute } from './calendar/caldav'
+import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
 
-type HnStoryDb = Parameters<typeof createStoryRoute>[0]['db']
-type HnDigestDb = Parameters<typeof createDigestRoute>[0]['db']
-type CategoryDb = Parameters<typeof createCategoryRoute>[0]['db']
-type TagDb = Parameters<typeof createTagRoute>[0]['db']
-type AdminDb = Parameters<typeof createAdminRoute>[0]['db']
-
-type RouterDeps = {
-    auth?: AuthProvider
-    apiTokenService?: ApiTokenService
-    getSession?: (c: { req: { raw: { headers: Headers } } }) => Promise<{
-        user: {
-            id: string
-            name: string
-            email: string
-            role: string | null
-            image: string | null
-        }
-    } | null>
-    badgeService?: BadgeService
-    kmaApi?: KmaApiService
-    mockKmaApi?: KmaApiService
-    locationService?: LocationService
-    weatherApiKeyService?: WeatherApiKeyService
-    hnStoryDb?: HnStoryDb
-    hnDigestDb?: HnDigestDb
-    hnFetcher?: HnFetcherService
-    hnDigest?: HnDigestService
-    hnWebhook?: HnWebhookService
-    cronSecret?: string
-    postService?: PostService
-    commentService?: CommentService
-    messageService?: MessageService
-    blogImageService?: BlogImageService
-    categoryDb?: CategoryDb
-    tagDb?: TagDb
-    adminDb?: AdminDb
-    imageGenerator?: ImageGenerator
-    fontLoader?: FontLoader
-    mailAccountService?: MailAccountService
-    mailOAuthConnect?: MailOAuthConnectService
-    mailSyncService?: MailSyncService
-    mailMessageService?: MailMessageService
-    mailUploadService?: MailUploadService
-    mailFolderDb?: Parameters<typeof createMailFolderRoute>[0]['db']
-    mailCheckLimit?: (key: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number }
-    spotifyAccountService?: SpotifyAccountService
-    spotifyApiKeyService?: SpotifyApiKeyService
-    spotifyOAuthConnect?: SpotifyOAuthConnectService
-    spotifyDataService?: SpotifyDataService
-    spotifyWidgetTokenService?: SpotifyWidgetTokenService
-    spotifyWidgetService?: SpotifyWidgetService
-    resumeService?: ResumeService
-    calendarService?: CalendarService
-    caldavService?: CaldavService
-    baseUrl?: string
-}
+type RouterDeps = Partial<ReturnType<typeof compose>>
 
 const stub = <T>(obj?: T): T =>
     obj ??
@@ -391,5 +309,8 @@ export const createRouter = (deps: RouterDeps = {}) => {
         }),
     )
 
-    return router
+    return {
+        api: router,
+        caldav: createCalendarCaldavRoute({ calendarService: stub(deps.calendarService), caldavService: stub(deps.caldavService) }),
+    }
 }

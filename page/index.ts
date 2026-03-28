@@ -8,7 +8,11 @@ export const createPage = () => {
     page.route('', homeRoute)
     page.route('/policy', policyRoute)
 
-    const handleWellKnown = (c: { req: { query: (k: string) => string | undefined }; redirect: (url: string, code: number) => Response; text: (body: string, code: number) => Response }) => {
+    const handleWellKnown = (c: {
+        req: { query: (k: string) => string | undefined }
+        redirect: (url: string, code: number) => Response
+        text: (body: string, code: number) => Response
+    }) => {
         const token = c.req.query('token')
         if (token) return c.redirect(`/caldav/${token}/`, 301)
         return c.text('CalDAV server. Use /caldav/:token/', 200)

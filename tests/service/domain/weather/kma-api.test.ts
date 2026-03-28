@@ -1,5 +1,13 @@
 import { describe, expect, test, mock } from 'bun:test'
-import { createKmaApiService } from '../../../../service/domain/weather/kma-api'
+
+mock.module('../../../../service/shared/redis-cache', () => ({
+    redisCache: {
+        get: async () => null,
+        set: async () => {},
+    },
+}))
+
+const { createKmaApiService } = await import('../../../../service/domain/weather/kma-api')
 
 const createMockKmaResponse = (items: Record<string, string | number>[]) => ({
     response: {

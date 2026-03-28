@@ -73,5 +73,47 @@ describe('createAiService', () => {
             const result = await ai.generateTags('콘텐츠')
             expect(result).toEqual([])
         })
+
+        test('마크다운 코드 펜스를 정리한다', async () => {
+            const model = {
+                generateContent: mock(() =>
+                    Promise.resolve({
+                        response: { text: () => '```json\n["AI", "Web"]\n```' },
+                    }),
+                ),
+            }
+            const ai = createAiService({ model })
+
+            const result = await ai.generateTags('content', ['AI', 'Web'])
+            expect(result).toEqual(['AI', 'Web'])
+        })
+    })
+
+    describe('translate', () => {
+        test('번역 결과를 반환한다', async () => {
+            const model = {
+                generateContent: mock(() =>
+                    Promise.resolve({
+                        response: { text: () => '번역된 텍스트' },
+                    }),
+                ),
+            }
+            const ai = createAiService({ model })
+
+            const result = await ai.translate('Hello world')
+            expect(result.success).toBe(true)
+            expect(result.text).toBe('번역된 텍스트')
+        })
+
+        test('API 에러 시 실패를 반환한다', async () => {
+            const model = {
+                generateContent: mock(() => Promise.reject(new Error('API down'))),
+            }
+            const ai = createAiService({ model })
+
+            const result = await ai.translate('Hello')
+            expect(result.success).toBe(false)
+            expect(result.error).toBe('API down')
+        })
     })
 })
