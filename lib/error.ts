@@ -83,6 +83,9 @@ const STATUS_MAP: Record<string, number> = {
     CALENDAR_CALDAV_AUTH_FAILED: 401,
     CALENDAR_ICS_PARSE_FAILED: 422,
     CALENDAR_ICS_TOO_LARGE: 413,
+    CALENDAR_GROUP_NOT_FOUND: 404,
+    CALENDAR_GROUP_HAS_EVENTS: 409,
+    CALENDAR_INVALID_DATE_RANGE: 400,
 }
 
 export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500

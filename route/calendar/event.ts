@@ -4,7 +4,8 @@ import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
 import { successResponse } from '../../lib/api-response'
-import { createEventSchema, updateEventSchema, monthQuerySchema } from '../../dto/calendar-event'
+import { createEventSchema, updateEventSchema, monthQuerySchema, dateRangeQuerySchema } from '../../dto/calendar-event'
+import { createEventBodySchema, patchEventBodySchema, toEventInput, toEventPatch, toEventResponse } from '../../dto/calendar-event-mapper'
 import type { CalendarService } from '../../service/domain/calendar/calendar'
 import type { CalendarEvent } from '../../service/domain/calendar/calendar'
 
@@ -12,6 +13,8 @@ type CalendarEventRouteDeps = {
     calendarService: CalendarService
     getSession: (c: { req: { raw: { headers: Headers } } }) => Promise<{ user: { id: string; role: string | null } } | null>
 }
+
+const MAX_DATE_RANGE_DAYS = 366
 
 const eventToResponse = (event: CalendarEvent) => ({
     uid: event.uid,
@@ -38,6 +41,7 @@ const eventToResponse = (event: CalendarEvent) => ({
     priority: event.priority,
     categories: event.categories,
     color: event.color,
+    groupId: event.groupId ?? null,
     sequence: event.sequence,
     created: event.created?.toISOString(),
     lastModified: event.lastModified?.toISOString(),
@@ -56,6 +60,46 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const query = c.req.valid('query' as never) as z.infer<typeof monthQuerySchema>
             const events = await deps.calendarService.getEventsByMonth(session.user.id, query.year, query.month)
             return c.json(successResponse(events.map(eventToResponse)))
+        }),
+    )
+
+    route.get(
+        '/range',
+        validator('query', dateRangeQuerySchema),
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+
+            const query = c.req.valid('query' as never) as z.infer<typeof dateRangeQuerySchema>
+            const startDate = new Date(`${query.startDate}T00:00:00Z`)
+            const endDate = new Date(`${query.endDate}T23:59:59Z`)
+
+            if (startDate > endDate) throw createAppError('CALENDAR_INVALID_DATE_RANGE')
+
+            const diffDays = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+            if (diffDays > MAX_DATE_RANGE_DAYS) throw createAppError('CALENDAR_INVALID_DATE_RANGE')
+
+            if (query.groupId) {
+                const group = await deps.calendarService.getGroupById(session.user.id, query.groupId)
+                if (!group) throw createAppError('CALENDAR_GROUP_NOT_FOUND')
+            }
+
+            const events = await deps.calendarService.getEventsByDateRange(session.user.id, startDate, endDate, query.groupId)
+            return c.json(successResponse(events.map((e) => toEventResponse(e))))
+        }),
+    )
+
+    route.get(
+        '/detail/:uid',
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+
+            const uid = c.req.param('uid')
+            const event = await deps.calendarService.getEventByUid(session.user.id, uid)
+            if (!event) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
+
+            return c.json(successResponse(toEventResponse(event)))
         }),
     )
 
@@ -90,9 +134,25 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
                 priority: data.priority,
                 categories: data.categories,
                 color: data.color,
+                groupId: data.groupId,
             })
 
             return c.json(successResponse(eventToResponse(event)), 201)
+        }),
+    )
+
+    route.post(
+        '/create',
+        validator('json', createEventBodySchema),
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+
+            const data = c.req.valid('json' as never) as z.infer<typeof createEventBodySchema>
+            const input = toEventInput(data)
+            const event = await deps.calendarService.createEvent(session.user.id, input)
+
+            return c.json(successResponse(toEventResponse(event)), 201)
         }),
     )
 
@@ -136,10 +196,30 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
                 priority: data.priority !== undefined ? (data.priority ?? undefined) : existing.priority,
                 categories: data.categories !== undefined ? (data.categories ?? undefined) : existing.categories,
                 color: data.color !== undefined ? (data.color ?? undefined) : existing.color,
+                groupId: data.groupId !== undefined ? data.groupId : existing.groupId,
                 sequence: existing.sequence,
             })
 
             return c.json(successResponse(eventToResponse(event)))
+        }),
+    )
+
+    route.patch(
+        '/:uid',
+        validator('json', patchEventBodySchema),
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+
+            const uid = c.req.param('uid')
+            const existing = await deps.calendarService.getEventByUid(session.user.id, uid)
+            if (!existing) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
+
+            const data = c.req.valid('json' as never) as z.infer<typeof patchEventBodySchema>
+            const merged = toEventPatch(existing, data)
+            const updated = await deps.calendarService.updateEvent(session.user.id, merged)
+
+            return c.json(successResponse(toEventResponse(updated)))
         }),
     )
 

@@ -80,7 +80,14 @@ const formatDateTimeICS = (date: Date, isAllDay: boolean) => {
     return `${year}${month}${day}T${hours}${minutes}${seconds}`
 }
 
-const escapeICSText = (text: string) => text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n')
+const escapeICSText = (text: string) =>
+    text
+        .replace(/\\/g, '\\\\')
+        .replace(/;/g, '\\;')
+        .replace(/,/g, '\\,')
+        .replace(/\r\n/g, '\\n')
+        .replace(/\r/g, '\\n')
+        .replace(/\n/g, '\\n')
 
 const formatRRule = (rrule: RecurrenceRule): string => {
     const parts = [`FREQ=${rrule.freq}`]
@@ -127,8 +134,8 @@ export const eventsToICS = (events: CalendarEvent[], calendarName: string, domai
             lines.push(`DTSTART;VALUE=DATE:${formatDateTimeICS(event.dtstart, true)}`)
             lines.push(`DTEND;VALUE=DATE:${formatDateTimeICS(event.dtend, true)}`)
         } else {
-            lines.push(`DTSTART:${formatDateTimeICS(event.dtstart, false)}Z`)
-            lines.push(`DTEND:${formatDateTimeICS(event.dtend, false)}Z`)
+            lines.push(`DTSTART;TZID=${timezone}:${formatDateTimeICS(event.dtstart, false)}`)
+            lines.push(`DTEND;TZID=${timezone}:${formatDateTimeICS(event.dtend, false)}`)
         }
 
         lines.push(`SUMMARY:${escapeICSText(event.summary)}`)

@@ -772,6 +772,26 @@ export type MailUpload = typeof mailUploads.$inferSelect
 
 // Calendar
 
+export const calendarGroup = mysqlTable(
+    'calendar_group',
+    {
+        id: varchar('id', { length: 36 }).primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        name: varchar('name', { length: 255 }).notNull(),
+        color: varchar('color', { length: 50 }).notNull(),
+        sortOrder: int('sort_order').notNull().default(0),
+        isVisible: boolean('is_visible').notNull().default(true),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_calendar_group_user').on(table.userId)],
+)
+
 export type RRuleType = {
     freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
     interval?: number
@@ -803,6 +823,7 @@ export const calendarEvent = mysqlTable(
         priority: tinyint('priority'),
         categories: json('categories').$type<string[]>(),
         color: varchar('color', { length: 50 }),
+        groupId: varchar('group_id', { length: 36 }).references(() => calendarGroup.id, { onDelete: 'set null' }),
         sequence: tinyint('sequence').notNull().default(0),
         dtstamp: datetime('dtstamp').notNull(),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
@@ -815,6 +836,7 @@ export const calendarEvent = mysqlTable(
         index('idx_calendar_event_user').on(table.userId),
         index('idx_calendar_event_user_dtstart').on(table.userId, table.dtstart),
         index('idx_calendar_event_uid').on(table.uid),
+        index('idx_calendar_event_group').on(table.groupId),
     ],
 )
 
@@ -858,6 +880,8 @@ export const calendarSubscription = mysqlTable(
     ],
 )
 
+export type CalendarGroup = typeof calendarGroup.$inferSelect
+export type NewCalendarGroup = typeof calendarGroup.$inferInsert
 export type CalendarEvent = typeof calendarEvent.$inferSelect
 export type NewCalendarEvent = typeof calendarEvent.$inferInsert
 export type CalendarSubscription = typeof calendarSubscription.$inferSelect

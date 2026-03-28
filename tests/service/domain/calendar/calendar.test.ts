@@ -4,12 +4,19 @@ import type { CalendarServiceDb } from '../../../../service/domain/calendar/cale
 
 const createMockDb = (): CalendarServiceDb => ({
     getEventsByMonthRange: mock(() => Promise.resolve([])),
+    getEventsByDateRange: mock(() => Promise.resolve([])),
     getAllEvents: mock(() => Promise.resolve([])),
     getEventByUid: mock(() => Promise.resolve(null)),
     getEventByUidWithDomain: mock(() => Promise.resolve(null)),
     insertEvent: mock(() => Promise.resolve()),
     updateEvent: mock(() => Promise.resolve()),
     deleteEventByUid: mock(() => Promise.resolve()),
+    getGroupsByUser: mock(() => Promise.resolve([])),
+    getGroupById: mock(() => Promise.resolve(null)),
+    insertGroup: mock(() => Promise.resolve()),
+    updateGroup: mock(() => Promise.resolve()),
+    deleteGroup: mock(() => Promise.resolve()),
+    countEventsByGroup: mock(() => Promise.resolve(0)),
     getSubscription: mock(() => Promise.resolve(null)),
     getSubscriptionByToken: mock(() => Promise.resolve(null)),
     getSubscriptionByIcsToken: mock(() => Promise.resolve(null)),
@@ -56,6 +63,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date('2024-01-01'),
                 updatedAt: new Date('2024-01-01'),
@@ -98,6 +106,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date('2024-01-01'),
                 updatedAt: new Date('2024-01-01'),
@@ -127,6 +136,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date('2024-01-01'),
                 updatedAt: new Date('2024-01-01'),
@@ -215,6 +225,35 @@ describe('CalendarService', () => {
             const insertCall = (mockDb.insertEvent as ReturnType<typeof mock>).mock.calls[0]
             expect(insertCall[0].categories).toBeNull()
         })
+
+        test('groupId를 전달한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.createEvent('user-123', {
+                summary: 'Group Event',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                groupId: 'group-1',
+            })
+
+            const insertCall = (mockDb.insertEvent as ReturnType<typeof mock>).mock.calls[0]
+            expect(insertCall[0].groupId).toBe('group-1')
+        })
+
+        test('groupId가 undefined이면 null로 전달한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await service.createEvent('user-123', {
+                summary: 'No Group',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+            })
+
+            const insertCall = (mockDb.insertEvent as ReturnType<typeof mock>).mock.calls[0]
+            expect(insertCall[0].groupId).toBeNull()
+        })
     })
 
     describe('deleteEvent', () => {
@@ -234,6 +273,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -284,6 +324,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date('2024-01-01'),
                 updatedAt: new Date('2024-01-01'),
@@ -313,6 +354,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date('2023-06-01'),
                 updatedAt: new Date('2023-06-01'),
@@ -382,6 +424,7 @@ describe('CalendarService', () => {
                 priority: null,
                 categories: null,
                 color: null,
+                groupId: null,
                 sequence: 0,
                 createdAt: new Date('2024-01-01'),
                 updatedAt: new Date('2024-01-01'),
@@ -635,6 +678,231 @@ describe('CalendarService', () => {
             const etag = service.getEventEtag(event)
 
             expect(etag).toContain('uid-123@')
+        })
+    })
+
+    describe('getEventsByDateRange', () => {
+        test('날짜 범위의 이벤트를 반환한다', async () => {
+            const mockRow = {
+                uid: 'uid-range@b-calendar',
+                summary: 'Range Event',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-03-15T10:00:00Z'),
+                dtend: new Date('2024-03-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                groupId: null,
+                sequence: 0,
+                createdAt: new Date('2024-03-01'),
+                updatedAt: new Date('2024-03-01'),
+            }
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const startDate = new Date('2024-03-01T00:00:00')
+            const endDate = new Date('2024-03-31T23:59:59')
+            const events = await service.getEventsByDateRange('user-123', startDate, endDate)
+
+            expect(events).toHaveLength(1)
+            expect(events[0].uid).toBe('uid-range@b-calendar')
+        })
+
+        test('groupId 필터를 전달한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+            const startDate = new Date('2024-03-01T00:00:00')
+            const endDate = new Date('2024-03-31T23:59:59')
+
+            await service.getEventsByDateRange('user-123', startDate, endDate, 'group-1')
+
+            expect(mockDb.getEventsByDateRange).toHaveBeenCalledWith('user-123', startDate, endDate, 'group-1')
+        })
+
+        test('반복 이벤트를 포함한다', async () => {
+            const mockRow = {
+                uid: 'uid-recurring-range@b-calendar',
+                summary: 'Weekly Range',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-03-01T10:00:00Z'),
+                dtend: new Date('2024-03-01T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'WEEKLY' as const, interval: 1 },
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                groupId: null,
+                sequence: 0,
+                createdAt: new Date('2024-03-01'),
+                updatedAt: new Date('2024-03-01'),
+            }
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const startDate = new Date('2024-03-01T00:00:00')
+            const endDate = new Date('2024-03-31T23:59:59')
+            const events = await service.getEventsByDateRange('user-123', startDate, endDate)
+
+            expect(events.length).toBeGreaterThanOrEqual(1)
+            expect(events[0].rrule?.freq).toBe('WEEKLY')
+        })
+
+        test('범위 밖 비반복 이벤트는 제외한다', async () => {
+            const mockRow = {
+                uid: 'uid-outside@b-calendar',
+                summary: 'Outside Range',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-02-15T10:00:00Z'),
+                dtend: new Date('2024-02-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                groupId: null,
+                sequence: 0,
+                createdAt: new Date('2024-02-15'),
+                updatedAt: new Date('2024-02-15'),
+            }
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const startDate = new Date('2024-03-01T00:00:00Z')
+            const endDate = new Date('2024-03-31T23:59:59Z')
+            const events = await service.getEventsByDateRange('user-123', startDate, endDate)
+
+            expect(events).toHaveLength(0)
+        })
+
+        test('이벤트가 없으면 빈 배열을 반환한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const startDate = new Date('2024-03-01T00:00:00Z')
+            const endDate = new Date('2024-03-31T23:59:59Z')
+            const events = await service.getEventsByDateRange('user-123', startDate, endDate)
+
+            expect(events).toEqual([])
+        })
+
+        test('groupId가 있는 이벤트를 반환한다', async () => {
+            const mockRow = {
+                uid: 'uid-grouped@b-calendar',
+                summary: 'Grouped Event',
+                description: null,
+                location: null,
+                dtstart: new Date('2024-03-15T10:00:00Z'),
+                dtend: new Date('2024-03-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: null,
+                exdate: null,
+                status: null,
+                transp: null,
+                priority: null,
+                categories: null,
+                color: null,
+                groupId: 'group-1',
+                sequence: 0,
+                createdAt: new Date('2024-03-01'),
+                updatedAt: new Date('2024-03-01'),
+            }
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const startDate = new Date('2024-03-01T00:00:00Z')
+            const endDate = new Date('2024-03-31T23:59:59Z')
+            const events = await service.getEventsByDateRange('user-123', startDate, endDate, 'group-1')
+
+            expect(events).toHaveLength(1)
+            expect(events[0].groupId).toBe('group-1')
+        })
+    })
+
+    describe('getGroups', () => {
+        test('사용자의 그룹 목록을 조회한다', async () => {
+            const mockGroups = [
+                { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() },
+                { id: 'g2', userId: 'user-123', name: '업무', color: 'bg-red-500', sortOrder: 1, isVisible: true, createdAt: new Date(), updatedAt: new Date() },
+            ]
+            ;(mockDb.getGroupsByUser as ReturnType<typeof mock>).mockResolvedValue(mockGroups)
+            const service = createCalendarService({ db: mockDb })
+
+            const groups = await service.getGroups('user-123')
+
+            expect(groups).toHaveLength(2)
+            expect(groups[0].name).toBe('개인')
+        })
+    })
+
+    describe('createGroup', () => {
+        test('그룹을 생성한다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const group = await service.createGroup('user-123', { name: '개인', color: 'bg-blue-500' })
+
+            expect(group.name).toBe('개인')
+            expect(group.color).toBe('bg-blue-500')
+            expect(group.sortOrder).toBe(0)
+            expect(group.isVisible).toBe(true)
+            expect(mockDb.insertGroup).toHaveBeenCalled()
+        })
+    })
+
+    describe('updateGroup', () => {
+        test('존재하지 않는 그룹 수정 시 에러를 던진다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            expect(service.updateGroup('user-123', 'non-existent', { name: '변경' })).rejects.toThrow()
+        })
+
+        test('그룹을 수정한다', async () => {
+            const mockGroup = { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+            ;(mockDb.getGroupById as ReturnType<typeof mock>).mockResolvedValue(mockGroup)
+            const service = createCalendarService({ db: mockDb })
+
+            await service.updateGroup('user-123', 'g1', { name: '변경된 이름' })
+
+            expect(mockDb.updateGroup).toHaveBeenCalledWith('user-123', 'g1', { name: '변경된 이름' })
+        })
+    })
+
+    describe('deleteGroup', () => {
+        test('이벤트가 있는 그룹 삭제 시 에러를 던진다', async () => {
+            const mockGroup = { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+            ;(mockDb.getGroupById as ReturnType<typeof mock>).mockResolvedValue(mockGroup)
+            ;(mockDb.countEventsByGroup as ReturnType<typeof mock>).mockResolvedValue(3)
+            const service = createCalendarService({ db: mockDb })
+
+            expect(service.deleteGroup('user-123', 'g1')).rejects.toThrow()
+        })
+
+        test('빈 그룹을 삭제한다', async () => {
+            const mockGroup = { id: 'g1', userId: 'user-123', name: '개인', color: 'bg-blue-500', sortOrder: 0, isVisible: true, createdAt: new Date(), updatedAt: new Date() }
+            ;(mockDb.getGroupById as ReturnType<typeof mock>).mockResolvedValue(mockGroup)
+            ;(mockDb.countEventsByGroup as ReturnType<typeof mock>).mockResolvedValue(0)
+            const service = createCalendarService({ db: mockDb })
+
+            await service.deleteGroup('user-123', 'g1')
+
+            expect(mockDb.deleteGroup).toHaveBeenCalledWith('user-123', 'g1')
+        })
+
+        test('존재하지 않는 그룹 삭제 시 에러를 던진다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            expect(service.deleteGroup('user-123', 'non-existent')).rejects.toThrow()
         })
     })
 })

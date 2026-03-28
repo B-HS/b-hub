@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { policyRoute } from '../../route/policy'
+import { policyRoute } from '../../page/policy'
 import { PRIVACY_POLICY } from '../../lib/privacy-policy'
 import { TERMS_OF_SERVICE } from '../../lib/terms-of-service'
 

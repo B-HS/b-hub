@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, or, isNotNull } from 'drizzle-orm'
+import { eq, and, gte, lte, or, isNotNull, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { createCalendarService } from '../service/domain/calendar/calendar'
 import { createCaldavService } from '../service/domain/calendar/caldav'
@@ -21,6 +21,23 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
                         ),
                     )
                 return rows
+            },
+
+            getEventsByDateRange: async (userId, startDate, endDate, groupId?) => {
+                const conditions = [
+                    eq(schema.calendarEvent.userId, userId),
+                    or(
+                        and(gte(schema.calendarEvent.dtstart, startDate), lte(schema.calendarEvent.dtstart, endDate)),
+                        and(isNotNull(schema.calendarEvent.rrule), lte(schema.calendarEvent.dtstart, endDate)),
+                    ),
+                ]
+                if (groupId) {
+                    conditions.push(eq(schema.calendarEvent.groupId, groupId))
+                }
+                return db
+                    .select()
+                    .from(schema.calendarEvent)
+                    .where(and(...conditions))
             },
 
             getAllEvents: async (userId) => {
@@ -56,6 +73,41 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
 
             deleteEventByUid: async (userId, uid) => {
                 await db.delete(schema.calendarEvent).where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.uid, uid)))
+            },
+
+            getGroupsByUser: async (userId) => {
+                return db.select().from(schema.calendarGroup).where(eq(schema.calendarGroup.userId, userId)).orderBy(schema.calendarGroup.sortOrder)
+            },
+
+            getGroupById: async (userId, groupId) => {
+                const rows = await db
+                    .select()
+                    .from(schema.calendarGroup)
+                    .where(and(eq(schema.calendarGroup.userId, userId), eq(schema.calendarGroup.id, groupId)))
+                return rows[0] ?? null
+            },
+
+            insertGroup: async (data) => {
+                await db.insert(schema.calendarGroup).values(data)
+            },
+
+            updateGroup: async (userId, groupId, data) => {
+                await db
+                    .update(schema.calendarGroup)
+                    .set(data)
+                    .where(and(eq(schema.calendarGroup.userId, userId), eq(schema.calendarGroup.id, groupId)))
+            },
+
+            deleteGroup: async (userId, groupId) => {
+                await db.delete(schema.calendarGroup).where(and(eq(schema.calendarGroup.userId, userId), eq(schema.calendarGroup.id, groupId)))
+            },
+
+            countEventsByGroup: async (userId, groupId) => {
+                const rows = await db
+                    .select({ count: sql`count(*)`.mapWith(Number) })
+                    .from(schema.calendarEvent)
+                    .where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.groupId, groupId)))
+                return rows[0]?.count ?? 0
             },
 
             getSubscription: async (userId) => {

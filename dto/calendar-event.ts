@@ -27,6 +27,7 @@ export const createEventSchema = z.object({
     priority: z.number().int().min(0).max(9).optional(),
     categories: z.array(z.string()).optional(),
     color: z.string().optional(),
+    groupId: z.string().min(1).optional().nullable(),
 })
 
 export const updateEventSchema = z.object({
@@ -43,6 +44,13 @@ export const updateEventSchema = z.object({
     priority: z.number().int().min(0).max(9).optional().nullable(),
     categories: z.array(z.string()).optional().nullable(),
     color: z.string().optional().nullable(),
+    groupId: z.string().min(1).optional().nullable(),
+})
+
+export const dateRangeQuerySchema = z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    groupId: z.string().min(1).optional(),
 })
 
 export const monthQuerySchema = z.object({
@@ -60,3 +68,4 @@ export const monthQuerySchema = z.object({
 export type CreateEventInput = z.infer<typeof createEventSchema>
 export type UpdateEventInput = z.infer<typeof updateEventSchema>
 export type MonthQuery = z.infer<typeof monthQuerySchema>
+export type DateRangeQuery = z.infer<typeof dateRangeQuerySchema>

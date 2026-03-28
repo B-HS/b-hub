@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { homeRoute } from '../../route/home'
+import { homeRoute } from '../../page/home'
 
 const createApp = () => {
   const app = new Hono()

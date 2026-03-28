@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createEventSchema, updateEventSchema, monthQuerySchema, recurrenceRuleSchema } from '../../../dto/calendar-event'
+import { createEventSchema, updateEventSchema, monthQuerySchema, recurrenceRuleSchema, dateRangeQuerySchema } from '../../../dto/calendar-event'
 
 describe('createEventSchema', () => {
     test('필수 필드만으로 파싱한다', () => {
@@ -141,6 +141,29 @@ describe('createEventSchema', () => {
         if (result.success) {
             expect(result.data.categories).toEqual([])
         }
+    })
+
+    test('groupId를 허용한다', () => {
+        const result = createEventSchema.safeParse({
+            summary: '테스트',
+            dtstart: '2024-01-15T10:00:00Z',
+            dtend: '2024-01-15T11:00:00Z',
+            groupId: 'group-uuid',
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+            expect(result.data.groupId).toBe('group-uuid')
+        }
+    })
+
+    test('groupId가 null이면 허용한다', () => {
+        const result = createEventSchema.safeParse({
+            summary: '테스트',
+            dtstart: '2024-01-15T10:00:00Z',
+            dtend: '2024-01-15T11:00:00Z',
+            groupId: null,
+        })
+        expect(result.success).toBe(true)
     })
 
     test('color 필드를 허용한다', () => {
@@ -380,5 +403,43 @@ describe('recurrenceRuleSchema', () => {
         if (result.success) {
             expect(result.data.until).toBe('2024-12-31T00:00:00Z')
         }
+    })
+})
+
+describe('dateRangeQuerySchema', () => {
+    test('유효한 날짜 범위를 파싱한다', () => {
+        const result = dateRangeQuerySchema.safeParse({
+            startDate: '2024-03-01',
+            endDate: '2024-03-31',
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+            expect(result.data.startDate).toBe('2024-03-01')
+            expect(result.data.endDate).toBe('2024-03-31')
+        }
+    })
+
+    test('groupId를 포함할 수 있다', () => {
+        const result = dateRangeQuerySchema.safeParse({
+            startDate: '2024-03-01',
+            endDate: '2024-03-31',
+            groupId: 'group-1',
+        })
+        expect(result.success).toBe(true)
+    })
+
+    test('startDate가 없으면 실패한다', () => {
+        const result = dateRangeQuerySchema.safeParse({
+            endDate: '2024-03-31',
+        })
+        expect(result.success).toBe(false)
+    })
+
+    test('유효하지 않은 날짜 형식은 실패한다', () => {
+        const result = dateRangeQuerySchema.safeParse({
+            startDate: '2024/03/01',
+            endDate: '2024-03-31',
+        })
+        expect(result.success).toBe(false)
     })
 })

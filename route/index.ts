@@ -33,6 +33,7 @@ import { createResumeRoute } from './resume/resume'
 import { createCalendarEventRoute } from './calendar/event'
 import { createCalendarSubscriptionRoute } from './calendar/subscription'
 import { createCalendarIcsRoute } from './calendar/ics'
+import { createCalendarGroupRoute } from './calendar/group'
 import type { AuthProvider } from '../service/shared/auth-provider'
 import type { ApiTokenService } from '../service/shared/api-token'
 import type { BadgeService } from '../service/domain/badge/badge'
@@ -364,6 +365,13 @@ export const createRouter = (deps: RouterDeps = {}) => {
     router.route(
         '/calendar/events',
         createCalendarEventRoute({
+            calendarService: stub(deps.calendarService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/calendar/groups',
+        createCalendarGroupRoute({
             calendarService: stub(deps.calendarService),
             getSession: stubFn(deps.getSession) as never,
         }),

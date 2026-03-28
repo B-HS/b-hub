@@ -78,4 +78,7 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     CALENDAR_CALDAV_AUTH_FAILED: 'CalDAV 인증에 실패했습니다',
     CALENDAR_ICS_PARSE_FAILED: 'ICS 데이터 파싱에 실패했습니다',
     CALENDAR_ICS_TOO_LARGE: 'ICS 데이터가 크기 제한을 초과했습니다',
+    CALENDAR_GROUP_NOT_FOUND: '캘린더 그룹을 찾을 수 없습니다',
+    CALENDAR_GROUP_HAS_EVENTS: '이벤트가 있는 그룹은 삭제할 수 없습니다',
+    CALENDAR_INVALID_DATE_RANGE: '유효하지 않은 날짜 범위입니다',
 }

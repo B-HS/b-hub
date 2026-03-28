@@ -1,42 +1,22 @@
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import { generateSpecs } from 'hono-openapi'
 import { swaggerUI } from '@hono/swagger-ui'
-import { securityHeaders } from './middleware/security-headers'
-import { errorHandler } from './middleware/error-handler'
+import { createMiddleware } from './middleware'
+import { createPage } from './page'
 import { createRouter } from './route/index'
 import { createCalendarCaldavRoute } from './route/calendar/caldav'
-import { homeRoute } from './route/home'
-import { policyRoute } from './route/policy'
 import { compose } from './compose'
 import type { AuthContext } from './lib/hono-types'
 
 const app = new Hono<AuthContext>()
 
-const isAllowedOrigin = (origin: string) => {
-    try {
-        const { hostname } = new URL(origin)
-        if (hostname === 'gumyo.net' || hostname.endsWith('.gumyo.net')) return true
-        if (hostname === 'hyns.dev' || hostname.endsWith('.hyns.dev')) return true
-        if (process.env.NODE_ENV !== 'production' && hostname === 'localhost') return true
-        return false
-    } catch {
-        return false
-    }
-}
+createMiddleware(app, {
+    allowedDomains: ['gumyo.net', 'hyns.dev'],
+    securityExcludePaths: ['/api/spotify/playing', '/caldav/', '/.well-known/caldav'],
+    securityExcludeExactPaths: ['/', '/policy'],
+})
 
-app.use(
-    '*',
-    cors({
-        origin: (origin) => (origin && isAllowedOrigin(origin) ? origin : ''),
-        credentials: true,
-    }),
-)
-
-app.use('*', securityHeaders({ excludePaths: ['/api/spotify/playing'], excludeExactPaths: ['/', '/policy'] }))
-app.use('*', errorHandler())
-
-app.route('', homeRoute)
+app.route('', createPage())
 
 const deps = compose()
 const router = createRouter({
@@ -80,10 +60,8 @@ const router = createRouter({
     caldavService: deps.caldavService,
     baseUrl: deps.baseUrl,
 })
-app.route('/policy', policyRoute)
 app.route('/api', router)
 
-// CalDAV route (outside /api for CalDAV client compatibility)
 if (deps.calendarService && deps.caldavService) {
     const caldavRoute = createCalendarCaldavRoute({
         calendarService: deps.calendarService,
@@ -91,13 +69,6 @@ if (deps.calendarService && deps.caldavService) {
     })
     app.route('/caldav', caldavRoute)
 }
-
-// CalDAV well-known discovery
-app.get('/.well-known/caldav', (c) => {
-    const token = c.req.query('token')
-    if (token) return c.redirect(`/caldav/${token}/`, 301)
-    return c.text('CalDAV server. Use /caldav/:token/', 200)
-})
 
 if (process.env.NODE_ENV !== 'production') {
     app.get('/docs', async (c) => {
@@ -124,3 +95,4 @@ export default {
     port: process.env.PORT || 9999,
     fetch: app.fetch,
 }
+

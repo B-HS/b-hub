@@ -28,39 +28,44 @@ const mockEvent = {
     lastModified: now,
 }
 
+const createMockCalendarService = () => ({
+    getSubscriptionByToken: mock((token: string) => Promise.resolve(token === 'valid-token' ? mockSubscription : null)),
+    getAllEvents: mock(() => Promise.resolve([mockEvent])),
+    getEventByUid: mock((_userId: string, _uid: string) => Promise.resolve(mockEvent as typeof mockEvent | null)),
+    getEventEtag: mock(() => 'etag-123'),
+    upsertEventByUid: mock(() => Promise.resolve({ event: mockEvent, created: true as boolean })),
+    deleteEvent: mock(() => Promise.resolve()),
+    getUserTimezone: mock(() => Promise.resolve('Asia/Seoul')),
+})
+
+const createMockCaldavService = () => ({
+    getUserTimezone: mock(() => Promise.resolve('Asia/Seoul')),
+    getCalendarProperties: mock(() => ({
+        found: { 'D:resourcetype': { 'D:collection': '', 'C:calendar': '' }, 'D:displayname': 'My Calendar' },
+        notFound: [],
+    })),
+    getChangesFromToken: mock(() =>
+        Promise.resolve({
+            changed: [mockEvent],
+            deleted: [],
+            syncToken: 'http://b-calendar/sync/1',
+        }),
+    ),
+    getFreeBusy: mock(() => Promise.resolve([])),
+    generateFreeBusyICS: mock(() => 'BEGIN:VCALENDAR\r\nEND:VCALENDAR'),
+})
+
 const createMockDeps = () => ({
-    calendarService: {
-        getSubscriptionByToken: mock((token: string) => Promise.resolve(token === 'valid-token' ? mockSubscription : null)),
-        getAllEvents: mock(() => Promise.resolve([mockEvent])),
-        getEventByUid: mock(() => Promise.resolve(mockEvent)),
-        getEventEtag: mock(() => 'etag-123'),
-        upsertEventByUid: mock(() => Promise.resolve({ event: mockEvent, created: true })),
-        deleteEvent: mock(() => Promise.resolve()),
-        getUserTimezone: mock(() => Promise.resolve('Asia/Seoul')),
-    } as never,
-    caldavService: {
-        getUserTimezone: mock(() => Promise.resolve('Asia/Seoul')),
-        getCalendarProperties: mock(() => ({
-            found: { 'D:resourcetype': { 'D:collection': '', 'C:calendar': '' }, 'D:displayname': 'My Calendar' },
-            notFound: [],
-        })),
-        getChangesFromToken: mock(() =>
-            Promise.resolve({
-                changed: [mockEvent],
-                deleted: [],
-                syncToken: 'http://b-calendar/sync/1',
-            }),
-        ),
-        getFreeBusy: mock(() => Promise.resolve([])),
-        generateFreeBusyICS: mock(() => 'BEGIN:VCALENDAR\r\nEND:VCALENDAR'),
-    } as never,
+    calendarService: createMockCalendarService(),
+    caldavService: createMockCaldavService(),
 })
 
 const createApp = (deps = createMockDeps()) => {
     const app = new Hono()
-    app.route('/caldav', createCalendarCaldavRoute(deps))
+    app.route('/caldav', createCalendarCaldavRoute(deps as never))
     return { app, deps }
 }
+
 
 describe('CalDAV OPTIONS', () => {
     test('DAV 헤더를 반환한다', async () => {
@@ -198,7 +203,7 @@ describe('CalDAV PROPFIND Depth:1', () => {
 describe('CalDAV GET /:token/:uid 추가', () => {
     test('이벤트가 없으면 404를 반환한다', async () => {
         const deps = createMockDeps()
-        deps.calendarService.getEventByUid = mock(() => Promise.resolve(null)) as never
+        deps.calendarService.getEventByUid = mock(() => Promise.resolve(null))
         const { app } = createApp(deps)
         const res = await app.request('/caldav/valid-token/nonexistent-uid.ics')
         expect(res.status).toBe(404)
@@ -226,7 +231,7 @@ describe('CalDAV PUT /:token/:uid.ics 응답 코드', () => {
 
     test('새 이벤트를 생성하면 201을 반환한다', async () => {
         const deps = createMockDeps()
-        deps.calendarService.upsertEventByUid = mock(() => Promise.resolve({ event: mockEvent, created: true })) as never
+        deps.calendarService.upsertEventByUid = mock(() => Promise.resolve({ event: mockEvent, created: true as boolean }))
         const { app } = createApp(deps)
         const icsData = [
             'BEGIN:VCALENDAR',
@@ -249,7 +254,7 @@ describe('CalDAV PUT /:token/:uid.ics 응답 코드', () => {
 
     test('기존 이벤트를 수정하면 204를 반환한다', async () => {
         const deps = createMockDeps()
-        deps.calendarService.upsertEventByUid = mock(() => Promise.resolve({ event: mockEvent, created: false })) as never
+        deps.calendarService.upsertEventByUid = mock(() => Promise.resolve({ event: mockEvent, created: false as boolean }))
         const { app } = createApp(deps)
         const icsData = [
             'BEGIN:VCALENDAR',
