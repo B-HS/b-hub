@@ -147,7 +147,7 @@ describe('toEventInput', () => {
             isAllDay: true,
         })
         expect(result.dtstart.getFullYear()).toBe(2024)
-        expect(result.dtstart.getMonth()).toBe(2) // March = 2
+        expect(result.dtstart.getMonth()).toBe(2)
         expect(result.dtstart.getDate()).toBe(15)
         expect(result.dtstart.getHours()).toBe(0)
         expect(result.dtstart.getMinutes()).toBe(0)
@@ -191,7 +191,7 @@ describe('toEventPatch', () => {
     test('startDate만 변경할 수 있다', () => {
         const result = toEventPatch(existing, { startDate: '2024-03-20' })
         expect(result.dtstart.getDate()).toBe(20)
-        expect(result.dtstart.getHours()).toBe(14) // 기존 시간 유지
+        expect(result.dtstart.getHours()).toBe(14)
     })
 
     test('변경하지 않은 필드는 기존 값을 유지한다', () => {

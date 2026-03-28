@@ -25,12 +25,6 @@ export const patchEventBodySchema = createEventBodySchema.partial()
 export type CreateEventBody = z.infer<typeof createEventBodySchema>
 export type PatchEventBody = z.infer<typeof patchEventBodySchema>
 
-// Drizzle ORM은 Date를 UTC 문자열로 직렬화함
-// allDay: 날짜만 중요, DB에 YYYY-MM-DD 00:00:00 그대로 저장 → Z suffix
-// 시간 이벤트: 사용자 입력은 KST, DB에도 KST 기준 시간 저장해야 CalDAV에서 맞음
-//   KST 09:00 → DB에 09:00 저장하려면 → Drizzle이 UTC로 보내니까
-//   UTC Date로 09:00을 만들어야 함 → 즉 Z suffix 동일
-// 결론: 둘 다 Z suffix로 "DB에 저장되는 값 = 입력 그대로"를 보장
 const combineDatetime = (date: string, time: string | undefined, isAllDay: boolean): Date => {
     if (isAllDay || !time) {
         return new Date(`${date}T00:00:00Z`)
@@ -38,7 +32,6 @@ const combineDatetime = (date: string, time: string | undefined, isAllDay: boole
     return new Date(`${date}T${time}:00Z`)
 }
 
-// Drizzle이 DB에서 읽을 때도 UTC Date를 반환하므로, UTC 기준으로 포맷
 const formatDate = (date: Date): string => {
     const y = date.getUTCFullYear()
     const m = String(date.getUTCMonth() + 1).padStart(2, '0')

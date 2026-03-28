@@ -95,4 +95,3 @@ export default {
     port: process.env.PORT || 9999,
     fetch: app.fetch,
 }
-

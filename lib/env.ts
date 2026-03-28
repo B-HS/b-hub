@@ -20,7 +20,7 @@ const envSchema = z.object({
     R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
     R2_BUCKET: z.string().min(1).optional(),
     R2_CUSTOM_DOMAIN: z.string().min(1).optional(),
-    R2_CUSTOME_DOMAIN: z.string().min(1).optional(), // legacy typo — use R2_CUSTOM_DOMAIN
+    R2_CUSTOME_DOMAIN: z.string().min(1).optional(),
 
     KMA_API_KEY: z.string().min(1).optional(),
 

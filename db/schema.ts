@@ -463,19 +463,6 @@ export const hnWebhookLogs = mysqlTable(
     (table) => [index('idx_hn_webhook_logs_webhook_id').on(table.webhookId)],
 )
 
-export type User = typeof user.$inferSelect
-export type ApiToken = typeof apiToken.$inferSelect
-export type WeatherApiKey = typeof weatherApiKey.$inferSelect
-export type Post = typeof posts.$inferSelect
-export type Comment = typeof comments.$inferSelect
-export type HnStory = typeof hnStories.$inferSelect
-export type NewHnStory = typeof hnStories.$inferInsert
-export type HnComment = typeof hnComments.$inferSelect
-export type NewHnComment = typeof hnComments.$inferInsert
-export type HnSummary = typeof hnSummaries.$inferSelect
-export type HnDigest = typeof hnDigests.$inferSelect
-export type HnWebhook = typeof hnWebhooks.$inferSelect
-
 export const mailAccounts = mysqlTable(
     'mail_accounts',
     {
@@ -770,8 +757,6 @@ export type MailSyncLog = typeof mailSyncLogs.$inferSelect
 export type MailSyncSession = typeof mailSyncSessions.$inferSelect
 export type MailUpload = typeof mailUploads.$inferSelect
 
-// Calendar
-
 export const calendarGroup = mysqlTable(
     'calendar_group',
     {
@@ -887,3 +872,15 @@ export type NewCalendarEvent = typeof calendarEvent.$inferInsert
 export type CalendarSubscription = typeof calendarSubscription.$inferSelect
 export type NewCalendarSubscription = typeof calendarSubscription.$inferInsert
 export type DeletedCalendarEvent = typeof deletedCalendarEvent.$inferSelect
+export type User = typeof user.$inferSelect
+export type ApiToken = typeof apiToken.$inferSelect
+export type WeatherApiKey = typeof weatherApiKey.$inferSelect
+export type Post = typeof posts.$inferSelect
+export type Comment = typeof comments.$inferSelect
+export type HnStory = typeof hnStories.$inferSelect
+export type NewHnStory = typeof hnStories.$inferInsert
+export type HnComment = typeof hnComments.$inferSelect
+export type NewHnComment = typeof hnComments.$inferInsert
+export type HnSummary = typeof hnSummaries.$inferSelect
+export type HnDigest = typeof hnDigests.$inferSelect
+export type HnWebhook = typeof hnWebhooks.$inferSelect
