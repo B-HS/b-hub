@@ -26,7 +26,7 @@ if (process.env.NODE_ENV !== 'production') {
                 info: {
                     title: 'Hyun Hub API',
                     version: '1.0.0',
-                    description: 'Badge, Weather, HN Digest, Blog 통합 API',
+                    description: 'Badge, Weather, Blog 통합 API',
                 },
                 servers: [
                     { url: 'https://api.gumyo.net', description: 'Production' },

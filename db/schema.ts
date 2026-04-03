@@ -365,124 +365,6 @@ export const weatherApiLog = mysqlTable(
     (table) => [index('idx_weather_api_log_user').on(table.userId), index('idx_weather_api_log_key_created').on(table.keyId, table.createdAt)],
 )
 
-export const hnStories = mysqlTable(
-    'hn_stories',
-    {
-        id: bigint('id', { mode: 'number' }).primaryKey(),
-        type: varchar('type', { length: 20 }).notNull(),
-        hnType: varchar('hn_type', { length: 20 }).notNull(),
-        by: varchar('by', { length: 100 }),
-        title: text('title'),
-        titleKo: text('title_ko'),
-        url: text('url'),
-        storyText: text('story_text'),
-        storyTextKo: text('story_text_ko'),
-        contentSummary: text('content_summary'),
-        contentSummaryKo: text('content_summary_ko'),
-        tags: json('tags').$type<string[]>().default([]),
-        contentParsed: boolean('content_parsed').default(false),
-        parseError: text('parse_error'),
-        score: int('score').default(0),
-        descendants: int('descendants').default(0),
-        time: bigint('time', { mode: 'number' }),
-        dead: boolean('dead').default(false),
-        deleted: boolean('deleted').default(false),
-        lastSyncedAt: timestamp('last_synced_at').defaultNow(),
-        needsResummarize: boolean('needs_resummarize').default(true),
-        createdAt: timestamp('created_at').defaultNow(),
-        updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
-    },
-    (table) => [
-        index('idx_hn_stories_type').on(table.type),
-        index('idx_hn_stories_time').on(table.time),
-        index('idx_hn_stories_needs_resummarize').on(table.needsResummarize),
-    ],
-)
-
-export const hnComments = mysqlTable(
-    'hn_comments',
-    {
-        id: bigint('id', { mode: 'number' }).primaryKey(),
-        storyId: bigint('story_id', { mode: 'number' }).notNull(),
-        parentId: bigint('parent_id', { mode: 'number' }),
-        by: varchar('by', { length: 100 }),
-        commentText: text('comment_text'),
-        time: bigint('time', { mode: 'number' }),
-        depth: int('depth').notNull().default(0),
-        dead: boolean('dead').default(false),
-        deleted: boolean('deleted').default(false),
-        createdAt: timestamp('created_at').defaultNow(),
-    },
-    (table) => [index('idx_hn_comments_story_id').on(table.storyId), index('idx_hn_comments_parent_id').on(table.parentId)],
-)
-
-export const hnSummaries = mysqlTable(
-    'hn_summaries',
-    {
-        id: int('id').primaryKey().autoincrement(),
-        storyId: bigint('story_id', { mode: 'number' }).notNull().unique(),
-        summary: text('summary').notNull(),
-        tags: json('tags').$type<string[]>().default([]),
-        summaryType: varchar('summary_type', { length: 20 }).notNull().default('daily'),
-        model: varchar('model', { length: 50 }).default('gemini-2.5-flash-lite'),
-        createdAt: timestamp('created_at').defaultNow(),
-        updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
-    },
-    (table) => [index('idx_hn_summaries_story_id').on(table.storyId), index('idx_hn_summaries_type').on(table.summaryType)],
-)
-
-export const hnTags = mysqlTable('hn_tags', {
-    id: int('id').primaryKey().autoincrement(),
-    name: varchar('name', { length: 50 }).notNull().unique(),
-    category: varchar('category', { length: 50 }),
-    usageCount: int('usage_count').default(0),
-    createdAt: timestamp('created_at').defaultNow(),
-})
-
-export const hnDigests = mysqlTable(
-    'hn_digests',
-    {
-        id: int('id').primaryKey().autoincrement(),
-        digestType: varchar('digest_type', { length: 20 }).notNull(),
-        digestKey: varchar('digest_key', { length: 20 }).notNull(),
-        title: varchar('title', { length: 200 }).notNull(),
-        content: text('content').notNull(),
-        storyIds: json('story_ids').$type<number[]>().default([]),
-        createdAt: timestamp('created_at').defaultNow(),
-    },
-    (table) => [index('idx_hn_digests_type_key').on(table.digestType, table.digestKey)],
-)
-
-export const hnWebhooks = mysqlTable(
-    'hn_webhooks',
-    {
-        id: int('id').primaryKey().autoincrement(),
-        provider: varchar('provider', { length: 20 }).notNull().default('discord'),
-        url: text('url').notNull(),
-        name: varchar('name', { length: 100 }),
-        isActive: boolean('is_active').default(true),
-        digestTypes: json('digest_types').$type<string[]>().default(['daily', 'weekly', 'monthly']),
-        createdAt: timestamp('created_at').defaultNow(),
-        updatedAt: timestamp('updated_at').defaultNow().onUpdateNow(),
-    },
-    (table) => [index('idx_hn_webhooks_provider').on(table.provider), index('idx_hn_webhooks_active').on(table.isActive)],
-)
-
-export const hnWebhookLogs = mysqlTable(
-    'hn_webhook_logs',
-    {
-        id: int('id').primaryKey().autoincrement(),
-        webhookId: int('webhook_id'),
-        provider: varchar('provider', { length: 20 }).notNull(),
-        digestType: varchar('digest_type', { length: 20 }),
-        status: varchar('status', { length: 20 }).notNull(),
-        payload: json('payload'),
-        response: text('response'),
-        createdAt: timestamp('created_at').defaultNow(),
-    },
-    (table) => [index('idx_hn_webhook_logs_webhook_id').on(table.webhookId)],
-)
-
 export const mailAccounts = mysqlTable(
     'mail_accounts',
     {
@@ -892,13 +774,6 @@ export type ApiToken = typeof apiToken.$inferSelect
 export type WeatherApiKey = typeof weatherApiKey.$inferSelect
 export type Post = typeof posts.$inferSelect
 export type Comment = typeof comments.$inferSelect
-export type HnStory = typeof hnStories.$inferSelect
-export type NewHnStory = typeof hnStories.$inferInsert
-export type HnComment = typeof hnComments.$inferSelect
-export type NewHnComment = typeof hnComments.$inferInsert
-export type HnSummary = typeof hnSummaries.$inferSelect
-export type HnDigest = typeof hnDigests.$inferSelect
-export type HnWebhook = typeof hnWebhooks.$inferSelect
 
 export const driveFolders = mysqlTable(
     'drive_folders',

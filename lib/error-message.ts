@@ -36,11 +36,6 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     WEATHER_KEY_INVALID: '날씨 API 키가 유효하지 않습니다',
     WEATHER_KEY_RATE_LIMIT: '날씨 API 일일 요청 한도를 초과했습니다',
 
-    HN_STORY_NOT_FOUND: 'HN 스토리를 찾을 수 없습니다',
-    HN_FETCH_FAILED: 'HN 데이터 수집에 실패했습니다',
-    HN_CRON_SECRET_INVALID: 'Cron 시크릿이 유효하지 않습니다',
-    HN_WEBHOOK_REGISTER_FAILED: '웹훅 등록에 실패했습니다',
-
     MAIL_ACCOUNT_NOT_FOUND: '메일 계정을 찾을 수 없습니다',
     MAIL_ACCOUNT_LIMIT_EXCEEDED: '메일 계정 등록 한도를 초과했습니다',
     MAIL_FOLDER_NOT_FOUND: '메일 폴더를 찾을 수 없습니다',

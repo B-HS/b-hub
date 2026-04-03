@@ -24,11 +24,7 @@ const envSchema = z.object({
 
     KMA_API_KEY: z.string().min(1).optional(),
 
-    GEMINI_API_KEY: z.string().min(1).optional(),
-
     DISCORD_WEBHOOK_URL: z.string().url().optional(),
-
-    CRON_SECRET: z.string().min(1).optional(),
 
     SENTRY_DSN: z.string().url().optional(),
 

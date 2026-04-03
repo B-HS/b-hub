@@ -2,7 +2,6 @@ import { getDb } from '../db/index'
 import { getEnv } from '../lib/env'
 import { composeShared } from './shared'
 import { composeBlog } from './blog'
-import { composeHn } from './hn'
 import { composeWeather } from './weather'
 import { composeMail } from './mail'
 import { composeSpotify } from './spotify'
@@ -17,7 +16,6 @@ export const compose = () => {
 
     const shared = composeShared(core)
     const blog = composeBlog({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor })
-    const hn = composeHn(core)
     const weather = composeWeather(core)
     const mail = composeMail({ ...core, storageService: shared.storageService })
     const spotify = composeSpotify(core)
@@ -28,14 +26,12 @@ export const compose = () => {
     return {
         ...shared,
         ...blog,
-        ...hn,
         ...weather,
         ...mail,
         ...spotify,
         ...resume,
         ...calendar,
         ...drive,
-        cronSecret: env.CRON_SECRET ?? '',
         baseUrl: env.BASE_URL ?? '',
     }
 }

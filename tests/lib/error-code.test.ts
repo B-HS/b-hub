@@ -17,12 +17,10 @@ describe('ERROR_CODE', () => {
     test('도메인별 접두사가 올바르게 사용된다', () => {
         const blogCodes = Object.keys(ERROR_CODE).filter((k) => k.startsWith('BLOG_'))
         const weatherCodes = Object.keys(ERROR_CODE).filter((k) => k.startsWith('WEATHER_'))
-        const hnCodes = Object.keys(ERROR_CODE).filter((k) => k.startsWith('HN_'))
         const badgeCodes = Object.keys(ERROR_CODE).filter((k) => k.startsWith('BADGE_'))
 
         expect(blogCodes.length).toBeGreaterThanOrEqual(4)
         expect(weatherCodes.length).toBeGreaterThanOrEqual(3)
-        expect(hnCodes.length).toBeGreaterThanOrEqual(4)
         expect(badgeCodes.length).toBeGreaterThanOrEqual(2)
     })
 })

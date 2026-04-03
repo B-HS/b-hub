@@ -45,7 +45,6 @@ describe('getStatusCode', () => {
         expect(getStatusCode('BLOG_COMMENT_NOT_FOUND')).toBe(404)
         expect(getStatusCode('BLOG_IMAGE_TOO_LARGE')).toBe(413)
         expect(getStatusCode('WEATHER_INVALID_GRID')).toBe(400)
-        expect(getStatusCode('HN_CRON_SECRET_INVALID')).toBe(401)
     })
 })
 

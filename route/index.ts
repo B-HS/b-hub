@@ -7,10 +7,6 @@ import { createWeatherRoute } from './weather/weather'
 import { createLocationRoute } from './weather/location'
 import { createWeatherKeyRoute } from './weather/key'
 import { createWeatherMockRoute } from './weather/mock'
-import { createStoryRoute } from './hn/story'
-import { createCronRoute } from './hn/cron'
-import { createWebhookRoute } from './hn/webhook'
-import { createDigestRoute } from './hn/digest'
 import { createPostRoute } from './blog/post'
 import { createCommentRoute } from './blog/comment'
 import { createCategoryRoute } from './blog/category'
@@ -108,25 +104,6 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createLocationRoute({
             locationService: stub(deps.locationService),
             weatherApiKeyService: stub(deps.weatherApiKeyService),
-        }),
-    )
-
-    router.route('/hn', createStoryRoute({ db: stub(deps.hnStoryDb) }))
-    router.route('/hn/digests', createDigestRoute({ db: stub(deps.hnDigestDb) }))
-    router.route(
-        '/hn/cron',
-        createCronRoute({
-            cronSecret: deps.cronSecret ?? '',
-            hnFetcher: stub(deps.hnFetcher),
-            hnDigest: stub(deps.hnDigest),
-            hnWebhook: stub(deps.hnWebhook),
-        }),
-    )
-    router.route(
-        '/hn/webhooks',
-        createWebhookRoute({
-            webhookService: stub(deps.hnWebhook),
-            getSession: stubFn(deps.getSession) as never,
         }),
     )
 
