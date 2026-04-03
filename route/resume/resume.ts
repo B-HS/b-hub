@@ -45,7 +45,7 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
             summary: '이력서 상세 조회',
             responses: {
                 200: { description: '이력서 상세' },
-                ...errorResponses(['UNAUTHORIZED', 'RESUME_NOT_FOUND', 'RESUME_NOT_OWNER']),
+                ...errorResponses(['UNAUTHORIZED', 'RESUME_NOT_FOUND']),
             },
         }),
         withErrorHandling(async (c) => {
@@ -56,8 +56,7 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
             if (isNaN(id)) throw createAppError('RESUME_NOT_FOUND')
 
             const result = await deps.resumeService.getById(id, session.user.id)
-            if (!result.success && result.reason === 'not_found') throw createAppError('RESUME_NOT_FOUND')
-            if (!result.success && result.reason === 'not_owner') throw createAppError('RESUME_NOT_OWNER')
+            if (!result.success) throw createAppError('RESUME_NOT_FOUND')
 
             return c.json(successResponse(result.success ? result.resume : null))
         }),
@@ -91,7 +90,7 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
             summary: '이력서 수정',
             responses: {
                 200: { description: '수정 결과' },
-                ...errorResponses(['UNAUTHORIZED', 'RESUME_NOT_FOUND', 'RESUME_NOT_OWNER']),
+                ...errorResponses(['UNAUTHORIZED', 'RESUME_NOT_FOUND']),
             },
         }),
         validator('json', resumeUpdateSchema),
@@ -104,8 +103,7 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
 
             const input = c.req.valid('json' as never) as z.infer<typeof resumeUpdateSchema>
             const result = await deps.resumeService.update(id, session.user.id, input)
-            if (!result.success && result.reason === 'not_found') throw createAppError('RESUME_NOT_FOUND')
-            if (!result.success && result.reason === 'not_owner') throw createAppError('RESUME_NOT_OWNER')
+            if (!result.success) throw createAppError('RESUME_NOT_FOUND')
 
             return c.json(successResponse({ success: true }))
         }),
@@ -118,7 +116,7 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
             summary: '이력서 삭제',
             responses: {
                 200: { description: '삭제 결과' },
-                ...errorResponses(['UNAUTHORIZED', 'RESUME_NOT_FOUND', 'RESUME_NOT_OWNER']),
+                ...errorResponses(['UNAUTHORIZED', 'RESUME_NOT_FOUND']),
             },
         }),
         withErrorHandling(async (c) => {
@@ -129,8 +127,7 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
             if (isNaN(id)) throw createAppError('RESUME_NOT_FOUND')
 
             const result = await deps.resumeService.delete(id, session.user.id)
-            if (!result.success && result.reason === 'not_found') throw createAppError('RESUME_NOT_FOUND')
-            if (!result.success && result.reason === 'not_owner') throw createAppError('RESUME_NOT_OWNER')
+            if (!result.success) throw createAppError('RESUME_NOT_FOUND')
 
             return c.json(successResponse({ success: true }))
         }),

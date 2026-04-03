@@ -8,6 +8,7 @@ import { composeMail } from './mail'
 import { composeSpotify } from './spotify'
 import { composeResume } from './resume'
 import { composeCalendar } from './calendar'
+import { composeDrive } from './drive'
 
 export const compose = () => {
     const env = getEnv()
@@ -22,6 +23,7 @@ export const compose = () => {
     const spotify = composeSpotify(core)
     const resume = composeResume(core)
     const calendar = composeCalendar(core)
+    const drive = composeDrive({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor })
 
     return {
         ...shared,
@@ -32,6 +34,7 @@ export const compose = () => {
         ...spotify,
         ...resume,
         ...calendar,
+        ...drive,
         cronSecret: env.CRON_SECRET ?? '',
         baseUrl: env.BASE_URL ?? '',
     }

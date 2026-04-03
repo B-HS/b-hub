@@ -1,7 +1,13 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createHnTranslator } from '../../../../service/domain/hn/hn-translator'
 
-const createMockDeps = (overrides: { summarize?: (...args: unknown[]) => Promise<string>; getExistingTags?: () => Promise<string[]>; updateTagUsage?: (tags: string[]) => Promise<void> } = {}) => ({
+const createMockDeps = (
+    overrides: {
+        summarize?: (...args: unknown[]) => Promise<string>
+        getExistingTags?: () => Promise<string[]>
+        updateTagUsage?: (tags: string[]) => Promise<void>
+    } = {},
+) => ({
     ai: {
         summarize: overrides.summarize ?? mock(() => Promise.resolve('[]')),
     },
@@ -29,13 +35,7 @@ describe('createHnTranslator', () => {
         })
 
         test('유효한 JSON 응답을 파싱한다', async () => {
-            const summarize = mock(() =>
-                Promise.resolve(
-                    JSON.stringify([
-                        { idx: 0, titleKo: '한국어 제목', tags: ['AI/ML', 'Web'] },
-                    ]),
-                ),
-            )
+            const summarize = mock(() => Promise.resolve(JSON.stringify([{ idx: 0, titleKo: '한국어 제목', tags: ['AI/ML', 'Web'] }])))
             const deps = createMockDeps({ summarize })
             const translator = createHnTranslator(deps)
 
@@ -46,11 +46,7 @@ describe('createHnTranslator', () => {
         })
 
         test('tags가 3개를 초과하면 3개로 자른다', async () => {
-            const summarize = mock(() =>
-                Promise.resolve(
-                    JSON.stringify([{ idx: 0, titleKo: '제목', tags: ['A', 'B', 'C', 'D', 'E'] }]),
-                ),
-            )
+            const summarize = mock(() => Promise.resolve(JSON.stringify([{ idx: 0, titleKo: '제목', tags: ['A', 'B', 'C', 'D', 'E'] }])))
             const deps = createMockDeps({ summarize })
             const translator = createHnTranslator(deps)
 
@@ -103,7 +99,9 @@ describe('createHnTranslator', () => {
         })
 
         test('storyText와 content를 포함하여 전송한다', async () => {
-            const summarize = mock(() => Promise.resolve(JSON.stringify([{ idx: 0, titleKo: '제목', contentSummary: 'Summary', contentSummaryKo: '요약' }])))
+            const summarize = mock(() =>
+                Promise.resolve(JSON.stringify([{ idx: 0, titleKo: '제목', contentSummary: 'Summary', contentSummaryKo: '요약' }])),
+            )
             const deps = createMockDeps({ summarize })
             const translator = createHnTranslator(deps)
 

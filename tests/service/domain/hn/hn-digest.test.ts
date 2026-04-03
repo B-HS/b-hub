@@ -173,9 +173,7 @@ describe('createHnDigestService', () => {
             const db = createMockDb()
             const service = createHnDigestService({ ai, db })
 
-            await service.generateDigestSummary('daily', [
-                { title: 'English', titleKo: '한국어', summary: '요약', score: 100, tags: [] },
-            ])
+            await service.generateDigestSummary('daily', [{ title: 'English', titleKo: '한국어', summary: '요약', score: 100, tags: [] }])
             const prompt = (ai.summarize as ReturnType<typeof mock>).mock.calls[0][0] as string
             expect(prompt).toContain('한국어')
         })

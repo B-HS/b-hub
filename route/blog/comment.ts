@@ -60,7 +60,7 @@ export const createCommentRoute = (deps: CommentRouteDeps) => {
             summary: '댓글 수정',
             responses: {
                 200: { description: '수정 결과' },
-                ...errorResponses(['UNAUTHORIZED', 'BLOG_COMMENT_NOT_FOUND', 'BLOG_NOT_COMMENT_OWNER']),
+                ...errorResponses(['UNAUTHORIZED', 'BLOG_COMMENT_NOT_FOUND']),
             },
         }),
         validator('json', commentUpdateSchema),
@@ -73,8 +73,7 @@ export const createCommentRoute = (deps: CommentRouteDeps) => {
 
             const input = c.req.valid('json' as never) as z.infer<typeof commentUpdateSchema>
             const result = await deps.commentService.update(id, session.user.id, input)
-            if (!result.success && result.reason === 'not_found') throw createAppError('BLOG_COMMENT_NOT_FOUND')
-            if (!result.success && result.reason === 'not_owner') throw createAppError('BLOG_NOT_COMMENT_OWNER')
+            if (!result.success) throw createAppError('BLOG_COMMENT_NOT_FOUND')
 
             return c.json(successResponse({ success: true }))
         }),
@@ -87,7 +86,7 @@ export const createCommentRoute = (deps: CommentRouteDeps) => {
             summary: '댓글 삭제',
             responses: {
                 200: { description: '삭제 결과' },
-                ...errorResponses(['UNAUTHORIZED', 'BLOG_COMMENT_NOT_FOUND', 'BLOG_NOT_COMMENT_OWNER']),
+                ...errorResponses(['UNAUTHORIZED', 'BLOG_COMMENT_NOT_FOUND']),
             },
         }),
         withErrorHandling(async (c) => {
@@ -98,8 +97,7 @@ export const createCommentRoute = (deps: CommentRouteDeps) => {
             if (isNaN(id)) throw createAppError('BLOG_COMMENT_NOT_FOUND')
 
             const result = await deps.commentService.delete(id, session.user.id)
-            if (!result.success && result.reason === 'not_found') throw createAppError('BLOG_COMMENT_NOT_FOUND')
-            if (!result.success && result.reason === 'not_owner') throw createAppError('BLOG_NOT_COMMENT_OWNER')
+            if (!result.success) throw createAppError('BLOG_COMMENT_NOT_FOUND')
 
             return c.json(successResponse({ success: true }))
         }),

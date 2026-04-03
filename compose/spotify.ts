@@ -19,11 +19,8 @@ export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
             const [account] = await db.select().from(schema.spotifyAccounts).where(eq(schema.spotifyAccounts.id, id)).limit(1)
             return account ?? null
         },
-        update: async (id: number, data: Record<string, unknown>) => {
-            await db
-                .update(schema.spotifyAccounts)
-                .set(data as never)
-                .where(eq(schema.spotifyAccounts.id, id))
+        update: async (id: number, data: Partial<Pick<schema.SpotifyAccount, 'displayName' | 'isActive'>>) => {
+            await db.update(schema.spotifyAccounts).set(data).where(eq(schema.spotifyAccounts.id, id))
         },
         remove: async (id: number) => {
             await db.delete(schema.spotifyAccounts).where(eq(schema.spotifyAccounts.id, id))

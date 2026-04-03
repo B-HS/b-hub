@@ -4,7 +4,7 @@ import { createAppError } from '../../../lib/error'
 type SpotifyAccountDb = {
     list: (userId: string) => Promise<SpotifyAccount[]>
     getById: (id: number) => Promise<SpotifyAccount | null>
-    update: (id: number, data: Record<string, unknown>) => Promise<void>
+    update: (id: number, data: Partial<Pick<SpotifyAccount, 'displayName' | 'isActive'>>) => Promise<void>
     remove: (id: number) => Promise<void>
 }
 
@@ -29,7 +29,7 @@ export const createSpotifyAccountService = (deps: SpotifyAccountServiceDeps) => 
 
     const update = async (accountId: number, userId: string, input: { displayName?: string; isActive?: boolean }) => {
         await assertOwnership(accountId, userId)
-        const updateData: Record<string, unknown> = {}
+        const updateData: Partial<Pick<SpotifyAccount, 'displayName' | 'isActive'>> = {}
         if (input.displayName !== undefined) updateData.displayName = input.displayName
         if (input.isActive !== undefined) updateData.isActive = input.isActive
         await deps.db.update(accountId, updateData)

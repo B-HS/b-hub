@@ -13,7 +13,12 @@ import {
     unique,
     mysqlEnum,
     tinyint,
+    customType,
 } from 'drizzle-orm/mysql-core'
+
+const mediumblob = customType<{ data: Buffer }>({
+    dataType: () => 'mediumblob',
+})
 
 export const user = mysqlTable('user', {
     id: varchar('id', { length: 36 }).primaryKey(),
@@ -31,6 +36,9 @@ export const user = mysqlTable('user', {
     banReason: text('ban_reason'),
     banExpires: timestamp('ban_expires', { fsp: 3 }),
     timezone: varchar('timezone', { length: 64 }).notNull().default('Asia/Seoul'),
+    storageQuotaBytes: bigint('storage_quota_bytes', { mode: 'number' })
+        .notNull()
+        .default(10 * 1024 * 1024),
 })
 
 export const session = mysqlTable('session', {
@@ -891,3 +899,56 @@ export type NewHnComment = typeof hnComments.$inferInsert
 export type HnSummary = typeof hnSummaries.$inferSelect
 export type HnDigest = typeof hnDigests.$inferSelect
 export type HnWebhook = typeof hnWebhooks.$inferSelect
+
+export const driveFolders = mysqlTable(
+    'drive_folders',
+    {
+        id: varchar('id', { length: 36 }).primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        parentId: varchar('parent_id', { length: 36 }),
+        name: varchar('name', { length: 255 }).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_drive_folders_user').on(table.userId), index('idx_drive_folders_user_parent').on(table.userId, table.parentId)],
+)
+
+export const cloudAssets = mysqlTable(
+    'cloud_assets',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        s3Key: varchar('s3_key', { length: 500 }).notNull().unique(),
+        originalName: varchar('original_name', { length: 255 }).notNull(),
+        mimeType: varchar('mime_type', { length: 100 }).notNull(),
+        sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+        fileHash: varchar('file_hash', { length: 64 }).notNull(),
+        folderId: varchar('folder_id', { length: 36 }),
+        thumbnailBlob: mediumblob('thumbnail_blob'),
+        isPublic: boolean('is_public').default(false).notNull(),
+        lastViewedAt: timestamp('last_viewed_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [
+        index('idx_cloud_assets_user').on(table.userId),
+        unique('uq_cloud_assets_user_hash').on(table.userId, table.fileHash),
+        index('idx_cloud_assets_user_created').on(table.userId, table.createdAt),
+        index('idx_cloud_assets_folder').on(table.folderId),
+    ],
+)
+
+export type DriveFolder = typeof driveFolders.$inferSelect
+export type NewDriveFolder = typeof driveFolders.$inferInsert
+export type CloudAsset = typeof cloudAssets.$inferSelect
+export type NewCloudAsset = typeof cloudAssets.$inferInsert

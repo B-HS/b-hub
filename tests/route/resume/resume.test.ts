@@ -141,7 +141,7 @@ describe('PATCH /resume/:id', () => {
         expect(res.status).toBe(404)
     })
 
-    test('다른 사용자의 이력서면 403을 반환한다', async () => {
+    test('다른 사용자의 이력서면 404를 반환한다', async () => {
         const deps = createMockDeps()
         deps.resumeService.update = mock(() => Promise.resolve({ success: false as const, reason: 'not_owner' as const }))
         const { app } = createApp(deps)
@@ -150,7 +150,7 @@ describe('PATCH /resume/:id', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title: '해킹' }),
         })
-        expect(res.status).toBe(403)
+        expect(res.status).toBe(404)
     })
 })
 
@@ -169,11 +169,11 @@ describe('DELETE /resume/:id', () => {
         expect(res.status).toBe(404)
     })
 
-    test('다른 사용자의 이력서면 403을 반환한다', async () => {
+    test('다른 사용자의 이력서면 404를 반환한다', async () => {
         const deps = createMockDeps()
         deps.resumeService.delete = mock(() => Promise.resolve({ success: false as const, reason: 'not_owner' as const }))
         const { app } = createApp(deps)
         const res = await app.request('/resume/1', { method: 'DELETE' })
-        expect(res.status).toBe(403)
+        expect(res.status).toBe(404)
     })
 })

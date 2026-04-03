@@ -11,6 +11,7 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
 
     STORAGE_UPLOAD_FAILED: '파일 업로드에 실패했습니다',
     STORAGE_DELETE_FAILED: '파일 삭제에 실패했습니다',
+    STORAGE_PRESIGN_FAILED: 'Presigned URL 생성에 실패했습니다',
     IMAGE_PROCESS_FAILED: '이미지 처리에 실패했습니다',
     IMAGE_GENERATE_FAILED: '이미지 생성에 실패했습니다',
     FONT_NOT_FOUND: '요청한 폰트를 찾을 수 없습니다',
@@ -26,7 +27,6 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     BLOG_POST_NOT_FOUND: '게시글을 찾을 수 없습니다',
     BLOG_COMMENT_NOT_FOUND: '댓글을 찾을 수 없습니다',
     BLOG_CATEGORY_NOT_FOUND: '카테고리를 찾을 수 없습니다',
-    BLOG_NOT_COMMENT_OWNER: '댓글 작성자만 수정/삭제할 수 있습니다',
     BLOG_IMAGE_TOO_LARGE: '이미지 크기가 제한을 초과했습니다',
     BLOG_IMAGE_INVALID_TYPE: '허용되지 않는 이미지 형식입니다',
 
@@ -71,7 +71,6 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     SPOTIFY_WIDGET_TOKEN_INACTIVE: 'Spotify 위젯 토큰이 비활성화되었습니다',
 
     RESUME_NOT_FOUND: '이력서를 찾을 수 없습니다',
-    RESUME_NOT_OWNER: '이력서 소유자만 수정/삭제할 수 있습니다',
 
     CALENDAR_EVENT_NOT_FOUND: '캘린더 이벤트를 찾을 수 없습니다',
     CALENDAR_SUBSCRIPTION_NOT_FOUND: '캘린더 구독을 찾을 수 없습니다',
@@ -81,4 +80,13 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     CALENDAR_GROUP_NOT_FOUND: '캘린더 그룹을 찾을 수 없습니다',
     CALENDAR_GROUP_HAS_EVENTS: '이벤트가 있는 그룹은 삭제할 수 없습니다',
     CALENDAR_INVALID_DATE_RANGE: '유효하지 않은 날짜 범위입니다',
+
+    DRIVE_ASSET_NOT_FOUND: '파일을 찾을 수 없습니다',
+    DRIVE_FILE_TOO_LARGE: '파일 크기가 제한을 초과했습니다',
+    DRIVE_INVALID_MIME_TYPE: '허용되지 않는 파일 형식입니다',
+    DRIVE_DUPLICATE_FILE: '동일한 파일이 이미 존재합니다',
+    DRIVE_QUOTA_EXCEEDED: '저장 공간 한도를 초과했습니다',
+    DRIVE_FOLDER_NOT_FOUND: '폴더를 찾을 수 없습니다',
+    DRIVE_FOLDER_CIRCULAR_REF: '순환 참조가 발생하는 이동입니다',
+    DRIVE_FOLDER_NAME_DUPLICATE: '같은 위치에 동일한 이름의 폴더가 존재합니다',
 }

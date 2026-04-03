@@ -42,7 +42,7 @@ describe('getStatusCode', () => {
 
     test('도메인 에러 코드의 상태코드를 반환한다', () => {
         expect(getStatusCode('BLOG_POST_NOT_FOUND')).toBe(404)
-        expect(getStatusCode('BLOG_NOT_COMMENT_OWNER')).toBe(403)
+        expect(getStatusCode('BLOG_COMMENT_NOT_FOUND')).toBe(404)
         expect(getStatusCode('BLOG_IMAGE_TOO_LARGE')).toBe(413)
         expect(getStatusCode('WEATHER_INVALID_GRID')).toBe(400)
         expect(getStatusCode('HN_CRON_SECRET_INVALID')).toBe(401)

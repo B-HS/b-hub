@@ -3,7 +3,9 @@ import { Hono } from 'hono'
 import { createDigestRoute } from '../../../route/hn/digest'
 
 const createMockDb = (overrides: Record<string, unknown> = {}) => ({
-    getDigestsByType: mock(() => Promise.resolve([{ id: 1, digestType: 'daily', digestKey: '2024-01-15', title: 'Daily', content: 'Content', storyIds: [1] }])),
+    getDigestsByType: mock(() =>
+        Promise.resolve([{ id: 1, digestType: 'daily', digestKey: '2024-01-15', title: 'Daily', content: 'Content', storyIds: [1] }]),
+    ),
     getDigestByTypeAndKey: mock(() =>
         Promise.resolve({ id: 1, digestType: 'daily', digestKey: '2024-01-15', title: 'Daily', content: 'Content', storyIds: [1] }),
     ),

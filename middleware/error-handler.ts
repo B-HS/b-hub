@@ -13,8 +13,10 @@ export const errorHandler = () => async (c: Context, next: Next) => {
             return c.json(errorResponse(error.code, error.message, error.details), error.statusCode as 400)
         }
         const safeMessage = error instanceof Error ? error.message : 'Unknown error'
-        const safeStack = error instanceof Error ? error.stack : undefined
-        console.error('[errorHandler] Unhandled error:', safeMessage, safeStack)
+        if (process.env.NODE_ENV !== 'production') {
+            const safeStack = error instanceof Error ? error.stack : undefined
+            console.error('[errorHandler] Unhandled error:', safeMessage, safeStack)
+        }
         captureException(error)
         return c.json(errorResponse('INTERNAL_ERROR', ERROR_MESSAGE.INTERNAL_ERROR), 500)
     }

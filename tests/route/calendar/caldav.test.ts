@@ -530,7 +530,7 @@ describe('CalDAV REPORT', () => {
         const deps = createMockDeps()
         deps.caldavService.getChangesFromToken = mock(() =>
             Promise.resolve({
-                changed: [] as typeof mockEvent[],
+                changed: [] as (typeof mockEvent)[],
                 deleted: ['deleted-uid@b-calendar'],
                 syncToken: 'http://b-calendar/sync/2',
             }),
@@ -618,7 +618,7 @@ describe('CalDAV PROPFIND 특정 속성 요청', () => {
         const { app } = createApp()
         const res = await app.request('/caldav/valid-token/', {
             method: 'PROPFIND',
-            headers: { 'Depth': '0' },
+            headers: { Depth: '0' },
         })
         expect(res.status).toBe(207)
     })

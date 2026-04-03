@@ -79,11 +79,11 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             const [result] = await db.insert(schema.mailAccounts).values(data).$returningId()
             return result
         },
-        update: async (id: number, data: Record<string, unknown>) => {
-            await db
-                .update(schema.mailAccounts)
-                .set(data as never)
-                .where(eq(schema.mailAccounts.id, id))
+        update: async (
+            id: number,
+            data: Partial<Pick<schema.MailAccount, 'displayName' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
+        ) => {
+            await db.update(schema.mailAccounts).set(data).where(eq(schema.mailAccounts.id, id))
         },
         remove: async (id: number) => {
             await db.delete(schema.mailAccounts).where(eq(schema.mailAccounts.id, id))

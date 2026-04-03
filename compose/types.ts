@@ -27,3 +27,8 @@ export type ComposeWeatherArgs = ComposeCoreArgs
 export type ComposeSpotifyArgs = ComposeCoreArgs
 export type ComposeResumeArgs = ComposeCoreArgs
 export type ComposeCalendarArgs = ComposeCoreArgs
+
+export type ComposeDriveArgs = ComposeCoreArgs & {
+    storageService: StorageService
+    imageProcessor: ImageProcessor
+}

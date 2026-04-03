@@ -3,7 +3,9 @@ import { Hono } from 'hono'
 import { createOAuthRoute } from '../../../route/auth/oauth'
 
 const createApp = () => {
-    const handler = mock((req: Request) => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const handler = mock(
+        (req: Request) => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
     const app = new Hono()
     const route = createOAuthRoute({ auth: { handler } as never })
     app.route('/auth', route)

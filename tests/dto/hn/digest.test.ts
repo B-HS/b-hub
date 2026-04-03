@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { digestListQuerySchema, digestDetailParamSchema, digestResponseSchema, cronSyncResponseSchema, cronDailyResponseSchema } from '../../../dto/hn/digest'
+import {
+    digestListQuerySchema,
+    digestDetailParamSchema,
+    digestResponseSchema,
+    cronSyncResponseSchema,
+    cronDailyResponseSchema,
+} from '../../../dto/hn/digest'
 
 describe('digestListQuerySchema', () => {
     test('유효한 type과 limit를 파싱한다', () => {

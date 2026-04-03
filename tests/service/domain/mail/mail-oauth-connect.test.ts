@@ -82,9 +82,7 @@ describe('createMailOAuthConnectService', () => {
             const deps = createMockDeps()
             const service = createMailOAuthConnectService(deps)
 
-            await expect(
-                service.handleCallback('code', 'invalid-state', 'user-1', 'https://api.gumyo.net'),
-            ).rejects.toThrow()
+            await expect(service.handleCallback('code', 'invalid-state', 'user-1', 'https://api.gumyo.net')).rejects.toThrow()
         })
     })
 })

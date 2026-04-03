@@ -54,7 +54,7 @@ describe('createMiddleware', () => {
             const res = await app.request('/api/test', {
                 method: 'OPTIONS',
                 headers: {
-                    Origin: 'https://gumyo.net',
+                    'Origin': 'https://gumyo.net',
                     'Access-Control-Request-Method': 'GET',
                 },
             })

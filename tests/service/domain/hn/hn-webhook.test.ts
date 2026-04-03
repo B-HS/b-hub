@@ -204,9 +204,7 @@ describe('createHnWebhookService', () => {
 
     test('sendDigestWebhook은 활성 웹훅에 전송한다', async () => {
         const db = createMockDb()
-        db.getActiveWebhooks = mock(() =>
-            Promise.resolve([{ id: 1, url: 'https://discord.webhook/1', isActive: true, createdAt: new Date() }]),
-        )
+        db.getActiveWebhooks = mock(() => Promise.resolve([{ id: 1, url: 'https://discord.webhook/1', isActive: true, createdAt: new Date() }]))
         const service = createHnWebhookService({ db })
 
         const payload = service.createDigestPayload('daily', '2025-01-15', 'content', [])

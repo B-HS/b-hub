@@ -104,7 +104,7 @@ describe('PATCH /blog/comments/:id', () => {
         expect(res.status).toBe(404)
     })
 
-    test('다른 사용자의 댓글이면 403을 반환한다', async () => {
+    test('다른 사용자의 댓글이면 404를 반환한다', async () => {
         const deps = createMockDeps()
         deps.commentService.update = mock(() =>
             Promise.resolve({
@@ -118,7 +118,7 @@ describe('PATCH /blog/comments/:id', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ comment: 'Hack' }),
         })
-        expect(res.status).toBe(403)
+        expect(res.status).toBe(404)
     })
 })
 

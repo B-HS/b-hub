@@ -14,7 +14,8 @@
         "db:studio": "drizzle-kit studio"
     },
     "dependencies": {
-        "@aws-sdk/client-s3": "^3.916.0",
+        "@aws-sdk/client-s3": "^3.1022.0",
+        "@aws-sdk/s3-request-presigner": "^3.1022.0",
         "@google/genai": "^1.40.0",
         "@hono/swagger-ui": "^0.5.3",
         "@hono/zod-validator": "^0.7.6",

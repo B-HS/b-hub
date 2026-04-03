@@ -35,6 +35,8 @@ import { createCalendarSubscriptionRoute } from './calendar/subscription'
 import { createCalendarIcsRoute } from './calendar/ics'
 import { createCalendarGroupRoute } from './calendar/group'
 import { createCalendarCaldavRoute } from './calendar/caldav'
+import { createDriveAssetRoute } from './drive/asset'
+import { createDriveFolderRoute } from './drive/folder'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
 
@@ -306,6 +308,21 @@ export const createRouter = (deps: RouterDeps = {}) => {
         '/calendar',
         createCalendarIcsRoute({
             calendarService: stub(deps.calendarService),
+        }),
+    )
+
+    router.route(
+        '/drive',
+        createDriveAssetRoute({
+            driveAssetService: stub(deps.driveAssetService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/drive/folders',
+        createDriveFolderRoute({
+            driveFolderService: stub(deps.driveFolderService),
+            getSession: stubFn(deps.getSession) as never,
         }),
     )
 

@@ -14,6 +14,7 @@ type MailAccountDb = {
         id: number,
         data: Partial<Pick<MailAccount, 'displayName' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
     ) => Promise<void>
+
     remove: (id: number) => Promise<void>
     countByUser: (userId: string) => Promise<number>
 }
@@ -89,10 +90,10 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
 
     const update = async (accountId: number, userId: string, input: { displayName?: string; isActive?: boolean }) => {
         await assertOwnership(accountId, userId)
-        const updateData: Record<string, unknown> = {}
+        const updateData: Partial<Pick<MailAccount, 'displayName' | 'isActive'>> = {}
         if (input.displayName !== undefined) updateData.displayName = input.displayName
         if (input.isActive !== undefined) updateData.isActive = input.isActive
-        await deps.db.update(accountId, updateData as never)
+        await deps.db.update(accountId, updateData)
     }
 
     const remove = async (accountId: number, userId: string) => {
@@ -113,12 +114,12 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
     }
 
     const updateSyncStatus = async (accountId: number, status: string, syncCursor?: string) => {
-        const updateData: Record<string, unknown> = {
+        const updateData: Partial<Pick<MailAccount, 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>> = {
             lastSyncAt: new Date(),
             lastSyncStatus: status,
         }
         if (syncCursor !== undefined) updateData.syncCursor = syncCursor
-        await deps.db.update(accountId, updateData as never)
+        await deps.db.update(accountId, updateData)
     }
 
     return { list, getById, create, update, remove, testConnection, getProvider, updateSyncStatus }

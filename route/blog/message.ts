@@ -24,10 +24,10 @@ export const createMessageRoute = (deps: MessageRouteDeps) => {
             summary: '사용자별 메시지 조회',
             responses: { 200: { description: '메시지 목록' } },
         }),
+        validator('query', messageListQuerySchema.pick({ page: true, size: true })),
         withErrorHandling(async (c) => {
             const userId = c.req.param('userId')
-            const page = Number(c.req.query('page') || '1')
-            const size = Number(c.req.query('size') || '20')
+            const { page, size } = c.req.valid('query' as never) as { page: number; size: number }
             const result = await deps.messageService.list(userId, page, size)
             return c.json(successResponse(result))
         }),
