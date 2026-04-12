@@ -10,6 +10,8 @@ import type { DriveAssetService } from '../../service/domain/drive/drive-asset'
 type DriveAssetRouteDeps = {
     driveAssetService: DriveAssetService
     getSession: (c: { req: { raw: { headers: Headers } } }) => Promise<{ user: { id: string; role: string | null } } | null>
+    getGdriveAccessToken: () => Promise<string | null>
+    gdriveRootFolderId: string
 }
 
 export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
@@ -88,6 +90,30 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 thumbnailBase64: body.thumbnailBase64 ?? null,
             })
             return c.json(successResponse(result))
+        }),
+    )
+
+    route.post(
+        '/assets/:assetId/gdrive-token',
+        describeRoute({
+            tags: ['Drive'],
+            summary: 'Google Drive access token 발급 (upload-server 전용)',
+            responses: {
+                200: { description: 'access token + root folder ID' },
+                ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND']),
+            },
+        }),
+        withErrorHandling(async (c) => {
+            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const body = await c.req.json()
+
+            const asset = await deps.driveAssetService.getAssetForTokenExchange(assetId, body.uploadToken)
+            if (!asset) throw createAppError('UNAUTHORIZED')
+
+            const accessToken = await deps.getGdriveAccessToken()
+            if (!accessToken) throw createAppError('DRIVE_L3_UPLOAD_FAILED')
+
+            return c.json(successResponse({ accessToken, rootFolderId: deps.gdriveRootFolderId }))
         }),
     )
 

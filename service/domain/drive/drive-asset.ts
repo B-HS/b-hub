@@ -99,7 +99,6 @@ type DriveFolderChecker = {
 type DriveAssetServiceDeps = {
     storage: DriveStorageService
     getGdriveStorage: () => Promise<DriveGdriveService | null>
-    getGdriveAccessToken: () => Promise<string | null>
     imageProcessor: DriveImageProcessor
     db: DriveAssetServiceDb
     folderDb: DriveFolderChecker
@@ -107,7 +106,6 @@ type DriveAssetServiceDeps = {
     defaultQuotaBytes: number
     getUserQuotaBytes: (userId: string) => Promise<number>
     uploadServerSecret: string
-    gdriveRootFolderId: string
 }
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -320,16 +318,20 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             accessCount: 0,
         })
 
-        const gdriveAccessToken = await deps.getGdriveAccessToken()
-
         return {
             assetId: result.id,
             s3Key,
             uploadToken,
             uploadStatus: 'preparing' as UploadStatus,
-            gdriveAccessToken,
-            gdriveRootFolderId: deps.gdriveRootFolderId,
         }
+    },
+
+    getAssetForTokenExchange: async (assetId: number, uploadToken: string) => {
+        const asset = await deps.db.getById(assetId)
+        if (!asset) return null
+        if (asset.uploadToken !== uploadToken) return null
+        if (asset.uploadStatus !== 'preparing' && asset.uploadStatus !== 'uploading') return null
+        return { id: asset.id, userId: asset.userId }
     },
 
     complete: async (

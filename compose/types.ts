@@ -33,5 +33,4 @@ export type ComposeDriveArgs = ComposeCoreArgs & {
     imageProcessor: ImageProcessor
     gdriveStorageService: GdriveStorageService | null
     initGdriveStorage: () => Promise<GdriveStorageService | null>
-    getGdriveAccessToken: () => Promise<string | null>
 }

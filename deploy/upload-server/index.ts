@@ -10,7 +10,7 @@ const env = {
     PORT: Number(process.env.PORT ?? 4100),
     HUB_BASE_URL: process.env.HUB_BASE_URL ?? 'https://api.gumyo.net',
     ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS ?? 'https://gumyo.net,https://hyns.dev').split(','),
-    MAX_UPLOAD_SIZE_BYTES: Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 100 * 1024 * 1024 * 1024),
+    MAX_UPLOAD_SIZE_BYTES: Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 10 * 1024 * 1024 * 1024),
 
     R2_END_POINT: process.env.R2_END_POINT ?? '',
     R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? '',
@@ -44,6 +44,7 @@ const handler = createUploadHandler({
     hubBaseUrl: env.HUB_BASE_URL,
     generateId: () => crypto.randomUUID(),
     l1MaxFileSize: L1_MAX_FILE_SIZE,
+    tmpDir: '/tmp/uploads',
     imageProcessor,
 })
 
@@ -78,15 +79,13 @@ app.post('/upload', async (c) => {
     const assetId = Number(formData.get('assetId'))
     const s3Key = formData.get('s3Key') as string
     const uploadToken = formData.get('uploadToken') as string
-    const gdriveAccessToken = (formData.get('gdriveAccessToken') as string) || null
-    const gdriveRootFolderId = (formData.get('gdriveRootFolderId') as string) || null
 
     if (!assetId || !s3Key || !uploadToken) {
         console.warn(`[request] rejected: missing params assetId=${assetId} s3Key=${!!s3Key} uploadToken=${!!uploadToken}`)
         return c.json({ success: false, error: 'Missing assetId, s3Key, or uploadToken' }, 400)
     }
 
-    const result = await handler.handle(file, assetId, s3Key, uploadToken, gdriveAccessToken, gdriveRootFolderId)
+    const result = await handler.handle(file, assetId, s3Key, uploadToken)
 
     if (!result.success) {
         console.error(`[request] failed: ${result.message}`)

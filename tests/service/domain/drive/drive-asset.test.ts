@@ -34,8 +34,6 @@ const createMockDeps = () => ({
         getPresignedUrl: mock(() => Promise.resolve('https://presigned.example.com/file?token=abc')),
     },
     getGdriveStorage: mock(() => Promise.resolve(null as { download: () => Promise<ReadableStream>; del: () => Promise<void> } | null)),
-    getGdriveAccessToken: mock(() => Promise.resolve('mock-access-token' as string | null)),
-    gdriveRootFolderId: 'root-folder-id',
     imageProcessor: {
         resize: mock(() => Promise.resolve(Buffer.from('resized'))),
         toWebp: mock(() => Promise.resolve(Buffer.from('thumbnail-webp'))),

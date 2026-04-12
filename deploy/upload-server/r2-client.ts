@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { createReadStream, statSync } from 'fs'
 
 type R2ClientDeps = {
     endpoint: string
@@ -18,14 +19,17 @@ export const createR2Client = (deps: R2ClientDeps) => {
     })
 
     return {
-        upload: async (key: string, body: Buffer | Uint8Array, contentType: string): Promise<{ success: true; key: string } | { success: false; error: string }> => {
+        upload: async (key: string, filePath: string, contentType: string): Promise<{ success: true; key: string } | { success: false; error: string }> => {
             try {
+                const fileSize = statSync(filePath).size
+                const stream = createReadStream(filePath)
                 await s3.send(
                     new PutObjectCommand({
                         Bucket: deps.bucket,
                         Key: key,
-                        Body: body instanceof Buffer ? new Uint8Array(body) : body,
+                        Body: stream,
                         ContentType: contentType,
+                        ContentLength: fileSize,
                     }),
                 )
                 return { success: true, key }

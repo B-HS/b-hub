@@ -21,7 +21,7 @@ export const compose = () => {
     const spotify = composeSpotify(core)
     const resume = composeResume(core)
     const calendar = composeCalendar(core)
-    const drive = composeDrive({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor, gdriveStorageService: null, initGdriveStorage: shared.initGdriveStorage, getGdriveAccessToken: shared.getGdriveAccessToken })
+    const drive = composeDrive({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor, gdriveStorageService: null, initGdriveStorage: shared.initGdriveStorage })
 
     return {
         ...shared,
@@ -33,5 +33,6 @@ export const compose = () => {
         ...calendar,
         ...drive,
         baseUrl: env.BASE_URL ?? '',
+        gdriveRootFolderId: env.GDRIVE_ROOT_FOLDER_ID ?? '',
     }
 }

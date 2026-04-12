@@ -294,6 +294,8 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createDriveAssetRoute({
             driveAssetService: stub(deps.driveAssetService),
             getSession: stubFn(deps.getSession) as never,
+            getGdriveAccessToken: deps.getGdriveAccessToken ?? (() => Promise.resolve(null)),
+            gdriveRootFolderId: deps.gdriveRootFolderId ?? '',
         }),
     )
     router.route(

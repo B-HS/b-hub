@@ -5,7 +5,7 @@ import { createDriveFolderService } from '../service/domain/drive/drive-folder'
 import { createStorageLifecycleService } from '../service/shared/storage-lifecycle'
 import type { ComposeDriveArgs } from './types'
 
-export const composeDrive = ({ db, env, storageService, imageProcessor, initGdriveStorage, getGdriveAccessToken }: ComposeDriveArgs) => {
+export const composeDrive = ({ db, env, storageService, imageProcessor, initGdriveStorage }: ComposeDriveArgs) => {
     const folderDb = {
         insert: async (data: { id: string; userId: string; parentId: string | null; name: string }) => {
             await db.insert(schema.driveFolders).values(data)
@@ -195,9 +195,7 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
     const driveAssetService = createDriveAssetService({
         storage: storageService,
         getGdriveStorage: initGdriveStorage,
-        getGdriveAccessToken,
         imageProcessor,
-        gdriveRootFolderId: env.GDRIVE_ROOT_FOLDER_ID ?? '',
         folderDb: {
             getById: async (id) => {
                 const folder = await folderDb.getById(id)
