@@ -3,6 +3,29 @@ import { createDriveAssetService } from '../../../../service/domain/drive/drive-
 
 const now = new Date()
 
+const mockAssetRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 1,
+    userId: 'user-1',
+    s3Key: 'users/user-1/uuid/photo.jpg',
+    originalName: 'photo.jpg',
+    mimeType: 'image/jpeg',
+    sizeBytes: 5000,
+    fileHash: 'abc123',
+    folderId: null as string | null,
+    thumbnailBlob: Buffer.from('thumb') as Buffer | null,
+    isPublic: false,
+    uploadStatus: 'ready',
+    uploadToken: null as string | null,
+    localPath: null as string | null,
+    gdriveFileId: null as string | null,
+    storageTiers: 'L1',
+    accessCount: 0,
+    lastViewedAt: null as Date | null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+})
+
 const createMockDeps = () => ({
     storage: {
         upload: mock(() => Promise.resolve({ key: 'users/user-1/uuid/photo.jpg', url: 'https://cdn.example.com/users/user-1/uuid/photo.jpg' })),
@@ -16,62 +39,13 @@ const createMockDeps = () => ({
         toWebp: mock(() => Promise.resolve(Buffer.from('thumbnail-webp'))),
     },
     folderDb: {
-        getById: mock(() => Promise.resolve({ id: 'folder-1', userId: 'user-1' })),
+        getById: mock(() => Promise.resolve({ id: 'folder-1', userId: 'user-1' } as { id: string; userId: string } | null)),
     },
     db: {
         insert: mock(() => Promise.resolve({ id: 1 })),
-        getById: mock(() =>
-            Promise.resolve({
-                id: 1,
-                userId: 'user-1',
-                s3Key: 'users/user-1/uuid/photo.jpg',
-                originalName: 'photo.jpg',
-                mimeType: 'image/jpeg',
-                sizeBytes: 5000,
-                fileHash: 'abc123',
-                folderId: null as string | null,
-                thumbnailBlob: Buffer.from('thumb'),
-                isPublic: false,
-                uploadStatus: 'ready',
-                uploadToken: null,
-                localPath: null,
-                gdriveFileId: null,
-                storageTiers: 'L1',
-                accessCount: 0,
-                lastViewedAt: null,
-                createdAt: now,
-                updatedAt: now,
-            }),
-        ),
-        getByUserAndHash: mock(() => Promise.resolve(null)),
-        list: mock(() =>
-            Promise.resolve({
-                data: [
-                    {
-                        id: 1,
-                        userId: 'user-1',
-                        s3Key: 'users/user-1/uuid/photo.jpg',
-                        originalName: 'photo.jpg',
-                        mimeType: 'image/jpeg',
-                        sizeBytes: 5000,
-                        fileHash: 'abc123',
-                        folderId: null as string | null,
-                        thumbnailBlob: Buffer.from('thumb'),
-                        isPublic: false,
-                        uploadStatus: 'ready',
-                        uploadToken: null,
-                        localPath: null,
-                        gdriveFileId: null,
-                        storageTiers: 'L1',
-                        accessCount: 0,
-                        lastViewedAt: null,
-                        createdAt: now,
-                        updatedAt: now,
-                    },
-                ],
-                total: 1,
-            }),
-        ),
+        getById: mock(() => Promise.resolve(mockAssetRow() as ReturnType<typeof mockAssetRow> | null)),
+        getByUserAndHash: mock(() => Promise.resolve(null as ReturnType<typeof mockAssetRow> | null)),
+        list: mock(() => Promise.resolve({ data: [mockAssetRow()], total: 1 })),
         update: mock(() => Promise.resolve()),
         remove: mock(() => Promise.resolve()),
         getTotalSizeByUser: mock(() => Promise.resolve(1000)),
@@ -140,21 +114,7 @@ describe('createDriveAssetService', () => {
         test('동일 해시 파일이 존재하면 중복 에러를 throw한다 (image)', async () => {
             const deps = createMockDeps()
             deps.db.getByUserAndHash = mock(() =>
-                Promise.resolve({
-                    id: 1,
-                    userId: 'user-1',
-                    s3Key: 'existing',
-                    originalName: 'existing.jpg',
-                    mimeType: 'image/jpeg',
-                    sizeBytes: 1024,
-                    fileHash: 'abc',
-                    folderId: null,
-                    thumbnailBlob: null,
-                    isPublic: false,
-                    lastViewedAt: null,
-                    createdAt: now,
-                    updatedAt: now,
-                }),
+                Promise.resolve(mockAssetRow({ s3Key: 'existing', originalName: 'existing.jpg', sizeBytes: 1024, fileHash: 'abc', thumbnailBlob: null })),
             )
             const service = createDriveAssetService(deps)
 
@@ -252,29 +212,7 @@ describe('createDriveAssetService', () => {
 
         test('공개 파일은 CDN URL을 반환한다', async () => {
             const deps = createMockDeps()
-            deps.db.getById = mock(() =>
-                Promise.resolve({
-                    id: 1,
-                    userId: 'user-1',
-                    s3Key: 'users/user-1/uuid/photo.jpg',
-                    originalName: 'photo.jpg',
-                    mimeType: 'image/jpeg',
-                    sizeBytes: 5000,
-                    fileHash: 'abc123',
-                    folderId: null,
-                    thumbnailBlob: null,
-                    isPublic: true,
-                    uploadStatus: 'ready',
-                    uploadToken: null,
-                    localPath: null,
-                    gdriveFileId: null,
-                    storageTiers: 'L1',
-                    accessCount: 0,
-                    lastViewedAt: null,
-                    createdAt: now,
-                    updatedAt: now,
-                }),
-            )
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ isPublic: true, thumbnailBlob: null })))
             const service = createDriveAssetService(deps)
 
             const result = await service.getDetail(1, 'user-1')
@@ -577,7 +515,7 @@ describe('createDriveAssetService', () => {
             const insertArg = (deps.db.insert as ReturnType<typeof mock>).mock.calls[0][0] as Record<string, unknown>
             expect(insertArg.uploadStatus).toBe('preparing')
             expect(insertArg.storageTiers).toBe('')
-            expect(insertArg.fileHash).toBe('')
+            expect(insertArg.fileHash).toStartWith('pending_')
         })
 
         test('쿼터 초과 시 DRIVE_QUOTA_EXCEEDED 에러를 던진다', async () => {
@@ -605,27 +543,7 @@ describe('createDriveAssetService', () => {
         test('업로드 토큰이 일치하면 ready 상태로 업데이트한다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve({
-                    id: 1,
-                    userId: 'user-1',
-                    s3Key: 'users/user-1/uuid/video.mp4',
-                    originalName: 'video.mp4',
-                    mimeType: 'video/mp4',
-                    sizeBytes: 500_000,
-                    fileHash: '',
-                    folderId: null,
-                    thumbnailBlob: null,
-                    isPublic: false,
-                    uploadStatus: 'preparing',
-                    uploadToken: 'valid-token',
-                    localPath: null,
-                    gdriveFileId: null,
-                    storageTiers: '',
-                    accessCount: 0,
-                    lastViewedAt: null,
-                    createdAt: now,
-                    updatedAt: now,
-                }),
+                Promise.resolve(mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null })),
             )
             const service = createDriveAssetService(deps)
 
@@ -645,27 +563,7 @@ describe('createDriveAssetService', () => {
         test('업로드 토큰이 불일치하면 UNAUTHORIZED 에러를 던진다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve({
-                    id: 1,
-                    userId: 'user-1',
-                    s3Key: 'users/user-1/uuid/video.mp4',
-                    originalName: 'video.mp4',
-                    mimeType: 'video/mp4',
-                    sizeBytes: 500_000,
-                    fileHash: '',
-                    folderId: null,
-                    thumbnailBlob: null,
-                    isPublic: false,
-                    uploadStatus: 'preparing',
-                    uploadToken: 'valid-token',
-                    localPath: null,
-                    gdriveFileId: null,
-                    storageTiers: '',
-                    accessCount: 0,
-                    lastViewedAt: null,
-                    createdAt: now,
-                    updatedAt: now,
-                }),
+                Promise.resolve(mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null })),
             )
             const service = createDriveAssetService(deps)
 
@@ -677,27 +575,7 @@ describe('createDriveAssetService', () => {
         test('이미 ready 상태인 asset은 DRIVE_UPLOAD_EVENT_FAILED 에러를 던진다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve({
-                    id: 1,
-                    userId: 'user-1',
-                    s3Key: 'users/user-1/uuid/video.mp4',
-                    originalName: 'video.mp4',
-                    mimeType: 'video/mp4',
-                    sizeBytes: 500_000,
-                    fileHash: 'abc123',
-                    folderId: null,
-                    thumbnailBlob: null,
-                    isPublic: false,
-                    uploadStatus: 'ready',
-                    uploadToken: 'token',
-                    localPath: null,
-                    gdriveFileId: null,
-                    storageTiers: 'L1',
-                    accessCount: 0,
-                    lastViewedAt: null,
-                    createdAt: now,
-                    updatedAt: now,
-                }),
+                Promise.resolve(mockAssetRow({ uploadStatus: 'ready', uploadToken: 'token', thumbnailBlob: null })),
             )
             const service = createDriveAssetService(deps)
 
@@ -709,27 +587,7 @@ describe('createDriveAssetService', () => {
         test('storageTiers가 비어있으면 failed 상태로 설정한다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve({
-                    id: 1,
-                    userId: 'user-1',
-                    s3Key: 'users/user-1/uuid/video.mp4',
-                    originalName: 'video.mp4',
-                    mimeType: 'video/mp4',
-                    sizeBytes: 500_000,
-                    fileHash: '',
-                    folderId: null,
-                    thumbnailBlob: null,
-                    isPublic: false,
-                    uploadStatus: 'preparing',
-                    uploadToken: 'valid-token',
-                    localPath: null,
-                    gdriveFileId: null,
-                    storageTiers: '',
-                    accessCount: 0,
-                    lastViewedAt: null,
-                    createdAt: now,
-                    updatedAt: now,
-                }),
+                Promise.resolve(mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null })),
             )
             const service = createDriveAssetService(deps)
 

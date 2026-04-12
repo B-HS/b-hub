@@ -164,6 +164,7 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, gdriveSt
                 localPath: string | null
                 gdriveFileId: string | null
                 thumbnailBlob: Buffer | null
+                fileHash: string
             }>,
         ) => {
             await db.update(schema.cloudAssets).set(data).where(eq(schema.cloudAssets.id, id))

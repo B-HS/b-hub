@@ -85,6 +85,7 @@ type DriveAssetServiceDb = {
             localPath: string | null
             gdriveFileId: string | null
             thumbnailBlob: Buffer | null
+            fileHash: string
         }>,
     ) => Promise<void>
     remove: (id: number) => Promise<void>
@@ -299,7 +300,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             originalName: safeName,
             mimeType: data.mimeType,
             sizeBytes: data.sizeBytes,
-            fileHash: '',
+            fileHash: `pending_${id}`,
             folderId: data.folderId,
             thumbnailBlob: null,
             isPublic: false,
@@ -341,10 +342,12 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             throw createAppError('DRIVE_UPLOAD_EVENT_FAILED')
         }
 
-        const existing = asset.fileHash ? null : await deps.db.getByUserAndHash(asset.userId, data.fileHash)
-        if (existing && existing.id !== assetId) {
-            await deps.db.remove(assetId)
-            throw createAppError('DRIVE_DUPLICATE_FILE')
+        if (data.fileHash) {
+            const existing = await deps.db.getByUserAndHash(asset.userId, data.fileHash)
+            if (existing && existing.id !== assetId) {
+                await deps.db.remove(assetId)
+                throw createAppError('DRIVE_DUPLICATE_FILE')
+            }
         }
 
         const thumbnailBlob = data.thumbnailBase64 ? Buffer.from(data.thumbnailBase64, 'base64') : null
@@ -356,11 +359,8 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             gdriveFileId: data.gdriveFileId,
             localPath: data.localPath,
             thumbnailBlob,
+            ...(data.fileHash ? { fileHash: data.fileHash } : {}),
         })
-
-        if (data.fileHash) {
-            await deps.db.update(assetId, { storageTiers: data.storageTiers } as Record<string, unknown>)
-        }
 
         return { id: assetId, uploadStatus: data.storageTiers ? 'ready' : 'failed' }
     },
