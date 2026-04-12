@@ -86,7 +86,7 @@ export const createGdriveClient = (deps: GdriveClientDeps) => {
                     Buffer.from(`\r\n--${boundary}--`),
                 ])
 
-                const res = await driveFetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id`, {
+                const res = await driveFetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id&supportsAllDrives=true`, {
                     method: 'POST',
                     headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
                     body: multipartBody,
