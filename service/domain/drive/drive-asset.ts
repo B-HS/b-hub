@@ -293,6 +293,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
 
         const quotaBytes = await deps.getUserQuotaBytes(userId)
         const currentUsage = await deps.db.getTotalSizeByUser(userId)
+        console.log(`[prepare] quota=${quotaBytes} used=${currentUsage} fileSize=${data.sizeBytes} total=${currentUsage + data.sizeBytes}`)
         if (currentUsage + data.sizeBytes > quotaBytes) {
             throw createAppError('DRIVE_QUOTA_EXCEEDED')
         }
