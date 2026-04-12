@@ -179,7 +179,7 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                 .select({ total: sql<number>`COALESCE(SUM(${schema.cloudAssets.sizeBytes}), 0)` })
                 .from(schema.cloudAssets)
                 .where(eq(schema.cloudAssets.userId, userId))
-            return result.total
+            return Number(result.total)
         },
     }
 
