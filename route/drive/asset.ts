@@ -69,6 +69,16 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
     )
 
     route.post(
+        '/assets/:assetId/status',
+        withErrorHandling(async (c) => {
+            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const body = await c.req.json()
+            await deps.driveAssetService.updateUploadStatus(assetId, body.uploadToken, body.status)
+            return c.json(successResponse({ id: assetId, uploadStatus: body.status }))
+        }),
+    )
+
+    route.post(
         '/assets/:assetId/complete',
         describeRoute({
             tags: ['Drive'],

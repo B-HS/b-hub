@@ -332,6 +332,15 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         }
     },
 
+    updateUploadStatus: async (assetId: number, uploadToken: string, status: string) => {
+        if (status !== 'uploading') throw createAppError('VALIDATION_ERROR')
+        const asset = await deps.db.getById(assetId)
+        if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
+        if (asset.uploadToken !== uploadToken) throw createAppError('UNAUTHORIZED')
+        if (asset.uploadStatus !== 'preparing') throw createAppError('DRIVE_UPLOAD_EVENT_FAILED')
+        await deps.db.update(assetId, { uploadStatus: status })
+    },
+
     getAssetForTokenExchange: async (assetId: number, uploadToken: string) => {
         const asset = await deps.db.getById(assetId)
         if (!asset) return null

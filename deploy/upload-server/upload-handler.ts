@@ -67,6 +67,12 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                 await saveFileToDisk(file, tmpPath)
                 console.log(`[upload] saved to disk: ${tmpPath}`)
 
+                await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uploadToken, status: 'uploading' }),
+                }).catch(() => {})
+
                 const fileHash = await computeHashFromFile(tmpPath)
                 console.log(`[upload] hash=${fileHash.slice(0, 12)}...`)
 
