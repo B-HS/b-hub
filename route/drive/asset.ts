@@ -59,6 +59,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 mimeType: body.mimeType,
                 sizeBytes: Number(body.sizeBytes),
                 folderId: body.folderId ?? null,
+                fileHash: body.fileHash ?? '',
             })
             return c.json(successResponse(result))
         }),

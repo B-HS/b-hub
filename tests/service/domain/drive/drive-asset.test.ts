@@ -504,6 +504,7 @@ describe('createDriveAssetService', () => {
                 mimeType: 'video/mp4',
                 sizeBytes: 500_000,
                 folderId: null,
+                fileHash: 'abc123hash',
             })
 
             expect(result.assetId).toBe(1)
@@ -515,6 +516,27 @@ describe('createDriveAssetService', () => {
             const insertArg = (deps.db.insert as ReturnType<typeof mock>).mock.calls[0][0] as Record<string, unknown>
             expect(insertArg.uploadStatus).toBe('preparing')
             expect(insertArg.storageTiers).toBe('')
+            expect(insertArg.fileHash).toBe('abc123hash')
+        })
+
+        test('동일 해시 파일이 존재하면 업로드 전에 중복 에러를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getByUserAndHash = mock(() => Promise.resolve(mockAssetRow() as ReturnType<typeof mockAssetRow> | null))
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.prepare('user-1', { originalName: 'dup.mp4', mimeType: 'video/mp4', sizeBytes: 500_000, folderId: null, fileHash: 'existing-hash' }),
+            ).rejects.toMatchObject({ code: 'DRIVE_DUPLICATE_FILE' })
+            expect(deps.db.insert).not.toHaveBeenCalled()
+        })
+
+        test('fileHash 없으면 pending_ 접두사로 저장한다', async () => {
+            const deps = createMockDeps()
+            const service = createDriveAssetService(deps)
+
+            await service.prepare('user-1', { originalName: 'video.mp4', mimeType: 'video/mp4', sizeBytes: 500_000, folderId: null, fileHash: '' })
+
+            const insertArg = (deps.db.insert as ReturnType<typeof mock>).mock.calls[0][0] as Record<string, unknown>
             expect(insertArg.fileHash).toStartWith('pending_')
         })
 
@@ -525,7 +547,7 @@ describe('createDriveAssetService', () => {
             const service = createDriveAssetService(deps)
 
             await expect(
-                service.prepare('user-1', { originalName: 'big.zip', mimeType: 'application/zip', sizeBytes: 200, folderId: null }),
+                service.prepare('user-1', { originalName: 'big.zip', mimeType: 'application/zip', sizeBytes: 200, folderId: null, fileHash: 'hash1' }),
             ).rejects.toMatchObject({ code: 'DRIVE_QUOTA_EXCEEDED' })
         })
 
@@ -534,7 +556,7 @@ describe('createDriveAssetService', () => {
             const service = createDriveAssetService(deps)
 
             await expect(
-                service.prepare('user-1', { originalName: 'hack.exe', mimeType: 'application/x-msdownload', sizeBytes: 100, folderId: null }),
+                service.prepare('user-1', { originalName: 'hack.exe', mimeType: 'application/x-msdownload', sizeBytes: 100, folderId: null, fileHash: 'hash2' }),
             ).rejects.toMatchObject({ code: 'DRIVE_INVALID_MIME_TYPE' })
         })
     })

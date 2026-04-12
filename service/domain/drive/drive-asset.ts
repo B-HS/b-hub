@@ -275,13 +275,18 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         }
     },
 
-    prepare: async (userId: string, data: { originalName: string; mimeType: string; sizeBytes: number; folderId: string | null }) => {
+    prepare: async (userId: string, data: { originalName: string; mimeType: string; sizeBytes: number; folderId: string | null; fileHash: string }) => {
         const safeName = sanitizeFilename(data.originalName)
         validateMimeAndExtension(safeName, data.mimeType)
 
         if (data.folderId) {
             const folder = await deps.folderDb.getById(data.folderId)
             if (!folder || folder.userId !== userId) throw createAppError('DRIVE_FOLDER_NOT_FOUND')
+        }
+
+        if (data.fileHash) {
+            const existing = await deps.db.getByUserAndHash(userId, data.fileHash)
+            if (existing) throw createAppError('DRIVE_DUPLICATE_FILE')
         }
 
         const quotaBytes = await deps.getUserQuotaBytes(userId)
@@ -300,7 +305,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             originalName: safeName,
             mimeType: data.mimeType,
             sizeBytes: data.sizeBytes,
-            fileHash: `pending_${id}`,
+            fileHash: data.fileHash || `pending_${id}`,
             folderId: data.folderId,
             thumbnailBlob: null,
             isPublic: false,
@@ -340,14 +345,6 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
 
         if (asset.uploadStatus !== 'preparing' && asset.uploadStatus !== 'uploading') {
             throw createAppError('DRIVE_UPLOAD_EVENT_FAILED')
-        }
-
-        if (data.fileHash) {
-            const existing = await deps.db.getByUserAndHash(asset.userId, data.fileHash)
-            if (existing && existing.id !== assetId) {
-                await deps.db.remove(assetId)
-                throw createAppError('DRIVE_DUPLICATE_FILE')
-            }
         }
 
         const thumbnailBlob = data.thumbnailBase64 ? Buffer.from(data.thumbnailBase64, 'base64') : null
