@@ -10,7 +10,7 @@ type GdriveClientDeps = {
 }
 
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3'
-const SCOPE = 'https://www.googleapis.com/auth/drive.file'
+const SCOPE = 'https://www.googleapis.com/auth/drive'
 
 const base64url = (data: Uint8Array | string): string => {
     const str = typeof data === 'string' ? btoa(data) : btoa(String.fromCharCode(...data))
