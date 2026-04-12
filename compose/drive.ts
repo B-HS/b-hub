@@ -115,7 +115,11 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
         },
 
         list: async (params: { userId: string; limit: number; offset: number; mimeType?: string; folderId?: string; sort: string; order: string }) => {
-            const conditions = [eq(schema.cloudAssets.userId, params.userId)]
+            const staleThreshold = new Date(Date.now() - 10 * 60 * 1000)
+            const conditions = [
+                eq(schema.cloudAssets.userId, params.userId),
+                sql`NOT (${schema.cloudAssets.uploadStatus} IN ('preparing', 'failed') AND ${schema.cloudAssets.createdAt} < ${staleThreshold})`,
+            ]
             if (params.mimeType) {
                 conditions.push(like(schema.cloudAssets.mimeType, `${params.mimeType}%`))
             }

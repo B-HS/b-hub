@@ -286,7 +286,13 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
 
         if (data.fileHash) {
             const existing = await deps.db.getByUserAndHash(userId, data.fileHash)
-            if (existing) throw createAppError('DRIVE_DUPLICATE_FILE')
+            if (existing) {
+                if (existing.uploadStatus === 'preparing' || existing.uploadStatus === 'failed') {
+                    await deps.db.remove(existing.id)
+                } else {
+                    throw createAppError('DRIVE_DUPLICATE_FILE')
+                }
+            }
         }
 
         const quotaBytes = await deps.getUserQuotaBytes(userId)
