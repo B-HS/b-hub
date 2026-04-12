@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import sharp from 'sharp'
-import { createAuthClient } from './auth'
 import { createR2Client } from './r2-client'
 import { createGdriveClient } from './gdrive-client'
 import { createLocalClient } from './local-client'
@@ -23,8 +22,6 @@ const env = {
 }
 
 const L1_MAX_FILE_SIZE = 100 * 1024 * 1024
-
-const auth = createAuthClient({ hubBaseUrl: env.HUB_BASE_URL })
 
 const r2 = createR2Client({
     endpoint: env.R2_END_POINT,
@@ -68,12 +65,6 @@ app.use(
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
 app.post('/upload', async (c) => {
-    const cookie = c.req.header('Cookie')
-    if (!cookie) return c.json({ success: false, error: 'Unauthorized' }, 401)
-
-    const session = await auth.verifySession(cookie)
-    if (!session) return c.json({ success: false, error: 'Unauthorized' }, 401)
-
     const formData = await c.req.formData()
     const file = formData.get('file')
     if (!file || !(file instanceof File)) {
