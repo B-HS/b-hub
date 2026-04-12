@@ -17,10 +17,6 @@ const env = {
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? '',
     R2_BUCKET: process.env.R2_BUCKET ?? 'blog-cloud',
 
-    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? '',
-    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? '',
-    GDRIVE_REFRESH_TOKEN: process.env.GDRIVE_REFRESH_TOKEN ?? '',
-    GDRIVE_ROOT_FOLDER_ID: process.env.GDRIVE_ROOT_FOLDER_ID ?? '',
 }
 
 const L1_MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -32,12 +28,7 @@ const r2 = createR2Client({
     bucket: env.R2_BUCKET,
 })
 
-const gdrive = createGdriveClient({
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
-    refreshToken: env.GDRIVE_REFRESH_TOKEN,
-    rootFolderId: env.GDRIVE_ROOT_FOLDER_ID,
-})
+const gdrive = createGdriveClient()
 
 const local = createLocalClient()
 
@@ -87,13 +78,15 @@ app.post('/upload', async (c) => {
     const assetId = Number(formData.get('assetId'))
     const s3Key = formData.get('s3Key') as string
     const uploadToken = formData.get('uploadToken') as string
+    const gdriveAccessToken = (formData.get('gdriveAccessToken') as string) || null
+    const gdriveRootFolderId = (formData.get('gdriveRootFolderId') as string) || null
 
     if (!assetId || !s3Key || !uploadToken) {
         console.warn(`[request] rejected: missing params assetId=${assetId} s3Key=${!!s3Key} uploadToken=${!!uploadToken}`)
         return c.json({ success: false, error: 'Missing assetId, s3Key, or uploadToken' }, 400)
     }
 
-    const result = await handler.handle(file, assetId, s3Key, uploadToken)
+    const result = await handler.handle(file, assetId, s3Key, uploadToken, gdriveAccessToken, gdriveRootFolderId)
 
     if (!result.success) {
         console.error(`[request] failed: ${result.message}`)

@@ -38,7 +38,7 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries: number): Promise<T
 }
 
 export const createUploadHandler = (deps: UploadHandlerDeps) => ({
-    handle: async (file: File, assetId: number, s3Key: string, uploadToken: string): Promise<{ success: boolean; message: string }> => {
+    handle: async (file: File, assetId: number, s3Key: string, uploadToken: string, gdriveAccessToken: string | null, gdriveRootFolderId: string | null): Promise<{ success: boolean; message: string }> => {
         const startTime = Date.now()
         console.log(`[upload] start assetId=${assetId} file=${file.name} size=${file.size} type=${file.type}`)
 
@@ -63,18 +63,22 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => ({
         let gdriveFileId: string | null = null
         let localPath: string | null = null
 
-        const gdriveResult = await withRetry(async () => {
-            const result = await deps.gdrive.upload(s3Key, buffer, file.type)
-            if (!result.success) throw new Error(result.error)
-            return result
-        }, 2).catch((error) => ({ success: false as const, error: error instanceof Error ? error.message : 'Google Drive upload failed' }))
+        if (gdriveAccessToken && gdriveRootFolderId) {
+            const gdriveResult = await withRetry(async () => {
+                const result = await deps.gdrive.upload(gdriveAccessToken, gdriveRootFolderId, s3Key, buffer, file.type)
+                if (!result.success) throw new Error(result.error)
+                return result
+            }, 2).catch((error) => ({ success: false as const, error: error instanceof Error ? error.message : 'Google Drive upload failed' }))
 
-        if (gdriveResult.success) {
-            tiers.push('L3')
-            gdriveFileId = gdriveResult.gdriveFileId
-            console.log(`[upload] gdrive ok fileId=${gdriveFileId}`)
+            if (gdriveResult.success) {
+                tiers.push('L3')
+                gdriveFileId = gdriveResult.gdriveFileId
+                console.log(`[upload] gdrive ok fileId=${gdriveFileId}`)
+            } else {
+                console.error(`[upload] gdrive failed: ${gdriveResult.error}`)
+            }
         } else {
-            console.error(`[upload] gdrive failed: ${gdriveResult.error}`)
+            console.log(`[upload] gdrive skipped (no access token)`)
         }
 
         if (file.size <= deps.l1MaxFileSize) {

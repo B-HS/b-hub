@@ -1,5 +1,5 @@
 import { S3Client } from '@aws-sdk/client-s3'
-import { eq, and } from 'drizzle-orm'
+import { eq, like } from 'drizzle-orm'
 import sharp from 'sharp'
 import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
@@ -88,12 +88,10 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
     })
 
     const getGdriveRefreshToken = async (): Promise<string | null> => {
-        if (!env.GDRIVE_OWNER_EMAIL) return null
         const [row] = await db
             .select({ refreshToken: schema.account.refreshToken })
             .from(schema.account)
-            .innerJoin(schema.user, eq(schema.account.userId, schema.user.id))
-            .where(and(eq(schema.user.email, env.GDRIVE_OWNER_EMAIL), eq(schema.account.providerId, 'google')))
+            .where(like(schema.account.scope, '%drive.file%'))
             .limit(1)
         return row?.refreshToken ?? null
     }
@@ -101,14 +99,34 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
     let gdriveStorageService: ReturnType<typeof createGdriveStorageService> | null = null
     const initGdriveStorage = async () => {
         if (gdriveStorageService) return gdriveStorageService
+        if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null
         const refreshToken = await getGdriveRefreshToken()
-        if (!refreshToken || !env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null
+        if (!refreshToken) return null
         gdriveStorageService = createGdriveStorageService({
             clientId: env.GOOGLE_CLIENT_ID,
             clientSecret: env.GOOGLE_CLIENT_SECRET,
             refreshToken,
         })
         return gdriveStorageService
+    }
+
+    const getGdriveAccessToken = async (): Promise<string | null> => {
+        if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null
+        const refreshToken = await getGdriveRefreshToken()
+        if (!refreshToken) return null
+        const res = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: env.GOOGLE_CLIENT_ID,
+                client_secret: env.GOOGLE_CLIENT_SECRET,
+                refresh_token: refreshToken,
+                grant_type: 'refresh_token',
+            }),
+        })
+        if (!res.ok) return null
+        const data = (await res.json()) as { access_token: string }
+        return data.access_token
     }
 
     return {
@@ -122,5 +140,6 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         badgeService,
         gdriveStorageService: null as ReturnType<typeof createGdriveStorageService> | null,
         initGdriveStorage,
+        getGdriveAccessToken,
     }
 }
