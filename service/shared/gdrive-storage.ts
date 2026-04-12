@@ -19,7 +19,7 @@ const base64url = (data: Uint8Array | string): string => {
 }
 
 const importPrivateKey = async (pem: string): Promise<CryptoKey> => {
-    const pemBody = pem.replace(/-----BEGIN RSA PRIVATE KEY-----/g, '').replace(/-----END RSA PRIVATE KEY-----/g, '').replace(/\s/g, '')
+    const pemBody = pem.replace(/-----BEGIN (?:RSA )?PRIVATE KEY-----/g, '').replace(/-----END (?:RSA )?PRIVATE KEY-----/g, '').replace(/\s/g, '')
     const binary = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0))
     return crypto.subtle.importKey('pkcs8', binary, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
 }
