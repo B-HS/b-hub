@@ -1,0 +1,15 @@
+services:
+    upload-server:
+        build: .
+        container_name: upload-server
+        restart: unless-stopped
+        ports:
+            - '4100:4100'
+        env_file:
+            - .env
+        networks:
+            - gumyo
+
+networks:
+    gumyo:
+        external: true

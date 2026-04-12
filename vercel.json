@@ -3,9 +3,7 @@
     "buildCommand": "bun run vercel-build",
     "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
     "crons": [
-        { "path": "/api/hn/cron/sync", "schedule": "*/30 * * * *" },
-        { "path": "/api/hn/cron/daily", "schedule": "0 21 * * *" },
-        { "path": "/api/hn/cron/weekly", "schedule": "0 9 * * 0" },
-        { "path": "/api/hn/cron/monthly", "schedule": "0 0 28-31 * *" }
+        { "path": "/api/drive/lifecycle/evict-r2", "schedule": "0 3 * * *" },
+        { "path": "/api/drive/lifecycle/auto-promote", "schedule": "0 5 * * *" }
     ]
 }

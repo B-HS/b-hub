@@ -10,6 +10,7 @@ const createMockDeps = () => ({
         getUrl: (key: string) => `https://cdn.example.com/${key}`,
         getPresignedUrl: mock(() => Promise.resolve('https://presigned.example.com/file?token=abc')),
     },
+    gdriveStorage: null as { download: () => Promise<ReadableStream>; del: () => Promise<void> } | null,
     imageProcessor: {
         resize: mock(() => Promise.resolve(Buffer.from('resized'))),
         toWebp: mock(() => Promise.resolve(Buffer.from('thumbnail-webp'))),
@@ -31,6 +32,12 @@ const createMockDeps = () => ({
                 folderId: null as string | null,
                 thumbnailBlob: Buffer.from('thumb'),
                 isPublic: false,
+                uploadStatus: 'ready',
+                uploadToken: null,
+                localPath: null,
+                gdriveFileId: null,
+                storageTiers: 'L1',
+                accessCount: 0,
                 lastViewedAt: null,
                 createdAt: now,
                 updatedAt: now,
@@ -51,6 +58,12 @@ const createMockDeps = () => ({
                         folderId: null as string | null,
                         thumbnailBlob: Buffer.from('thumb'),
                         isPublic: false,
+                        uploadStatus: 'ready',
+                        uploadToken: null,
+                        localPath: null,
+                        gdriveFileId: null,
+                        storageTiers: 'L1',
+                        accessCount: 0,
                         lastViewedAt: null,
                         createdAt: now,
                         updatedAt: now,
@@ -66,6 +79,7 @@ const createMockDeps = () => ({
     generateId: () => 'test-uuid',
     defaultQuotaBytes: 10 * 1024 * 1024,
     getUserQuotaBytes: mock(() => Promise.resolve(10 * 1024 * 1024)),
+    uploadServerSecret: 'test-secret',
 })
 
 describe('createDriveAssetService', () => {
@@ -247,8 +261,15 @@ describe('createDriveAssetService', () => {
                     mimeType: 'image/jpeg',
                     sizeBytes: 5000,
                     fileHash: 'abc123',
+                    folderId: null,
                     thumbnailBlob: null,
                     isPublic: true,
+                    uploadStatus: 'ready',
+                    uploadToken: null,
+                    localPath: null,
+                    gdriveFileId: null,
+                    storageTiers: 'L1',
+                    accessCount: 0,
                     lastViewedAt: null,
                     createdAt: now,
                     updatedAt: now,
@@ -532,6 +553,195 @@ describe('createDriveAssetService', () => {
 
             expect(result.id).toBe(1)
             expect(deps.db.remove).toHaveBeenCalledWith(1)
+        })
+    })
+
+    describe('prepare', () => {
+        test('메타데이터만 DB에 저장하고 preparing 상태로 반환한다', async () => {
+            const deps = createMockDeps()
+            const service = createDriveAssetService(deps)
+
+            const result = await service.prepare('user-1', {
+                originalName: 'video.mp4',
+                mimeType: 'video/mp4',
+                sizeBytes: 500_000,
+                folderId: null,
+            })
+
+            expect(result.assetId).toBe(1)
+            expect(result.s3Key).toContain('users/user-1/')
+            expect(result.s3Key).toContain('video.mp4')
+            expect(result.uploadToken).toHaveLength(64)
+            expect(result.uploadStatus).toBe('preparing')
+            expect(deps.db.insert).toHaveBeenCalledTimes(1)
+            const insertArg = (deps.db.insert as ReturnType<typeof mock>).mock.calls[0][0] as Record<string, unknown>
+            expect(insertArg.uploadStatus).toBe('preparing')
+            expect(insertArg.storageTiers).toBe('')
+            expect(insertArg.fileHash).toBe('')
+        })
+
+        test('쿼터 초과 시 DRIVE_QUOTA_EXCEEDED 에러를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.getUserQuotaBytes = mock(() => Promise.resolve(1000))
+            deps.db.getTotalSizeByUser = mock(() => Promise.resolve(900))
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.prepare('user-1', { originalName: 'big.zip', mimeType: 'application/zip', sizeBytes: 200, folderId: null }),
+            ).rejects.toMatchObject({ code: 'DRIVE_QUOTA_EXCEEDED' })
+        })
+
+        test('차단된 MIME 타입은 DRIVE_INVALID_MIME_TYPE 에러를 던진다', async () => {
+            const deps = createMockDeps()
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.prepare('user-1', { originalName: 'hack.exe', mimeType: 'application/x-msdownload', sizeBytes: 100, folderId: null }),
+            ).rejects.toMatchObject({ code: 'DRIVE_INVALID_MIME_TYPE' })
+        })
+    })
+
+    describe('complete', () => {
+        test('업로드 토큰이 일치하면 ready 상태로 업데이트한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() =>
+                Promise.resolve({
+                    id: 1,
+                    userId: 'user-1',
+                    s3Key: 'users/user-1/uuid/video.mp4',
+                    originalName: 'video.mp4',
+                    mimeType: 'video/mp4',
+                    sizeBytes: 500_000,
+                    fileHash: '',
+                    folderId: null,
+                    thumbnailBlob: null,
+                    isPublic: false,
+                    uploadStatus: 'preparing',
+                    uploadToken: 'valid-token',
+                    localPath: null,
+                    gdriveFileId: null,
+                    storageTiers: '',
+                    accessCount: 0,
+                    lastViewedAt: null,
+                    createdAt: now,
+                    updatedAt: now,
+                }),
+            )
+            const service = createDriveAssetService(deps)
+
+            const result = await service.complete(1, 'valid-token', {
+                fileHash: 'abc123',
+                storageTiers: 'L1,L3',
+                gdriveFileId: 'gdrive-file-123',
+                localPath: null,
+                thumbnailBase64: null,
+            })
+
+            expect(result.id).toBe(1)
+            expect(result.uploadStatus).toBe('ready')
+            expect(deps.db.update).toHaveBeenCalled()
+        })
+
+        test('업로드 토큰이 불일치하면 UNAUTHORIZED 에러를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() =>
+                Promise.resolve({
+                    id: 1,
+                    userId: 'user-1',
+                    s3Key: 'users/user-1/uuid/video.mp4',
+                    originalName: 'video.mp4',
+                    mimeType: 'video/mp4',
+                    sizeBytes: 500_000,
+                    fileHash: '',
+                    folderId: null,
+                    thumbnailBlob: null,
+                    isPublic: false,
+                    uploadStatus: 'preparing',
+                    uploadToken: 'valid-token',
+                    localPath: null,
+                    gdriveFileId: null,
+                    storageTiers: '',
+                    accessCount: 0,
+                    lastViewedAt: null,
+                    createdAt: now,
+                    updatedAt: now,
+                }),
+            )
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.complete(1, 'wrong-token', { fileHash: 'abc', storageTiers: 'L1', gdriveFileId: null, localPath: null, thumbnailBase64: null }),
+            ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+        })
+
+        test('이미 ready 상태인 asset은 DRIVE_UPLOAD_EVENT_FAILED 에러를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() =>
+                Promise.resolve({
+                    id: 1,
+                    userId: 'user-1',
+                    s3Key: 'users/user-1/uuid/video.mp4',
+                    originalName: 'video.mp4',
+                    mimeType: 'video/mp4',
+                    sizeBytes: 500_000,
+                    fileHash: 'abc123',
+                    folderId: null,
+                    thumbnailBlob: null,
+                    isPublic: false,
+                    uploadStatus: 'ready',
+                    uploadToken: 'token',
+                    localPath: null,
+                    gdriveFileId: null,
+                    storageTiers: 'L1',
+                    accessCount: 0,
+                    lastViewedAt: null,
+                    createdAt: now,
+                    updatedAt: now,
+                }),
+            )
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.complete(1, 'token', { fileHash: 'abc', storageTiers: 'L1', gdriveFileId: null, localPath: null, thumbnailBase64: null }),
+            ).rejects.toMatchObject({ code: 'DRIVE_UPLOAD_EVENT_FAILED' })
+        })
+
+        test('storageTiers가 비어있으면 failed 상태로 설정한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() =>
+                Promise.resolve({
+                    id: 1,
+                    userId: 'user-1',
+                    s3Key: 'users/user-1/uuid/video.mp4',
+                    originalName: 'video.mp4',
+                    mimeType: 'video/mp4',
+                    sizeBytes: 500_000,
+                    fileHash: '',
+                    folderId: null,
+                    thumbnailBlob: null,
+                    isPublic: false,
+                    uploadStatus: 'preparing',
+                    uploadToken: 'valid-token',
+                    localPath: null,
+                    gdriveFileId: null,
+                    storageTiers: '',
+                    accessCount: 0,
+                    lastViewedAt: null,
+                    createdAt: now,
+                    updatedAt: now,
+                }),
+            )
+            const service = createDriveAssetService(deps)
+
+            const result = await service.complete(1, 'valid-token', {
+                fileHash: 'abc',
+                storageTiers: '',
+                gdriveFileId: null,
+                localPath: null,
+                thumbnailBase64: null,
+            })
+
+            expect(result.uploadStatus).toBe('failed')
         })
     })
 })

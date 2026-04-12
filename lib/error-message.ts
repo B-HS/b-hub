@@ -84,4 +84,10 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     DRIVE_FOLDER_NOT_FOUND: '폴더를 찾을 수 없습니다',
     DRIVE_FOLDER_CIRCULAR_REF: '순환 참조가 발생하는 이동입니다',
     DRIVE_FOLDER_NAME_DUPLICATE: '같은 위치에 동일한 이름의 폴더가 존재합니다',
+    DRIVE_L2_UPLOAD_FAILED: 'Mac Studio 파일 업로드에 실패했습니다',
+    DRIVE_L2_DOWNLOAD_FAILED: 'Mac Studio 파일 다운로드에 실패했습니다',
+    DRIVE_L3_UPLOAD_FAILED: 'Google Drive 파일 업로드에 실패했습니다',
+    DRIVE_L3_DOWNLOAD_FAILED: 'Google Drive 파일 다운로드에 실패했습니다',
+    DRIVE_ALL_TIERS_FAILED: '모든 스토리지 계층에서 파일을 가져올 수 없습니다',
+    DRIVE_UPLOAD_EVENT_FAILED: '업로드 이벤트 처리에 실패했습니다',
 }

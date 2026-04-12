@@ -33,6 +33,7 @@ import { createCalendarGroupRoute } from './calendar/group'
 import { createCalendarCaldavRoute } from './calendar/caldav'
 import { createDriveAssetRoute } from './drive/asset'
 import { createDriveFolderRoute } from './drive/folder'
+import { createDriveLifecycleRoute } from './drive/lifecycle'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
 
@@ -300,6 +301,13 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createDriveFolderRoute({
             driveFolderService: stub(deps.driveFolderService),
             getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/drive/lifecycle',
+        createDriveLifecycleRoute({
+            storageLifecycleService: stub(deps.storageLifecycleService),
+            uploadServerSecret: deps.uploadServerSecret ?? '',
         }),
     )
 

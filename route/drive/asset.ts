@@ -39,6 +39,56 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         }),
     )
 
+    route.post(
+        '/assets/prepare',
+        describeRoute({
+            tags: ['Drive'],
+            summary: '업로드 사전 등록 (메타데이터만 저장, preparing 상태)',
+            responses: {
+                200: { description: 'assetId, s3Key, uploadToken 반환' },
+                ...errorResponses(['UNAUTHORIZED', 'DRIVE_QUOTA_EXCEEDED', 'DRIVE_INVALID_MIME_TYPE']),
+            },
+        }),
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+
+            const body = await c.req.json()
+            const result = await deps.driveAssetService.prepare(session.user.id, {
+                originalName: body.originalName,
+                mimeType: body.mimeType,
+                sizeBytes: Number(body.sizeBytes),
+                folderId: body.folderId ?? null,
+            })
+            return c.json(successResponse(result))
+        }),
+    )
+
+    route.post(
+        '/assets/:assetId/complete',
+        describeRoute({
+            tags: ['Drive'],
+            summary: '업로드 완료 콜백 (Lightsail → hyun-hub)',
+            responses: {
+                200: { description: '업로드 완료 상태' },
+                ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_UPLOAD_EVENT_FAILED']),
+            },
+        }),
+        withErrorHandling(async (c) => {
+            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const body = await c.req.json()
+
+            const result = await deps.driveAssetService.complete(assetId, body.uploadToken, {
+                fileHash: body.fileHash ?? '',
+                storageTiers: body.storageTiers ?? '',
+                gdriveFileId: body.gdriveFileId ?? null,
+                localPath: body.localPath ?? null,
+                thumbnailBase64: body.thumbnailBase64 ?? null,
+            })
+            return c.json(successResponse(result))
+        }),
+    )
+
     route.get(
         '/assets',
         describeRoute({
@@ -117,6 +167,33 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
             const { assetId } = driveAssetParamSchema.parse(c.req.param())
             const result = await deps.driveAssetService.remove(assetId, session.user.id)
             return c.json(successResponse(result))
+        }),
+    )
+
+    route.get(
+        '/assets/:assetId/download',
+        describeRoute({
+            tags: ['Drive'],
+            summary: '파일 스트림 다운로드 (L2/L3 cascade)',
+            responses: {
+                200: { description: '파일 스트림' },
+                ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_ALL_TIERS_FAILED']),
+            },
+        }),
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+
+            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { stream, mimeType, originalName, sizeBytes } = await deps.driveAssetService.download(assetId, session.user.id)
+
+            return new Response(stream, {
+                headers: {
+                    'Content-Type': mimeType,
+                    'Content-Disposition': `attachment; filename="${encodeURIComponent(originalName)}"`,
+                    'Content-Length': String(sizeBytes),
+                },
+            })
         }),
     )
 

@@ -808,6 +808,12 @@ export const cloudAssets = mysqlTable(
         folderId: varchar('folder_id', { length: 36 }),
         thumbnailBlob: mediumblob('thumbnail_blob'),
         isPublic: boolean('is_public').default(false).notNull(),
+        uploadStatus: varchar('upload_status', { length: 20 }).notNull().default('ready'),
+        uploadToken: varchar('upload_token', { length: 64 }),
+        localPath: varchar('local_path', { length: 1000 }),
+        gdriveFileId: varchar('gdrive_file_id', { length: 100 }),
+        storageTiers: varchar('storage_tiers', { length: 20 }).notNull().default('L1'),
+        accessCount: int('access_count').notNull().default(0),
         lastViewedAt: timestamp('last_viewed_at', { fsp: 3 }),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
         updatedAt: timestamp('updated_at', { fsp: 3 })
@@ -820,10 +826,30 @@ export const cloudAssets = mysqlTable(
         unique('uq_cloud_assets_user_hash').on(table.userId, table.fileHash),
         index('idx_cloud_assets_user_created').on(table.userId, table.createdAt),
         index('idx_cloud_assets_folder').on(table.folderId),
+        index('idx_cloud_assets_storage_tiers').on(table.storageTiers),
+        index('idx_cloud_assets_access_count').on(table.accessCount),
     ],
+)
+
+export const storageLifecycleLogs = mysqlTable(
+    'storage_lifecycle_logs',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        assetId: int('asset_id')
+            .notNull()
+            .references(() => cloudAssets.id, { onDelete: 'cascade' }),
+        action: varchar('action', { length: 20 }).notNull(),
+        fromTier: varchar('from_tier', { length: 5 }).notNull(),
+        toTier: varchar('to_tier', { length: 5 }).notNull(),
+        reason: varchar('reason', { length: 255 }).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_storage_lifecycle_logs_asset').on(table.assetId)],
 )
 
 export type DriveFolder = typeof driveFolders.$inferSelect
 export type NewDriveFolder = typeof driveFolders.$inferInsert
 export type CloudAsset = typeof cloudAssets.$inferSelect
 export type NewCloudAsset = typeof cloudAssets.$inferInsert
+export type StorageLifecycleLog = typeof storageLifecycleLogs.$inferSelect
+export type NewStorageLifecycleLog = typeof storageLifecycleLogs.$inferInsert

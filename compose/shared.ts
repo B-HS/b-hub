@@ -4,6 +4,7 @@ import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import { createGdriveStorageService } from '../service/shared/gdrive-storage'
 import { createAuthProvider } from '../service/shared/auth-provider'
 import { createApiTokenService } from '../service/shared/api-token'
 import { createStorageService } from '../service/shared/storage'
@@ -84,6 +85,12 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         mergeStyles,
     })
 
+    const gdriveStorageService = env.GDRIVE_SERVICE_ACCOUNT_KEY
+        ? createGdriveStorageService({
+              serviceAccountKey: JSON.parse(env.GDRIVE_SERVICE_ACCOUNT_KEY),
+          })
+        : null
+
     return {
         auth,
         getSession,
@@ -93,5 +100,6 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         imageGenerator,
         fontLoader,
         badgeService,
+        gdriveStorageService,
     }
 }

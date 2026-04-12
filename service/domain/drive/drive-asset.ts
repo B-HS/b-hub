@@ -8,10 +8,17 @@ type DriveStorageService = {
     getPresignedUrl: (key: string, expiresIn?: number) => Promise<string>
 }
 
+type DriveGdriveService = {
+    download: (gdriveFileId: string) => Promise<ReadableStream>
+    del: (gdriveFileId: string) => Promise<void>
+}
+
 type DriveImageProcessor = {
     resize: (buffer: Buffer, width: number, height?: number) => Promise<Buffer>
     toWebp: (buffer: Buffer, quality?: number) => Promise<Buffer>
 }
+
+type UploadStatus = 'preparing' | 'uploading' | 'ready' | 'failed'
 
 type DriveAssetRow = {
     id: number
@@ -24,6 +31,12 @@ type DriveAssetRow = {
     folderId: string | null
     thumbnailBlob: Buffer | null
     isPublic: boolean
+    uploadStatus: string
+    uploadToken: string | null
+    localPath: string | null
+    gdriveFileId: string | null
+    storageTiers: string
+    accessCount: number
     lastViewedAt: Date | null
     createdAt: Date
     updatedAt: Date
@@ -40,6 +53,12 @@ type DriveAssetServiceDb = {
         folderId: string | null
         thumbnailBlob: Buffer | null
         isPublic: boolean
+        uploadStatus: string
+        uploadToken: string | null
+        localPath: string | null
+        gdriveFileId: string | null
+        storageTiers: string
+        accessCount: number
     }) => Promise<{ id: number }>
     getById: (id: number) => Promise<DriveAssetRow | null>
     getByUserAndHash: (userId: string, fileHash: string) => Promise<DriveAssetRow | null>
@@ -52,7 +71,22 @@ type DriveAssetServiceDb = {
         sort: string
         order: string
     }) => Promise<{ data: DriveAssetRow[]; total: number }>
-    update: (id: number, data: Partial<{ originalName: string; isPublic: boolean; folderId: string | null; lastViewedAt: Date }>) => Promise<void>
+    update: (
+        id: number,
+        data: Partial<{
+            originalName: string
+            isPublic: boolean
+            folderId: string | null
+            lastViewedAt: Date
+            accessCount: number
+            storageTiers: string
+            uploadStatus: string
+            uploadToken: string | null
+            localPath: string | null
+            gdriveFileId: string | null
+            thumbnailBlob: Buffer | null
+        }>,
+    ) => Promise<void>
     remove: (id: number) => Promise<void>
     getTotalSizeByUser: (userId: string) => Promise<number>
 }
@@ -63,12 +97,14 @@ type DriveFolderChecker = {
 
 type DriveAssetServiceDeps = {
     storage: DriveStorageService
+    gdriveStorage: DriveGdriveService | null
     imageProcessor: DriveImageProcessor
     db: DriveAssetServiceDb
     folderDb: DriveFolderChecker
     generateId: () => string
     defaultQuotaBytes: number
     getUserQuotaBytes: (userId: string) => Promise<number>
+    uploadServerSecret: string
 }
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -136,6 +172,16 @@ const validateMagicBytes = (buffer: Buffer, mimeType: string) => {
     }
 }
 
+const parseTiers = (storageTiers: string): Set<string> => new Set(storageTiers.split(',').filter(Boolean))
+
+const generateToken = () => {
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+}
+
 export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
     upload: async (file: File, userId: string, folderId?: string) => {
         if (file.size > MAX_FILE_SIZE) {
@@ -200,6 +246,12 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
                 folderId: resolvedFolderId,
                 thumbnailBlob,
                 isPublic: false,
+                uploadStatus: 'ready',
+                uploadToken: null,
+                localPath: null,
+                gdriveFileId: null,
+                storageTiers: 'L1',
+                accessCount: 0,
             })
         } catch (error) {
             try {
@@ -216,8 +268,101 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             sizeBytes: file.size,
             folderId: resolvedFolderId,
             isPublic: false,
+            storageTiers: 'L1',
+            uploadStatus: 'ready' as UploadStatus,
             url: deps.storage.getUrl(s3Key),
         }
+    },
+
+    prepare: async (userId: string, data: { originalName: string; mimeType: string; sizeBytes: number; folderId: string | null }) => {
+        const safeName = sanitizeFilename(data.originalName)
+        validateMimeAndExtension(safeName, data.mimeType)
+
+        if (data.folderId) {
+            const folder = await deps.folderDb.getById(data.folderId)
+            if (!folder || folder.userId !== userId) throw createAppError('DRIVE_FOLDER_NOT_FOUND')
+        }
+
+        const quotaBytes = await deps.getUserQuotaBytes(userId)
+        const currentUsage = await deps.db.getTotalSizeByUser(userId)
+        if (currentUsage + data.sizeBytes > quotaBytes) {
+            throw createAppError('DRIVE_QUOTA_EXCEEDED')
+        }
+
+        const id = deps.generateId()
+        const s3Key = `users/${userId}/${id}/${safeName}`
+        const uploadToken = generateToken()
+
+        const result = await deps.db.insert({
+            userId,
+            s3Key,
+            originalName: safeName,
+            mimeType: data.mimeType,
+            sizeBytes: data.sizeBytes,
+            fileHash: '',
+            folderId: data.folderId,
+            thumbnailBlob: null,
+            isPublic: false,
+            uploadStatus: 'preparing',
+            uploadToken,
+            localPath: null,
+            gdriveFileId: null,
+            storageTiers: '',
+            accessCount: 0,
+        })
+
+        return {
+            assetId: result.id,
+            s3Key,
+            uploadToken,
+            uploadStatus: 'preparing' as UploadStatus,
+        }
+    },
+
+    complete: async (
+        assetId: number,
+        secret: string,
+        data: {
+            fileHash: string
+            storageTiers: string
+            gdriveFileId: string | null
+            localPath: string | null
+            thumbnailBase64: string | null
+        },
+    ) => {
+        const asset = await deps.db.getById(assetId)
+        if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
+
+        if (asset.uploadToken !== secret) {
+            throw createAppError('UNAUTHORIZED')
+        }
+
+        if (asset.uploadStatus !== 'preparing' && asset.uploadStatus !== 'uploading') {
+            throw createAppError('DRIVE_UPLOAD_EVENT_FAILED')
+        }
+
+        const existing = asset.fileHash ? null : await deps.db.getByUserAndHash(asset.userId, data.fileHash)
+        if (existing && existing.id !== assetId) {
+            await deps.db.remove(assetId)
+            throw createAppError('DRIVE_DUPLICATE_FILE')
+        }
+
+        const thumbnailBlob = data.thumbnailBase64 ? Buffer.from(data.thumbnailBase64, 'base64') : null
+
+        await deps.db.update(assetId, {
+            uploadStatus: data.storageTiers ? 'ready' : 'failed',
+            uploadToken: null,
+            storageTiers: data.storageTiers || '',
+            gdriveFileId: data.gdriveFileId,
+            localPath: data.localPath,
+            thumbnailBlob,
+        })
+
+        if (data.fileHash) {
+            await deps.db.update(assetId, { storageTiers: data.storageTiers } as Record<string, unknown>)
+        }
+
+        return { id: assetId, uploadStatus: data.storageTiers ? 'ready' : 'failed' }
     },
 
     list: async (userId: string, query: { page: number; limit: number; mimeType?: string; folderId?: string; sort: string; order: string }) => {
@@ -239,6 +384,8 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             sizeBytes: row.sizeBytes,
             folderId: row.folderId,
             isPublic: row.isPublic,
+            storageTiers: row.storageTiers,
+            uploadStatus: row.uploadStatus,
             thumbnail: row.thumbnailBlob ? `data:image/webp;base64,${row.thumbnailBlob.toString('base64')}` : null,
             createdAt: row.createdAt.toISOString(),
             updatedAt: row.updatedAt.toISOString(),
@@ -252,9 +399,16 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
         if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
 
-        await deps.db.update(assetId, { lastViewedAt: new Date() })
+        await deps.db.update(assetId, { lastViewedAt: new Date(), accessCount: asset.accessCount + 1 })
 
-        const url = asset.isPublic ? deps.storage.getUrl(asset.s3Key) : await deps.storage.getPresignedUrl(asset.s3Key, 300)
+        const tiers = parseTiers(asset.storageTiers)
+        let url: string
+
+        if (tiers.has('L1')) {
+            url = asset.isPublic ? deps.storage.getUrl(asset.s3Key) : await deps.storage.getPresignedUrl(asset.s3Key, 300)
+        } else {
+            url = `/api/drive/assets/${assetId}/download`
+        }
 
         return {
             id: asset.id,
@@ -264,12 +418,31 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             folderId: asset.folderId,
             isPublic: asset.isPublic,
             fileHash: asset.fileHash,
+            storageTiers: asset.storageTiers,
+            uploadStatus: asset.uploadStatus,
             url,
             thumbnail: asset.thumbnailBlob ? `data:image/webp;base64,${asset.thumbnailBlob.toString('base64')}` : null,
             lastViewedAt: asset.lastViewedAt?.toISOString() ?? null,
             createdAt: asset.createdAt.toISOString(),
             updatedAt: asset.updatedAt.toISOString(),
         }
+    },
+
+    download: async (assetId: number, userId: string): Promise<{ stream: ReadableStream; mimeType: string; originalName: string; sizeBytes: number }> => {
+        const asset = await deps.db.getById(assetId)
+        if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
+        if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
+
+        await deps.db.update(assetId, { lastViewedAt: new Date(), accessCount: asset.accessCount + 1 })
+
+        const tiers = parseTiers(asset.storageTiers)
+
+        if (tiers.has('L3') && asset.gdriveFileId && deps.gdriveStorage) {
+            const stream = await deps.gdriveStorage.download(asset.gdriveFileId)
+            return { stream, mimeType: asset.mimeType, originalName: asset.originalName, sizeBytes: asset.sizeBytes }
+        }
+
+        throw createAppError('DRIVE_ALL_TIERS_FAILED')
     },
 
     update: async (assetId: number, userId: string, data: { originalName?: string; isPublic?: boolean; folderId?: string | null }) => {
@@ -300,9 +473,20 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
 
         await deps.db.remove(assetId)
-        try {
-            await deps.storage.del(asset.s3Key)
-        } catch {}
+
+        const tiers = parseTiers(asset.storageTiers)
+
+        if (tiers.has('L1')) {
+            try {
+                await deps.storage.del(asset.s3Key)
+            } catch {}
+        }
+
+        if (tiers.has('L3') && asset.gdriveFileId && deps.gdriveStorage) {
+            try {
+                await deps.gdriveStorage.del(asset.gdriveFileId)
+            } catch {}
+        }
 
         return { id: assetId }
     },
