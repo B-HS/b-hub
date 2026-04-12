@@ -1,6 +1,53 @@
 import { createReadStream, statSync } from 'fs'
 
+const DRIVE_API = 'https://www.googleapis.com/drive/v3'
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3'
+
+const folderCache = new Map<string, string>()
+
+const ensureFolder = async (accessToken: string, parentId: string, folderName: string): Promise<string> => {
+    const cacheKey = `${parentId}/${folderName}`
+    const cached = folderCache.get(cacheKey)
+    if (cached) return cached
+
+    const searchRes = await fetch(
+        `${DRIVE_API}/files?q=${encodeURIComponent(`'${parentId}' in parents and name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)&supportsAllDrives=true`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+    )
+    const searchData = (await searchRes.json()) as { files: { id: string }[] }
+
+    if (searchData.files.length > 0) {
+        folderCache.set(cacheKey, searchData.files[0].id)
+        return searchData.files[0].id
+    }
+
+    const createRes = await fetch(`${DRIVE_API}/files?supportsAllDrives=true`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: folderName,
+            mimeType: 'application/vnd.google-apps.folder',
+            parents: [parentId],
+        }),
+    })
+
+    if (!createRes.ok) {
+        const text = await createRes.text()
+        throw new Error(`Google Drive folder creation failed: ${createRes.status} ${text}`)
+    }
+
+    const createData = (await createRes.json()) as { id: string }
+    folderCache.set(cacheKey, createData.id)
+    return createData.id
+}
+
+const ensureFolderPath = async (accessToken: string, rootFolderId: string, pathParts: string[]): Promise<string> => {
+    let currentId = rootFolderId
+    for (const part of pathParts) {
+        currentId = await ensureFolder(accessToken, currentId, part)
+    }
+    return currentId
+}
 
 export const createGdriveClient = () => ({
     upload: async (
@@ -11,10 +58,16 @@ export const createGdriveClient = () => ({
         mimeType: string,
     ): Promise<{ success: true; gdriveFileId: string } | { success: false; error: string }> => {
         try {
+            const parts = s3Key.split('/')
+            const fileName = parts.pop()!
+            const folderParts = parts
+
+            const parentFolderId = folderParts.length > 0 ? await ensureFolderPath(accessToken, rootFolderId, folderParts) : rootFolderId
+
             const fileSize = statSync(filePath).size
             const metadata = JSON.stringify({
-                name: s3Key.replace(/\//g, '_'),
-                parents: [rootFolderId],
+                name: fileName,
+                parents: [parentFolderId],
             })
 
             const boundary = `boundary_${crypto.randomUUID()}`
