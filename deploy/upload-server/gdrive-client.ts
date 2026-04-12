@@ -9,7 +9,6 @@ type GdriveClientDeps = {
     rootFolderId: string
 }
 
-const DRIVE_API = 'https://www.googleapis.com/drive/v3'
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3'
 const SCOPE = 'https://www.googleapis.com/auth/drive.file'
 
@@ -38,8 +37,6 @@ const createJwt = async (email: string, privateKey: string): Promise<string> => 
 export const createGdriveClient = (deps: GdriveClientDeps) => {
     let accessToken: string | null = null
     let tokenExpiresAt = 0
-    const userFolderCache = new Map<string, string>()
-
     const getAccessToken = async (): Promise<string> => {
         if (accessToken && Date.now() < tokenExpiresAt) return accessToken
 
@@ -70,40 +67,6 @@ export const createGdriveClient = (deps: GdriveClientDeps) => {
         })
     }
 
-    const ensureUserFolder = async (userId: string): Promise<string> => {
-        const cached = userFolderCache.get(userId)
-        if (cached) return cached
-
-        const searchRes = await driveFetch(
-            `${DRIVE_API}/files?q=${encodeURIComponent(`'${deps.rootFolderId}' in parents and name='${userId}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`,
-        )
-        const searchData = (await searchRes.json()) as { files: { id: string }[] }
-
-        if (searchData.files.length > 0) {
-            userFolderCache.set(userId, searchData.files[0].id)
-            return searchData.files[0].id
-        }
-
-        const createRes = await driveFetch(`${DRIVE_API}/files`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: userId,
-                mimeType: 'application/vnd.google-apps.folder',
-                parents: [deps.rootFolderId],
-            }),
-        })
-
-        if (!createRes.ok) {
-            const text = await createRes.text()
-            throw new Error(`Google Drive folder creation failed: ${createRes.status} ${text}`)
-        }
-
-        const createData = (await createRes.json()) as { id: string }
-        userFolderCache.set(userId, createData.id)
-        return createData.id
-    }
-
     return {
         upload: async (
             userId: string,
@@ -112,11 +75,9 @@ export const createGdriveClient = (deps: GdriveClientDeps) => {
             mimeType: string,
         ): Promise<{ success: true; gdriveFileId: string } | { success: false; error: string }> => {
             try {
-                const folderId = await ensureUserFolder(userId)
-
                 const metadata = JSON.stringify({
-                    name: fileName,
-                    parents: [folderId],
+                    name: `${userId}/${fileName}`,
+                    parents: [deps.rootFolderId],
                 })
 
                 const boundary = `boundary_${crypto.randomUUID()}`
