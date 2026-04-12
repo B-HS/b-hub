@@ -101,4 +101,5 @@ console.log(`Upload server running on port ${env.PORT}`)
 export default {
     port: env.PORT,
     fetch: app.fetch,
+    maxRequestBodySize: env.MAX_UPLOAD_SIZE_BYTES,
 }

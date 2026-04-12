@@ -8,3 +8,4 @@ drizzle/
 .DS_Store
 *.log
 .claude/
+.vercel
