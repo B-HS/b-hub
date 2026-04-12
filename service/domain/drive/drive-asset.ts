@@ -98,7 +98,7 @@ type DriveFolderChecker = {
 
 type DriveAssetServiceDeps = {
     storage: DriveStorageService
-    gdriveStorage: DriveGdriveService | null
+    getGdriveStorage: () => Promise<DriveGdriveService | null>
     imageProcessor: DriveImageProcessor
     db: DriveAssetServiceDb
     folderDb: DriveFolderChecker
@@ -434,9 +434,12 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
 
         const tiers = parseTiers(asset.storageTiers)
 
-        if (tiers.has('L3') && asset.gdriveFileId && deps.gdriveStorage) {
-            const stream = await deps.gdriveStorage.download(asset.gdriveFileId)
-            return { stream, mimeType: asset.mimeType, originalName: asset.originalName, sizeBytes: asset.sizeBytes }
+        if (tiers.has('L3') && asset.gdriveFileId) {
+            const gdriveStorage = await deps.getGdriveStorage()
+            if (gdriveStorage) {
+                const stream = await gdriveStorage.download(asset.gdriveFileId)
+                return { stream, mimeType: asset.mimeType, originalName: asset.originalName, sizeBytes: asset.sizeBytes }
+            }
         }
 
         throw createAppError('DRIVE_ALL_TIERS_FAILED')
@@ -479,9 +482,10 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             } catch {}
         }
 
-        if (tiers.has('L3') && asset.gdriveFileId && deps.gdriveStorage) {
+        if (tiers.has('L3') && asset.gdriveFileId) {
             try {
-                await deps.gdriveStorage.del(asset.gdriveFileId)
+                const gdriveStorage = await deps.getGdriveStorage()
+                if (gdriveStorage) await gdriveStorage.del(asset.gdriveFileId)
             } catch {}
         }
 

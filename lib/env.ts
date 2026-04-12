@@ -34,8 +34,8 @@ const envSchema = z.object({
 
     MAIL_ENCRYPTION_KEY: z.string().min(32).optional(),
 
-    GDRIVE_SERVICE_ACCOUNT_KEY: z.string().min(1).optional(),
     GDRIVE_ROOT_FOLDER_ID: z.string().min(1).optional(),
+    GDRIVE_OWNER_EMAIL: z.string().email().optional(),
 
     UPLOAD_SERVER_SECRET: z.string().min(1).optional(),
 

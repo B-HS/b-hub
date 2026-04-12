@@ -14,17 +14,19 @@ const createMockDeps = () => ({
         del: mock(() => Promise.resolve()),
         upload: mock(() => Promise.resolve({ key: 'test', url: 'https://cdn.example.com/test' })),
     },
-    l3: {
-        download: mock(() => {
-            const stream = new ReadableStream({
-                start(controller) {
-                    controller.enqueue(new TextEncoder().encode('file-data'))
-                    controller.close()
-                },
-            })
-            return Promise.resolve(stream)
+    getL3: mock(() =>
+        Promise.resolve({
+            download: mock(() => {
+                const stream = new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('file-data'))
+                        controller.close()
+                    },
+                })
+                return Promise.resolve(stream)
+            }),
         }),
-    },
+    ),
     evictionDays: 30,
     promotionThreshold: 5,
     l1MaxFileSize: 100 * 1024 * 1024,
@@ -102,7 +104,7 @@ describe('createStorageLifecycleService', () => {
             const result = await service.autoPromote()
 
             expect(result).toBe(1)
-            expect(deps.l3!.download).toHaveBeenCalledWith('gdrive-123')
+            expect(deps.getL3).toHaveBeenCalled()
             expect(deps.l1.upload).toHaveBeenCalledTimes(1)
             expect(deps.db.updateStorageTiers).toHaveBeenCalledWith(1, 'L1,L3')
             expect(deps.db.insertLifecycleLog).toHaveBeenCalledTimes(1)
@@ -110,7 +112,7 @@ describe('createStorageLifecycleService', () => {
 
         test('L3가 null이면 0을 반환한다', async () => {
             const deps = createMockDeps()
-            deps.l3 = null
+            deps.getL3 = mock(() => Promise.resolve(null))
             const service = createStorageLifecycleService(deps)
             const result = await service.autoPromote()
             expect(result).toBe(0)

@@ -17,7 +17,7 @@ type L3Storage = {
 type StorageLifecycleDeps = {
     db: StorageLifecycleDb
     l1: L1Storage
-    l3: L3Storage | null
+    getL3: () => Promise<L3Storage | null>
     evictionDays: number
     promotionThreshold: number
     l1MaxFileSize: number
@@ -77,14 +77,15 @@ export const createStorageLifecycleService = (deps: StorageLifecycleDeps) => ({
     },
 
     autoPromote: async (): Promise<number> => {
-        if (!deps.l3) return 0
+        const l3 = await deps.getL3()
+        if (!l3) return 0
 
         const candidates = await deps.db.getPromotionCandidates(deps.promotionThreshold, deps.l1MaxFileSize)
 
         let promoted = 0
         for (const asset of candidates) {
             try {
-                const stream = await deps.l3.download(asset.gdriveFileId)
+                const stream = await l3.download(asset.gdriveFileId)
                 const buffer = await streamToBuffer(stream)
                 await deps.l1.upload(asset.s3Key, buffer, asset.mimeType)
                 const newTiers = addTier(asset.storageTiers, 'L1')

@@ -33,7 +33,7 @@ const createMockDeps = () => ({
         getUrl: (key: string) => `https://cdn.example.com/${key}`,
         getPresignedUrl: mock(() => Promise.resolve('https://presigned.example.com/file?token=abc')),
     },
-    gdriveStorage: null as { download: () => Promise<ReadableStream>; del: () => Promise<void> } | null,
+    getGdriveStorage: mock(() => Promise.resolve(null as { download: () => Promise<ReadableStream>; del: () => Promise<void> } | null)),
     imageProcessor: {
         resize: mock(() => Promise.resolve(Buffer.from('resized'))),
         toWebp: mock(() => Promise.resolve(Buffer.from('thumbnail-webp'))),

@@ -21,7 +21,7 @@ export const compose = () => {
     const spotify = composeSpotify(core)
     const resume = composeResume(core)
     const calendar = composeCalendar(core)
-    const drive = composeDrive({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor, gdriveStorageService: shared.gdriveStorageService })
+    const drive = composeDrive({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor, gdriveStorageService: null, initGdriveStorage: shared.initGdriveStorage })
 
     return {
         ...shared,

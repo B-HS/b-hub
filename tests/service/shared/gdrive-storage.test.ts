@@ -1,26 +1,12 @@
-import { describe, expect, test, mock, beforeAll } from 'bun:test'
+import { describe, expect, test, mock } from 'bun:test'
 import { createGdriveStorageService } from '../../../service/shared/gdrive-storage'
 
 const mockTokenResponse = { access_token: 'mock-access-token', expires_in: 3600 }
 
-let TEST_PRIVATE_KEY_PEM = ''
-
-beforeAll(async () => {
-    const keyPair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, [
-        'sign',
-        'verify',
-    ])
-    const exported = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey)
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(exported)))
-    TEST_PRIVATE_KEY_PEM = `-----BEGIN RSA PRIVATE KEY-----\n${b64.match(/.{1,64}/g)!.join('\n')}\n-----END RSA PRIVATE KEY-----\n`
-})
-
 const createDeps = () => ({
-    serviceAccountKey: {
-        client_email: 'test@test-project.iam.gserviceaccount.com',
-        private_key: TEST_PRIVATE_KEY_PEM,
-        token_uri: 'https://oauth2.googleapis.com/token',
-    },
+    clientId: 'test-client-id',
+    clientSecret: 'test-client-secret',
+    refreshToken: 'test-refresh-token',
 })
 
 describe('createGdriveStorageService', () => {
@@ -115,8 +101,8 @@ describe('createGdriveStorageService', () => {
         })
     })
 
-    describe('Service Account JWT 인증', () => {
-        test('토큰 요청 시 JWT assertion을 사용한다', async () => {
+    describe('OAuth 토큰', () => {
+        test('refresh token으로 access token을 발급받는다', async () => {
             const originalFetch = globalThis.fetch
             let tokenRequestBody = ''
             let callCount = 0
@@ -127,12 +113,7 @@ describe('createGdriveStorageService', () => {
                     return new Response(JSON.stringify(mockTokenResponse), { status: 200 })
                 }
                 return new Response(
-                    new ReadableStream({
-                        start(c) {
-                            c.enqueue(new TextEncoder().encode('data'))
-                            c.close()
-                        },
-                    }),
+                    new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data')); c.close() } }),
                     { status: 200 },
                 )
             }) as typeof fetch
@@ -140,8 +121,9 @@ describe('createGdriveStorageService', () => {
             try {
                 const service = createGdriveStorageService(createDeps())
                 await service.download('test-id')
-                expect(tokenRequestBody).toContain('grant_type=urn')
-                expect(tokenRequestBody).toContain('assertion=')
+                expect(tokenRequestBody).toContain('grant_type=refresh_token')
+                expect(tokenRequestBody).toContain('client_id=test-client-id')
+                expect(tokenRequestBody).toContain('refresh_token=test-refresh-token')
             } finally {
                 globalThis.fetch = originalFetch
             }

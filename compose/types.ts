@@ -32,4 +32,5 @@ export type ComposeDriveArgs = ComposeCoreArgs & {
     storageService: StorageService
     imageProcessor: ImageProcessor
     gdriveStorageService: GdriveStorageService | null
+    initGdriveStorage: () => Promise<GdriveStorageService | null>
 }

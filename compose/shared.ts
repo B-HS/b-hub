@@ -1,9 +1,11 @@
 import { S3Client } from '@aws-sdk/client-s3'
+import { eq, and } from 'drizzle-orm'
 import sharp from 'sharp'
 import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import * as schema from '../db/schema'
 import { createGdriveStorageService } from '../service/shared/gdrive-storage'
 import { createAuthProvider } from '../service/shared/auth-provider'
 import { createApiTokenService } from '../service/shared/api-token'
@@ -85,11 +87,29 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         mergeStyles,
     })
 
-    const gdriveStorageService = env.GDRIVE_SERVICE_ACCOUNT_KEY
-        ? createGdriveStorageService({
-              serviceAccountKey: JSON.parse(env.GDRIVE_SERVICE_ACCOUNT_KEY),
-          })
-        : null
+    const getGdriveRefreshToken = async (): Promise<string | null> => {
+        if (!env.GDRIVE_OWNER_EMAIL) return null
+        const [row] = await db
+            .select({ refreshToken: schema.account.refreshToken })
+            .from(schema.account)
+            .innerJoin(schema.user, eq(schema.account.userId, schema.user.id))
+            .where(and(eq(schema.user.email, env.GDRIVE_OWNER_EMAIL), eq(schema.account.providerId, 'google')))
+            .limit(1)
+        return row?.refreshToken ?? null
+    }
+
+    let gdriveStorageService: ReturnType<typeof createGdriveStorageService> | null = null
+    const initGdriveStorage = async () => {
+        if (gdriveStorageService) return gdriveStorageService
+        const refreshToken = await getGdriveRefreshToken()
+        if (!refreshToken || !env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null
+        gdriveStorageService = createGdriveStorageService({
+            clientId: env.GOOGLE_CLIENT_ID,
+            clientSecret: env.GOOGLE_CLIENT_SECRET,
+            refreshToken,
+        })
+        return gdriveStorageService
+    }
 
     return {
         auth,
@@ -100,6 +120,7 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         imageGenerator,
         fontLoader,
         badgeService,
-        gdriveStorageService,
+        gdriveStorageService: null as ReturnType<typeof createGdriveStorageService> | null,
+        initGdriveStorage,
     }
 }
