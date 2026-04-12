@@ -69,14 +69,13 @@ export const createGdriveClient = (deps: GdriveClientDeps) => {
 
     return {
         upload: async (
-            userId: string,
-            fileName: string,
+            s3Key: string,
             body: Buffer,
             mimeType: string,
         ): Promise<{ success: true; gdriveFileId: string } | { success: false; error: string }> => {
             try {
                 const metadata = JSON.stringify({
-                    name: `${userId}/${fileName}`,
+                    name: s3Key.replace(/\//g, '_'),
                     parents: [deps.rootFolderId],
                 })
 

@@ -64,7 +64,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => ({
         let localPath: string | null = null
 
         const gdriveResult = await withRetry(async () => {
-            const result = await deps.gdrive.upload(s3Key.split('/')[1] ?? 'unknown', file.name, buffer, file.type)
+            const result = await deps.gdrive.upload(s3Key, buffer, file.type)
             if (!result.success) throw new Error(result.error)
             return result
         }, 2).catch((error) => ({ success: false as const, error: error instanceof Error ? error.message : 'Google Drive upload failed' }))
