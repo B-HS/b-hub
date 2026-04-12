@@ -65,13 +65,18 @@ app.use(
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
 app.post('/upload', async (c) => {
+    const origin = c.req.header('Origin') ?? 'unknown'
+    console.log(`[request] POST /upload from ${origin}`)
+
     const formData = await c.req.formData()
     const file = formData.get('file')
     if (!file || !(file instanceof File)) {
+        console.warn(`[request] rejected: no file provided`)
         return c.json({ success: false, error: 'No file provided' }, 400)
     }
 
     if (file.size > env.MAX_UPLOAD_SIZE_BYTES) {
+        console.warn(`[request] rejected: file too large (${file.size} bytes)`)
         return c.json({ success: false, error: 'File too large' }, 413)
     }
 
@@ -80,12 +85,14 @@ app.post('/upload', async (c) => {
     const uploadToken = formData.get('uploadToken') as string
 
     if (!assetId || !s3Key || !uploadToken) {
+        console.warn(`[request] rejected: missing params assetId=${assetId} s3Key=${!!s3Key} uploadToken=${!!uploadToken}`)
         return c.json({ success: false, error: 'Missing assetId, s3Key, or uploadToken' }, 400)
     }
 
     const result = await handler.handle(file, assetId, s3Key, uploadToken)
 
     if (!result.success) {
+        console.error(`[request] failed: ${result.message}`)
         return c.json({ success: false, error: result.message }, 500)
     }
 

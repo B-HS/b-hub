@@ -31,6 +31,7 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries: number): Promise<T
             return await fn()
         } catch (error) {
             lastError = error
+            console.warn(`[retry] attempt ${i + 1}/${maxRetries} failed:`, error instanceof Error ? error.message : error)
         }
     }
     throw lastError
@@ -38,8 +39,12 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries: number): Promise<T
 
 export const createUploadHandler = (deps: UploadHandlerDeps) => ({
     handle: async (file: File, assetId: number, s3Key: string, uploadToken: string): Promise<{ success: boolean; message: string }> => {
+        const startTime = Date.now()
+        console.log(`[upload] start assetId=${assetId} file=${file.name} size=${file.size} type=${file.type}`)
+
         const buffer = Buffer.from(await file.arrayBuffer())
         const fileHash = await computeHash(buffer)
+        console.log(`[upload] hash=${fileHash.slice(0, 12)}...`)
 
         let thumbnailBase64: string | null = null
         if (file.type.startsWith(IMAGE_MIME_PREFIX) && deps.imageProcessor) {
@@ -47,7 +52,9 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => ({
                 const resized = await deps.imageProcessor.resize(buffer, 100, 100)
                 const webp = await deps.imageProcessor.toWebp(resized, 60)
                 thumbnailBase64 = webp.toString('base64')
-            } catch {
+                console.log(`[upload] thumbnail generated`)
+            } catch (error) {
+                console.warn(`[upload] thumbnail failed:`, error instanceof Error ? error.message : error)
                 thumbnailBase64 = null
             }
         }
@@ -65,6 +72,9 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => ({
         if (gdriveResult.success) {
             tiers.push('L3')
             gdriveFileId = gdriveResult.gdriveFileId
+            console.log(`[upload] gdrive ok fileId=${gdriveFileId}`)
+        } else {
+            console.error(`[upload] gdrive failed: ${gdriveResult.error}`)
         }
 
         if (file.size <= deps.l1MaxFileSize) {
@@ -76,16 +86,23 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => ({
 
             if (r2Result.success) {
                 tiers.push('L1')
+                console.log(`[upload] r2 ok key=${s3Key}`)
+            } else {
+                console.error(`[upload] r2 failed: ${r2Result.error}`)
             }
+        } else {
+            console.log(`[upload] r2 skipped (size ${file.size} > ${deps.l1MaxFileSize})`)
         }
 
         const localResult = await deps.local.upload(s3Key, buffer, file.type)
         if (localResult.success) {
             tiers.push('L2')
             localPath = s3Key
+            console.log(`[upload] local ok`)
         }
 
         const storageTiers = tiers.sort().join(',')
+        console.log(`[upload] tiers=${storageTiers || 'NONE'}`)
 
         const completeRes = await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/complete`, {
             method: 'POST',
@@ -102,12 +119,19 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => ({
 
         if (!completeRes.ok) {
             const text = await completeRes.text()
+            console.error(`[upload] complete callback failed: ${completeRes.status} ${text}`)
             return { success: false, message: `Complete callback failed: ${completeRes.status} ${text}` }
         }
 
+        console.log(`[upload] complete callback ok`)
+
         if (tiers.length === 0) {
+            console.error(`[upload] all tiers failed for assetId=${assetId}`)
             return { success: false, message: 'All storage tiers failed' }
         }
+
+        const elapsed = Date.now() - startTime
+        console.log(`[upload] done assetId=${assetId} tiers=${storageTiers} elapsed=${elapsed}ms`)
 
         return { success: true, message: `Uploaded to ${storageTiers}` }
     },
