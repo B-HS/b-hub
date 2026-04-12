@@ -16,12 +16,13 @@ export const createR2Client = (deps: R2ClientDeps) => {
             accessKeyId: deps.accessKeyId,
             secretAccessKey: deps.secretAccessKey,
         },
+        maxAttempts: 1,
     })
 
     return {
         upload: async (key: string, filePath: string, contentType: string): Promise<{ success: true; key: string } | { success: false; error: string }> => {
             try {
-                const body = readFileSync(filePath)
+                const body = new Uint8Array(readFileSync(filePath))
                 await s3.send(
                     new PutObjectCommand({
                         Bucket: deps.bucket,
@@ -32,6 +33,8 @@ export const createR2Client = (deps: R2ClientDeps) => {
                 )
                 return { success: true, key }
             } catch (error) {
+                const err = error as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number }; message?: string }
+                console.error(`[r2] upload error: name=${err.name} code=${err.Code} statusCode=${err.$metadata?.httpStatusCode} message=${err.message}`)
                 return { success: false, error: error instanceof Error ? error.message : 'R2 upload failed' }
             }
         },
