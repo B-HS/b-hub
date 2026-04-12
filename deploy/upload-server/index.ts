@@ -17,7 +17,9 @@ const env = {
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? '',
     R2_BUCKET: process.env.R2_BUCKET ?? 'blog-cloud',
 
-    GDRIVE_SERVICE_ACCOUNT_KEY: process.env.GDRIVE_SERVICE_ACCOUNT_KEY ?? '{}',
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? '',
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? '',
+    GDRIVE_REFRESH_TOKEN: process.env.GDRIVE_REFRESH_TOKEN ?? '',
     GDRIVE_ROOT_FOLDER_ID: process.env.GDRIVE_ROOT_FOLDER_ID ?? '',
 }
 
@@ -31,7 +33,9 @@ const r2 = createR2Client({
 })
 
 const gdrive = createGdriveClient({
-    serviceAccountKey: JSON.parse(env.GDRIVE_SERVICE_ACCOUNT_KEY),
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    refreshToken: env.GDRIVE_REFRESH_TOKEN,
     rootFolderId: env.GDRIVE_ROOT_FOLDER_ID,
 })
 
