@@ -54,9 +54,40 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
         },
     }
 
+    const parseTiers = (storageTiers: string): Set<string> => new Set(storageTiers.split(',').filter(Boolean))
+
     const driveFolderService = createDriveFolderService({
         db: folderDb,
         generateId: () => crypto.randomUUID(),
+        getAssetsByFolderId: async (folderId: string) => {
+            const rows = await db
+                .select({
+                    id: schema.cloudAssets.id,
+                    s3Key: schema.cloudAssets.s3Key,
+                    storageTiers: schema.cloudAssets.storageTiers,
+                    gdriveFileId: schema.cloudAssets.gdriveFileId,
+                })
+                .from(schema.cloudAssets)
+                .where(eq(schema.cloudAssets.folderId, folderId))
+            return rows
+        },
+        deleteAssetFromTiers: async (asset) => {
+            const tiers = parseTiers(asset.storageTiers)
+            if (tiers.has('L1')) {
+                try {
+                    await storageService.del(asset.s3Key)
+                } catch {}
+            }
+            if (tiers.has('L3') && asset.gdriveFileId) {
+                try {
+                    const gdrive = await initGdriveStorage()
+                    if (gdrive) await gdrive.del(asset.gdriveFileId)
+                } catch {}
+            }
+        },
+        removeAssetFromDb: async (assetId: number) => {
+            await db.delete(schema.cloudAssets).where(eq(schema.cloudAssets.id, assetId))
+        },
     })
 
     const assetDb = {

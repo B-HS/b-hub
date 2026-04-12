@@ -18,9 +18,19 @@ type DriveFolderServiceDb = {
     remove: (id: string) => Promise<void>
 }
 
+type AssetForDelete = {
+    id: number
+    s3Key: string
+    storageTiers: string
+    gdriveFileId: string | null
+}
+
 type DriveFolderServiceDeps = {
     db: DriveFolderServiceDb
     generateId: () => string
+    getAssetsByFolderId: (folderId: string) => Promise<AssetForDelete[]>
+    deleteAssetFromTiers: (asset: AssetForDelete) => Promise<void>
+    removeAssetFromDb: (assetId: number) => Promise<void>
 }
 
 const MAX_DEPTH = 50
@@ -138,7 +148,24 @@ export const createDriveFolderService = (deps: DriveFolderServiceDeps) => ({
         if (!folder) throw createAppError('DRIVE_FOLDER_NOT_FOUND')
         if (folder.userId !== userId) throw createAppError('DRIVE_FOLDER_NOT_FOUND')
 
-        await deps.db.remove(folderId)
+        const deleteRecursive = async (id: string) => {
+            const children = await deps.db.getByParent(userId, id)
+            for (const child of children) {
+                await deleteRecursive(child.id)
+            }
+
+            const assets = await deps.getAssetsByFolderId(id)
+            for (const asset of assets) {
+                try {
+                    await deps.deleteAssetFromTiers(asset)
+                } catch {}
+                await deps.removeAssetFromDb(asset.id)
+            }
+
+            await deps.db.remove(id)
+        }
+
+        await deleteRecursive(folderId)
 
         return { id: folderId }
     },
