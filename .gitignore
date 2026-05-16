@@ -5,6 +5,9 @@ drizzle/
 .env
 .env.local
 .env.*.local
+.env.vercel
+.env.vercel.*
+.env.backup
 .DS_Store
 *.log
 .claude/

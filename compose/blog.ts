@@ -437,13 +437,9 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
 
     const blogImageService = createBlogImageService({
         storage: {
-            upload: async (key, body, contentType) => {
-                await storageService.upload(key, body, contentType)
-            },
-            delete: storageService.del,
             getUrl: storageService.getUrl,
+            delete: storageService.del,
         },
-        imageProcessor,
         db: {
             insertImageAsset: async (data) => {
                 await db.insert(schema.imageAssets).values({
@@ -452,24 +448,47 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                     updatedAt: new Date(),
                 })
             },
+            getImageAssetById: async (id: string) => {
+                const [row] = await db
+                    .select({ r2Key: schema.imageAssets.r2Key })
+                    .from(schema.imageAssets)
+                    .where(eq(schema.imageAssets.id, id))
+                    .limit(1)
+                return row ?? null
+            },
+            deleteImageAsset: async (id: string) => {
+                await db.delete(schema.imageAssets).where(eq(schema.imageAssets.id, id))
+            },
             getImageList: async () => {
-                return db.select().from(schema.images).orderBy(desc(schema.images.createdAt))
-            },
-            insertLegacyImage: async (data) => {
-                const [image] = await db
-                    .insert(schema.images)
-                    .values({
-                        ...data,
-                        createdAt: new Date(),
-                        updatedAt: new Date(),
+                const rows = await db
+                    .select({
+                        id: schema.imageAssets.id,
+                        r2Key: schema.imageAssets.r2Key,
+                        mimeType: schema.imageAssets.mimeType,
+                        sizeBytes: schema.imageAssets.sizeBytes,
+                        width: schema.imageAssets.width,
+                        height: schema.imageAssets.height,
+                        createdAt: schema.imageAssets.createdAt,
                     })
-                    .$returningId()
-                return image
+                    .from(schema.imageAssets)
+                    .where(like(schema.imageAssets.r2Key, 'blog/%'))
+                    .orderBy(desc(schema.imageAssets.createdAt))
+                return rows.map((row) => ({
+                    id: row.id,
+                    r2Key: row.r2Key,
+                    url: storageService.getUrl(row.r2Key),
+                    mimeType: row.mimeType,
+                    sizeBytes: row.sizeBytes,
+                    width: row.width,
+                    height: row.height,
+                    createdAt: row.createdAt.toISOString(),
+                }))
             },
-            runTransaction: async <T>(fn: () => Promise<T>) => db.transaction(async () => fn()),
         },
         bucket: env.R2_BUCKET ?? 'blog-cloud',
         generateId: () => crypto.randomUUID(),
+        tokenSecret: env.UPLOAD_SERVER_SECRET ?? '',
+        uploadServerUrl: env.UPLOAD_SERVER_URL ?? '',
     })
 
     const categoryDb = {

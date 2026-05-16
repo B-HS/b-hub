@@ -1,169 +1,163 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createBlogImageService } from '../../../../service/domain/blog/blog-image'
 
+const TOKEN_SECRET = 'test-secret'
+
 const createMockDeps = () => ({
     storage: {
-        upload: mock(() => Promise.resolve()),
-        delete: mock(() => Promise.resolve()),
         getUrl: (key: string) => `https://cdn.example.com/${key}`,
-    },
-    imageProcessor: {
-        toWebp: mock(() => Promise.resolve(Buffer.from('webp-data'))),
-        getMetadata: mock(() => Promise.resolve({ width: 800, height: 600 })),
+        delete: mock(() => Promise.resolve()),
     },
     db: {
         insertImageAsset: mock(() => Promise.resolve()),
         getImageList: mock(() =>
             Promise.resolve([
                 {
-                    imageId: 1,
-                    fileName: 'test.webp',
-                    originalName: 'photo.jpg',
-                    url: 'https://cdn.example.com/blog/test.webp',
+                    id: 'test-uuid-123',
+                    r2Key: 'blog/test-uuid-123.webp',
+                    url: 'https://cdn.example.com/blog/test-uuid-123.webp',
                     mimeType: 'image/webp',
-                    fileSize: 50000,
+                    sizeBytes: 50000,
                     width: 800,
                     height: 600,
-                    createdAt: new Date(),
+                    createdAt: new Date().toISOString(),
                 },
             ]),
         ),
-        insertLegacyImage: mock(() => Promise.resolve({ imageId: 1 })),
+        getImageAssetById: mock((id: string) => Promise.resolve({ r2Key: `blog/${id}.webp` })),
+        deleteImageAsset: mock(() => Promise.resolve()),
     },
     bucket: 'test-bucket',
     generateId: () => 'test-uuid-123',
+    tokenSecret: TOKEN_SECRET,
+    uploadServerUrl: 'https://upload.example.com/upload-blog-image',
 })
 
-describe('createBlogImageService', () => {
-    test('upload는 이미지를 WebP로 변환하고 R2에 업로드한다', async () => {
+describe('createBlogImageService.prepare', () => {
+    test('assetId, s3Key, uploadToken, uploadUrl을 반환한다', () => {
+        const service = createBlogImageService(createMockDeps())
+        const result = service.prepare('user-1')
+        expect(result.assetId).toBe('test-uuid-123')
+        expect(result.s3Key).toBe('blog/test-uuid-123.webp')
+        expect(result.uploadUrl).toBe('https://upload.example.com/upload-blog-image')
+        expect(result.uploadToken.split('.').length).toBe(3)
+        expect(result.expiresAt).toBeGreaterThan(Date.now())
+    })
+})
+
+describe('createBlogImageService.complete', () => {
+    test('유효한 토큰으로 호출 시 image_assets에 insert하고 결과를 반환한다', async () => {
         const deps = createMockDeps()
         const service = createBlogImageService(deps)
 
-        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', {
-            type: 'image/jpeg',
+        const { assetId, s3Key, uploadToken } = service.prepare('user-1')
+        const result = await service.complete({
+            assetId,
+            s3Key,
+            uploadToken,
+            sizeBytes: 12345,
+            width: 800,
+            height: 600,
         })
-        const result = await service.upload(file, 'user-1')
 
         expect(result.id).toBe('test-uuid-123')
-        expect(result.mimeType).toBe('image/webp')
-        expect(result.width).toBe(800)
-        expect(result.height).toBe(600)
         expect(result.url).toBe('https://cdn.example.com/blog/test-uuid-123.webp')
-        expect(deps.imageProcessor.toWebp).toHaveBeenCalled()
-        expect(deps.storage.upload).toHaveBeenCalledWith('blog/test-uuid-123.webp', expect.any(Buffer), 'image/webp')
-        expect(deps.db.insertImageAsset).toHaveBeenCalled()
-        expect(deps.db.insertLegacyImage).toHaveBeenCalled()
-    })
-
-    test('upload는 10MB 초과 파일을 거부한다', async () => {
-        const deps = createMockDeps()
-        const service = createBlogImageService(deps)
-
-        const file = new File([new ArrayBuffer(11 * 1024 * 1024)], 'huge.jpg', {
-            type: 'image/jpeg',
-        })
-        await expect(service.upload(file, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_TOO_LARGE' })
-    })
-
-    test('upload는 image_assets와 legacy images 테이블 모두에 저장한다', async () => {
-        const deps = createMockDeps()
-        const service = createBlogImageService(deps)
-
-        const file = new File([new ArrayBuffer(1024)], 'test.png', {
-            type: 'image/png',
-        })
-        await service.upload(file, 'user-1')
-
+        expect(result.mimeType).toBe('image/webp')
+        expect(result.sizeBytes).toBe(12345)
         expect(deps.db.insertImageAsset).toHaveBeenCalledWith(
             expect.objectContaining({
                 id: 'test-uuid-123',
                 r2Key: 'blog/test-uuid-123.webp',
                 bucket: 'test-bucket',
                 uploadedBy: 'user-1',
-            }),
-        )
-        expect(deps.db.insertLegacyImage).toHaveBeenCalledWith(
-            expect.objectContaining({
-                userId: 'user-1',
-                fileName: 'test-uuid-123.webp',
-                originalName: 'test.png',
+                sizeBytes: 12345,
+                width: 800,
+                height: 600,
             }),
         )
     })
 
-    test('upload는 허용되지 않는 MIME 타입을 거부한다', async () => {
+    test('토큰 서명이 변조된 경우 UNAUTHORIZED를 throw한다', async () => {
         const deps = createMockDeps()
         const service = createBlogImageService(deps)
+        const { assetId, s3Key, uploadToken } = service.prepare('user-1')
 
-        const pdfFile = new File([new ArrayBuffer(1024)], 'doc.pdf', {
-            type: 'application/pdf',
-        })
-        await expect(service.upload(pdfFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
-
-        const textFile = new File([new ArrayBuffer(1024)], 'readme.txt', {
-            type: 'text/plain',
-        })
-        await expect(service.upload(textFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
-
-        const htmlFile = new File([new ArrayBuffer(1024)], 'page.html', {
-            type: 'text/html',
-        })
-        await expect(service.upload(htmlFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
+        const tampered = uploadToken.slice(0, -4) + 'xxxx'
+        await expect(
+            service.complete({ assetId, s3Key, uploadToken: tampered, sizeBytes: 1, width: 1, height: 1 }),
+        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     })
 
-    test('upload는 SVG 파일을 거부한다', async () => {
+    test('토큰 형식이 잘못된 경우 UNAUTHORIZED를 throw한다', async () => {
         const deps = createMockDeps()
         const service = createBlogImageService(deps)
+        const { assetId, s3Key } = service.prepare('user-1')
 
-        const svgFile = new File(['<svg></svg>'], 'icon.svg', {
-            type: 'image/svg+xml',
-        })
-        await expect(service.upload(svgFile, 'user-1')).rejects.toMatchObject({ code: 'BLOG_IMAGE_INVALID_TYPE' })
+        await expect(
+            service.complete({ assetId, s3Key, uploadToken: 'invalid', sizeBytes: 1, width: 1, height: 1 }),
+        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     })
 
-    test('upload는 storage 업로드 실패 시 에러를 throw한다', async () => {
+    test('s3Key가 assetId와 일치하지 않으면 VALIDATION_ERROR를 throw한다', async () => {
         const deps = createMockDeps()
-        deps.storage.upload = mock(() => Promise.reject(new Error('R2 upload failed')))
         const service = createBlogImageService(deps)
+        const { assetId, uploadToken } = service.prepare('user-1')
 
-        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', { type: 'image/jpeg' })
-        await expect(service.upload(file, 'user-1')).rejects.toThrow('R2 upload failed')
+        await expect(
+            service.complete({
+                assetId,
+                s3Key: 'blog/other-uuid.webp',
+                uploadToken,
+                sizeBytes: 1,
+                width: 1,
+                height: 1,
+            }),
+        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     })
 
-    test('upload는 imageProcessor 실패 시 에러를 throw한다', async () => {
+    test('다른 secret으로 만든 토큰은 거부한다', async () => {
         const deps = createMockDeps()
-        deps.imageProcessor.toWebp = mock(() => Promise.reject(new Error('Sharp conversion failed')))
+        const evilService = createBlogImageService({ ...deps, tokenSecret: 'other-secret' })
         const service = createBlogImageService(deps)
 
-        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', { type: 'image/jpeg' })
-        await expect(service.upload(file, 'user-1')).rejects.toThrow('Sharp conversion failed')
+        const { assetId, s3Key, uploadToken } = evilService.prepare('user-1')
+        await expect(
+            service.complete({ assetId, s3Key, uploadToken, sizeBytes: 1, width: 1, height: 1 }),
+        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     })
+})
 
-    test('getList는 이미지 목록을 반환한다', async () => {
-        const deps = createMockDeps()
-        const service = createBlogImageService(deps)
-
+describe('createBlogImageService.getList', () => {
+    test('이미지 목록을 반환한다', async () => {
+        const service = createBlogImageService(createMockDeps())
         const result = await service.getList()
         expect(result).toHaveLength(1)
-        expect(result[0].imageId).toBe(1)
+        expect(result[0].id).toBe('test-uuid-123')
+        expect(result[0].r2Key).toBe('blog/test-uuid-123.webp')
     })
+})
 
-    test('이미지 메타데이터 추출 실패 시 에러를 전파한다', async () => {
-        const deps = createMockDeps()
-        deps.imageProcessor.getMetadata = mock(() => Promise.reject(new Error('Metadata extraction failed')))
-        const service = createBlogImageService(deps)
-
-        const file = new File([new ArrayBuffer(1024)], 'photo.jpg', { type: 'image/jpeg' })
-        await expect(service.upload(file, 'user-1')).rejects.toThrow('Metadata extraction failed')
-    })
-
-    test('0 바이트 파일도 MIME 타입이 유효하면 업로드를 시도한다', async () => {
+describe('createBlogImageService.delete', () => {
+    test('R2와 DB에서 이미지를 삭제한다', async () => {
         const deps = createMockDeps()
         const service = createBlogImageService(deps)
+        await service.delete('test-uuid-123')
+        expect(deps.storage.delete).toHaveBeenCalledWith('blog/test-uuid-123.webp')
+        expect(deps.db.deleteImageAsset).toHaveBeenCalledWith('test-uuid-123')
+    })
 
-        const file = new File([], 'empty.jpg', { type: 'image/jpeg' })
-        const result = await service.upload(file, 'user-1')
-        expect(result.id).toBe('test-uuid-123')
-        expect(deps.imageProcessor.toWebp).toHaveBeenCalled()
+    test('존재하지 않는 이미지는 NOT_FOUND를 throw한다', async () => {
+        const deps = createMockDeps()
+        deps.db.getImageAssetById = mock(() => Promise.resolve(null))
+        const service = createBlogImageService(deps)
+        await expect(service.delete('missing')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    })
+
+    test('blog/ prefix가 아닌 r2Key는 FORBIDDEN을 throw한다', async () => {
+        const deps = createMockDeps()
+        deps.db.getImageAssetById = mock(() => Promise.resolve({ r2Key: 'other/key.webp' }))
+        const service = createBlogImageService(deps)
+        await expect(service.delete('test-uuid-123')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+        expect(deps.storage.delete).not.toHaveBeenCalled()
     })
 })

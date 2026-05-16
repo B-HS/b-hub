@@ -37,6 +37,7 @@ const envSchema = z.object({
     GDRIVE_ROOT_FOLDER_ID: z.string().min(1).optional(),
 
     UPLOAD_SERVER_SECRET: z.string().min(1).optional(),
+    UPLOAD_SERVER_URL: z.string().url().optional(),
 
     REDIS_URL: z.string().min(1).optional(),
 

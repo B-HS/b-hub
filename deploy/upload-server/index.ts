@@ -5,6 +5,7 @@ import { createR2Client } from './r2-client'
 import { createGdriveClient } from './gdrive-client'
 import { createLocalClient } from './local-client'
 import { createUploadHandler } from './upload-handler'
+import { createBlogImageHandler } from './blog-image-handler'
 
 const env = {
     PORT: Number(process.env.PORT ?? 4100),
@@ -35,7 +36,14 @@ const local = createLocalClient()
 const imageProcessor = {
     resize: (buffer: Buffer, width: number, height?: number) => sharp(buffer).resize(width, height, { fit: 'inside' }).toBuffer(),
     toWebp: (buffer: Buffer, quality = 80) => sharp(buffer).webp({ quality }).toBuffer(),
+    getMetadata: async (buffer: Buffer) => {
+        const meta = await sharp(buffer).metadata()
+        return { width: meta.width ?? 0, height: meta.height ?? 0 }
+    },
 }
+
+const BLOG_IMAGE_MAX_SIZE = 10 * 1024 * 1024
+const BLOG_IMAGE_ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
 const handler = createUploadHandler({
     r2,
@@ -46,6 +54,16 @@ const handler = createUploadHandler({
     l1MaxFileSize: L1_MAX_FILE_SIZE,
     tmpDir: '/tmp/uploads',
     imageProcessor,
+})
+
+const blogImageHandler = createBlogImageHandler({
+    r2,
+    hubBaseUrl: env.HUB_BASE_URL,
+    tmpDir: '/tmp/uploads',
+    generateId: () => crypto.randomUUID(),
+    imageProcessor,
+    maxFileSize: BLOG_IMAGE_MAX_SIZE,
+    allowedMimeTypes: BLOG_IMAGE_ALLOWED_MIME,
 })
 
 const app = new Hono()
@@ -59,6 +77,32 @@ app.use(
 )
 
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
+
+app.post('/upload-blog-image', async (c) => {
+    const origin = c.req.header('Origin') ?? 'unknown'
+    console.log(`[request] POST /upload-blog-image from ${origin}`)
+
+    const formData = await c.req.formData()
+    const file = formData.get('file')
+    if (!file || !(file instanceof File)) {
+        return c.json({ success: false, error: 'No file provided' }, 400)
+    }
+
+    const assetId = formData.get('assetId') as string | null
+    const s3Key = formData.get('s3Key') as string | null
+    const uploadToken = formData.get('uploadToken') as string | null
+
+    if (!assetId || !s3Key || !uploadToken) {
+        return c.json({ success: false, error: 'Missing assetId, s3Key, or uploadToken' }, 400)
+    }
+
+    const result = await blogImageHandler.handle(file, assetId, s3Key, uploadToken)
+    if (!result.success) {
+        console.error(`[request] blog-image failed: ${result.message}`)
+        return c.json({ success: false, error: result.message }, 500)
+    }
+    return c.json({ success: true, url: result.url })
+})
 
 app.post('/upload', async (c) => {
     const origin = c.req.header('Origin') ?? 'unknown'

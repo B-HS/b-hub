@@ -19,25 +19,33 @@ export const createR2Client = (deps: R2ClientDeps) => {
         maxAttempts: 1,
     })
 
+    const putBytes = async (
+        key: string,
+        body: Uint8Array,
+        contentType: string,
+    ): Promise<{ success: true; key: string } | { success: false; error: string }> => {
+        try {
+            await s3.send(
+                new PutObjectCommand({
+                    Bucket: deps.bucket,
+                    Key: key,
+                    Body: body,
+                    ContentType: contentType,
+                }),
+            )
+            return { success: true, key }
+        } catch (error) {
+            const err = error as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number }; message?: string }
+            console.error(`[r2] upload error: name=${err.name} code=${err.Code} statusCode=${err.$metadata?.httpStatusCode} message=${err.message}`)
+            return { success: false, error: error instanceof Error ? error.message : 'R2 upload failed' }
+        }
+    }
+
     return {
-        upload: async (key: string, filePath: string, contentType: string): Promise<{ success: true; key: string } | { success: false; error: string }> => {
-            try {
-                const body = new Uint8Array(readFileSync(filePath))
-                await s3.send(
-                    new PutObjectCommand({
-                        Bucket: deps.bucket,
-                        Key: key,
-                        Body: body,
-                        ContentType: contentType,
-                    }),
-                )
-                return { success: true, key }
-            } catch (error) {
-                const err = error as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number }; message?: string }
-                console.error(`[r2] upload error: name=${err.name} code=${err.Code} statusCode=${err.$metadata?.httpStatusCode} message=${err.message}`)
-                return { success: false, error: error instanceof Error ? error.message : 'R2 upload failed' }
-            }
-        },
+        upload: async (key: string, filePath: string, contentType: string) =>
+            putBytes(key, new Uint8Array(readFileSync(filePath)), contentType),
+        uploadBuffer: async (key: string, body: Buffer | Uint8Array, contentType: string) =>
+            putBytes(key, body instanceof Buffer ? new Uint8Array(body) : body, contentType),
     }
 }
 
