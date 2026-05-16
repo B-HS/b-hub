@@ -6,7 +6,7 @@ const createMockDeps = () => ({
     blogImageService: {
         prepare: mock(() => ({
             assetId: 'asset-uuid',
-            s3Key: 'blog/asset-uuid.webp',
+            s3Key: 'asset-uuid.webp',
             uploadToken: 'token.abc.def',
             uploadUrl: 'https://upload.example.com/upload-blog-image',
             expiresAt: Date.now() + 60000,
@@ -14,7 +14,7 @@ const createMockDeps = () => ({
         complete: mock(() =>
             Promise.resolve({
                 id: 'asset-uuid',
-                url: 'https://cdn.example.com/blog/asset-uuid.webp',
+                url: 'https://cdn.example.com/asset-uuid.webp',
                 mimeType: 'image/webp',
                 sizeBytes: 50000,
                 width: 800,
@@ -26,8 +26,8 @@ const createMockDeps = () => ({
             Promise.resolve([
                 {
                     id: 'asset-uuid',
-                    r2Key: 'blog/asset-uuid.webp',
-                    url: 'https://cdn.example.com/blog/asset-uuid.webp',
+                    r2Key: 'asset-uuid.webp',
+                    url: 'https://cdn.example.com/asset-uuid.webp',
                     mimeType: 'image/webp',
                     sizeBytes: 50000,
                     width: 800,
@@ -80,7 +80,7 @@ describe('POST /blog/images/prepare', () => {
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.data.assetId).toBe('asset-uuid')
-        expect(body.data.s3Key).toBe('blog/asset-uuid.webp')
+        expect(body.data.s3Key).toBe('asset-uuid.webp')
         expect(body.data.uploadUrl).toBe('https://upload.example.com/upload-blog-image')
         expect(deps.blogImageService.prepare).toHaveBeenCalledWith('user-1')
     })
@@ -119,7 +119,7 @@ describe('POST /blog/images/complete', () => {
         })
         expect(res.status).toBe(200)
         const body = await res.json()
-        expect(body.data.url).toBe('https://cdn.example.com/blog/asset-uuid.webp')
+        expect(body.data.url).toBe('https://cdn.example.com/asset-uuid.webp')
         expect(deps.blogImageService.complete).toHaveBeenCalled()
     })
 

@@ -14,8 +14,8 @@ const createMockDeps = () => ({
             Promise.resolve([
                 {
                     id: 'test-uuid-123',
-                    r2Key: 'blog/test-uuid-123.webp',
-                    url: 'https://cdn.example.com/blog/test-uuid-123.webp',
+                    r2Key: 'test-uuid-123.webp',
+                    url: 'https://cdn.example.com/test-uuid-123.webp',
                     mimeType: 'image/webp',
                     sizeBytes: 50000,
                     width: 800,
@@ -24,7 +24,7 @@ const createMockDeps = () => ({
                 },
             ]),
         ),
-        getImageAssetById: mock((id: string) => Promise.resolve({ r2Key: `blog/${id}.webp` })),
+        getImageAssetById: mock((id: string) => Promise.resolve({ r2Key: `${id}.webp` })),
         deleteImageAsset: mock(() => Promise.resolve()),
     },
     bucket: 'test-bucket',
@@ -38,7 +38,7 @@ describe('createBlogImageService.prepare', () => {
         const service = createBlogImageService(createMockDeps())
         const result = service.prepare('user-1')
         expect(result.assetId).toBe('test-uuid-123')
-        expect(result.s3Key).toBe('blog/test-uuid-123.webp')
+        expect(result.s3Key).toBe('test-uuid-123.webp')
         expect(result.uploadUrl).toBe('https://upload.example.com/upload-blog-image')
         expect(result.uploadToken.split('.').length).toBe(3)
         expect(result.expiresAt).toBeGreaterThan(Date.now())
@@ -61,13 +61,13 @@ describe('createBlogImageService.complete', () => {
         })
 
         expect(result.id).toBe('test-uuid-123')
-        expect(result.url).toBe('https://cdn.example.com/blog/test-uuid-123.webp')
+        expect(result.url).toBe('https://cdn.example.com/test-uuid-123.webp')
         expect(result.mimeType).toBe('image/webp')
         expect(result.sizeBytes).toBe(12345)
         expect(deps.db.insertImageAsset).toHaveBeenCalledWith(
             expect.objectContaining({
                 id: 'test-uuid-123',
-                r2Key: 'blog/test-uuid-123.webp',
+                r2Key: 'test-uuid-123.webp',
                 bucket: 'test-bucket',
                 uploadedBy: 'user-1',
                 sizeBytes: 12345,
@@ -106,7 +106,7 @@ describe('createBlogImageService.complete', () => {
         await expect(
             service.complete({
                 assetId,
-                s3Key: 'blog/other-uuid.webp',
+                s3Key: 'other-uuid.webp',
                 uploadToken,
                 sizeBytes: 1,
                 width: 1,
@@ -133,7 +133,7 @@ describe('createBlogImageService.getList', () => {
         const result = await service.getList()
         expect(result).toHaveLength(1)
         expect(result[0].id).toBe('test-uuid-123')
-        expect(result[0].r2Key).toBe('blog/test-uuid-123.webp')
+        expect(result[0].r2Key).toBe('test-uuid-123.webp')
     })
 })
 
@@ -142,7 +142,7 @@ describe('createBlogImageService.delete', () => {
         const deps = createMockDeps()
         const service = createBlogImageService(deps)
         await service.delete('test-uuid-123')
-        expect(deps.storage.delete).toHaveBeenCalledWith('blog/test-uuid-123.webp')
+        expect(deps.storage.delete).toHaveBeenCalledWith('test-uuid-123.webp')
         expect(deps.db.deleteImageAsset).toHaveBeenCalledWith('test-uuid-123')
     })
 
@@ -153,9 +153,9 @@ describe('createBlogImageService.delete', () => {
         await expect(service.delete('missing')).rejects.toMatchObject({ code: 'NOT_FOUND' })
     })
 
-    test('blog/ prefix가 아닌 r2Key는 FORBIDDEN을 throw한다', async () => {
+    test('uuid.webp 형식이 아닌 r2Key는 FORBIDDEN을 throw한다', async () => {
         const deps = createMockDeps()
-        deps.db.getImageAssetById = mock(() => Promise.resolve({ r2Key: 'other/key.webp' }))
+        deps.db.getImageAssetById = mock(() => Promise.resolve({ r2Key: 'mail/attachments/some.pdf' }))
         const service = createBlogImageService(deps)
         await expect(service.delete('test-uuid-123')).rejects.toMatchObject({ code: 'FORBIDDEN' })
         expect(deps.storage.delete).not.toHaveBeenCalled()

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, like, notInArray, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
 import { createPostService } from '../service/domain/blog/post'
@@ -460,6 +460,9 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                 await db.delete(schema.imageAssets).where(eq(schema.imageAssets.id, id))
             },
             getImageList: async () => {
+                const usedInMessages = db
+                    .select({ imageId: schema.messageImages.imageId })
+                    .from(schema.messageImages)
                 const rows = await db
                     .select({
                         id: schema.imageAssets.id,
@@ -471,7 +474,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                         createdAt: schema.imageAssets.createdAt,
                     })
                     .from(schema.imageAssets)
-                    .where(like(schema.imageAssets.r2Key, 'blog/%'))
+                    .where(notInArray(schema.imageAssets.id, usedInMessages))
                     .orderBy(desc(schema.imageAssets.createdAt))
                 return rows.map((row) => ({
                     id: row.id,

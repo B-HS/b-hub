@@ -98,7 +98,7 @@ const verifyToken = (
 export const createBlogImageService = (deps: BlogImageDeps) => ({
     prepare: (userId: string): PrepareResult => {
         const assetId = deps.generateId()
-        const s3Key = `blog/${assetId}.webp`
+        const s3Key = `${assetId}.webp`
         const expiresAt = Date.now() + TOKEN_TTL_MS
         const uploadToken = signToken(deps.tokenSecret, assetId, s3Key, userId, expiresAt)
         return { assetId, s3Key, uploadToken, uploadUrl: deps.uploadServerUrl, expiresAt }
@@ -115,7 +115,7 @@ export const createBlogImageService = (deps: BlogImageDeps) => ({
         const result = verifyToken(deps.tokenSecret, data.uploadToken, data.assetId, data.s3Key)
         if (!result.ok) throw createAppError('UNAUTHORIZED')
 
-        const expectedS3Key = `blog/${data.assetId}.webp`
+        const expectedS3Key = `${data.assetId}.webp`
         if (data.s3Key !== expectedS3Key) throw createAppError('VALIDATION_ERROR')
 
         await deps.db.insertImageAsset({
@@ -147,7 +147,8 @@ export const createBlogImageService = (deps: BlogImageDeps) => ({
     delete: async (id: string): Promise<void> => {
         const asset = await deps.db.getImageAssetById(id)
         if (!asset) throw createAppError('NOT_FOUND')
-        if (!asset.r2Key.startsWith('blog/')) throw createAppError('FORBIDDEN')
+        const allowedKeys = [`${id}.webp`, `blog/${id}.webp`]
+        if (!allowedKeys.includes(asset.r2Key)) throw createAppError('FORBIDDEN')
 
         await deps.storage.delete(asset.r2Key)
         await deps.db.deleteImageAsset(id)

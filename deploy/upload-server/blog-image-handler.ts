@@ -43,7 +43,7 @@ export const createBlogImageHandler = (deps: BlogImageHandlerDeps) => {
             if (file.size > deps.maxFileSize) {
                 return { success: false, message: `File too large: ${file.size}` }
             }
-            if (s3Key !== `blog/${assetId}.webp`) {
+            if (s3Key !== `${assetId}.webp`) {
                 return { success: false, message: 'Invalid s3Key' }
             }
 
