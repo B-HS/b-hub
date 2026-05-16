@@ -82,37 +82,24 @@ type KmaApiDeps = {
     fetchFn?: typeof fetch
 }
 
-const formatDate = (date: Date) => {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}${month}${day}`
-}
-
-const formatTime = (date: Date) => {
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
-    return `${hours}${minutes}`
-}
-
 const getBaseDateTime = (type: 'ncst' | 'fcst' | 'vilage') => {
-    const now = new Date()
-    const minutes = now.getMinutes()
+    const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    const minutes = now.getUTCMinutes()
 
     if (type === 'ncst') {
         if (minutes < 40) {
-            now.setHours(now.getHours() - 1)
+            now.setUTCHours(now.getUTCHours() - 1)
         }
-        now.setMinutes(0)
+        now.setUTCMinutes(0)
     } else if (type === 'fcst') {
         if (minutes < 45) {
-            now.setHours(now.getHours() - 1)
+            now.setUTCHours(now.getUTCHours() - 1)
         }
-        now.setMinutes(30)
+        now.setUTCMinutes(30)
     } else {
         const baseTimes = [2, 5, 8, 11, 14, 17, 20, 23]
-        const currentHour = now.getHours()
-        const currentMinutes = now.getMinutes()
+        const currentHour = now.getUTCHours()
+        const currentMinutes = now.getUTCMinutes()
 
         let baseTime = baseTimes[0]
         for (const bt of baseTimes) {
@@ -122,17 +109,22 @@ const getBaseDateTime = (type: 'ncst' | 'fcst' | 'vilage') => {
         }
 
         if (currentHour < 2 || (currentHour === 2 && currentMinutes < 10)) {
-            now.setDate(now.getDate() - 1)
+            now.setUTCDate(now.getUTCDate() - 1)
             baseTime = 23
         }
 
-        now.setHours(baseTime)
-        now.setMinutes(0)
+        now.setUTCHours(baseTime)
+        now.setUTCMinutes(0)
     }
 
+    const y = now.getUTCFullYear()
+    const mo = String(now.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(now.getUTCDate()).padStart(2, '0')
+    const hh = String(now.getUTCHours()).padStart(2, '0')
+    const mm = String(now.getUTCMinutes()).padStart(2, '0')
     return {
-        baseDate: formatDate(now),
-        baseTime: formatTime(now),
+        baseDate: `${y}${mo}${d}`,
+        baseTime: `${hh}${mm}`,
     }
 }
 
