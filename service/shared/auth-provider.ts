@@ -14,6 +14,8 @@ type AuthProviderDeps = {
     trustedOrigins?: string[]
 }
 
+const ALWAYS_TRUSTED_ORIGINS = ['*.gumyo.net', '*.hyns.dev', '*.seok.dev']
+
 export const createAuthProvider = (deps: AuthProviderDeps) => {
     const auth = betterAuth({
         baseURL: deps.baseUrl,
@@ -28,7 +30,14 @@ export const createAuthProvider = (deps: AuthProviderDeps) => {
             google: {
                 clientId: deps.googleClientId,
                 clientSecret: deps.googleClientSecret,
-                scope: ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/drive.file'],
+                scope: [
+                    'openid',
+                    'email',
+                    'profile',
+                    'https://www.googleapis.com/auth/gmail.modify',
+                    'https://www.googleapis.com/auth/gmail.send',
+                    'https://www.googleapis.com/auth/drive.file',
+                ],
                 accessType: 'offline',
                 prompt: 'consent',
             },
@@ -39,7 +48,7 @@ export const createAuthProvider = (deps: AuthProviderDeps) => {
                 adminRoles: ['admin'],
             }),
         ],
-        trustedOrigins: deps.trustedOrigins ?? ['https://blog.gumyo.net'],
+        trustedOrigins: [...new Set([...ALWAYS_TRUSTED_ORIGINS, ...(deps.trustedOrigins ?? [])])],
         advanced: {
             crossSubDomainCookies: {
                 enabled: process.env.NODE_ENV === 'production',
