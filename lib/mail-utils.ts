@@ -2,6 +2,42 @@ export const sanitizeHeaderValue = (value: string): string => {
     return value.replace(/[\x00-\x1f\x7f]/g, '')
 }
 
+const isAscii = (text: string): boolean => /^[\x20-\x7e]*$/.test(text)
+
+// RFC 2047 encoded-word (=?UTF-8?B?...?=). MIME 헤더에 비ASCII(한글 등)를 안전하게 넣기 위한 인코딩.
+// 각 encoded-word는 75 octets 이하 권장이라 코드포인트 단위로 분할(멀티바이트 경계 보존)한다.
+export const encodeMimeWord = (text: string): string => {
+    if (isAscii(text)) return text
+
+    const words: string[] = []
+    let chunk = ''
+    for (const ch of [...text]) {
+        const candidate = chunk + ch
+        // raw 36바이트 → base64 48자 + 오버헤드 12자 = 60자 < 75
+        if (Buffer.byteLength(candidate, 'utf-8') > 36 && chunk) {
+            words.push(chunk)
+            chunk = ch
+        } else {
+            chunk = candidate
+        }
+    }
+    if (chunk) words.push(chunk)
+
+    return words.map((w) => `=?UTF-8?B?${Buffer.from(w, 'utf-8').toString('base64')}?=`).join(' ')
+}
+
+// 메일 주소 헤더(From/To/Cc/Bcc) 한 건을 RFC 호환 형식으로 직렬화한다.
+// 표시 이름이 ASCII면 quoted-string, 비ASCII면 RFC 2047 encoded-word(따옴표 없이)를 사용한다.
+export const formatMailAddress = (addr: { name?: string; address: string }): string => {
+    const name = (addr.name ?? '').replace(/[\x00-\x1f\x7f\r\n]/g, '').slice(0, 256)
+    if (!name) return addr.address
+    if (isAscii(name)) {
+        const escaped = name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        return `"${escaped}" <${addr.address}>`
+    }
+    return `${encodeMimeWord(name)} <${addr.address}>`
+}
+
 export const sanitizeEmailName = (name: string): string => {
     return name
         .replace(/[\x00-\x1f\x7f\r\n]/g, '')

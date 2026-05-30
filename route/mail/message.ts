@@ -12,6 +12,7 @@ import {
     mailMessageSearchQuerySchema,
     mailThreadQuerySchema,
     mailMessageIdsSchema,
+    mailMarkAllReadSchema,
     mailMoveSchema,
     mailComposeSchema,
     mailReplySchema,
@@ -131,6 +132,23 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
                 const body = c.req.valid('json' as never) as z.infer<typeof mailMessageIdsSchema>
                 await deps.mailMessageService.markRead(user.id, body.messageIds)
                 return c.json(successResponse({ updated: true }))
+            }),
+        ),
+    )
+
+    route.post(
+        '/mark-all-read',
+        describeRoute({
+            tags: ['Mail'],
+            summary: '메일함/계정 전체 읽음 표시',
+            responses: { 200: { description: '완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_ACCOUNT_NOT_FOUND', 'MAIL_FOLDER_NOT_FOUND']) },
+        }),
+        validator('json', mailMarkAllReadSchema),
+        withErrorHandling(
+            withAuth({ getSession: deps.getSession })(async (c, user) => {
+                const body = c.req.valid('json' as never) as z.infer<typeof mailMarkAllReadSchema>
+                const result = await deps.mailMessageService.markAllRead(user.id, body)
+                return c.json(successResponse(result))
             }),
         ),
     )

@@ -530,6 +530,20 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                 .where(and(inArray(schema.mailMessages.id, messageIds), eq(schema.mailAccounts.userId, userId)))
             return msgs
         },
+        getUnreadMessages: async (params: { userId: string; accountId?: number; folderId?: number }) => {
+            const conditions = [eq(schema.mailMessages.isRead, false), eq(schema.mailAccounts.userId, params.userId)]
+            if (params.folderId) conditions.push(eq(schema.mailMessages.folderId, params.folderId))
+            else if (params.accountId) conditions.push(eq(schema.mailMessages.accountId, params.accountId))
+            return db
+                .select({
+                    id: schema.mailMessages.id,
+                    remoteMessageId: schema.mailMessages.remoteMessageId,
+                    folderId: schema.mailMessages.folderId,
+                })
+                .from(schema.mailMessages)
+                .innerJoin(schema.mailAccounts, eq(schema.mailMessages.accountId, schema.mailAccounts.id))
+                .where(and(...conditions))
+        },
         getSenderList: async (params: { userId: string; accountId?: number; limit: number }) => {
             let accountIds: number[]
             if (params.accountId) {
@@ -598,14 +612,9 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             await storageService.del(key)
         },
         getUrl: storageService.getUrl,
+        // S3 SDK로 버킷에서 직접 가져온다. CDN public URL fetch는 버킷이 private이면 실패하므로 사용하지 않는다.
         download: async (key: string) => {
-            try {
-                const response = await fetch(storageService.getUrl(key))
-                if (!response.ok) return null
-                return Buffer.from(await response.arrayBuffer())
-            } catch {
-                return null
-            }
+            return storageService.getObject(key)
         },
     }
 

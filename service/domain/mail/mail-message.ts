@@ -36,6 +36,11 @@ type MailMessageDb = {
         messageIds: number[],
         userId: string,
     ) => Promise<{ messageId: number; accountId: number; remoteMessageId: string; folderId: number }[]>
+    getUnreadMessages: (params: {
+        userId: string
+        accountId?: number
+        folderId?: number
+    }) => Promise<{ id: number; remoteMessageId: string; folderId: number }[]>
     getSenderList: (params: { userId: string; accountId?: number; limit: number }) => Promise<{ address: string; name: string }[]>
     countMessagesByFolder: (folderId: number) => Promise<number>
     countUnreadByFolder: (folderId: number) => Promise<number>
@@ -144,6 +149,60 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
 
     const markRead = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'markRead')
     const markUnread = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'markUnread')
+
+    // 메일함(folderId) 또는 계정(accountId) 단위로 안읽은 메일 전체를 읽음 처리한다.
+    const markAllRead = async (userId: string, params: { accountId?: number; folderId?: number }) => {
+        let accountId: number
+        if (params.folderId) {
+            const folder = await deps.db.getFolderById(params.folderId)
+            if (!folder) throw createAppError('MAIL_FOLDER_NOT_FOUND')
+            await deps.accountService.getById(folder.accountId, userId)
+            accountId = folder.accountId
+        } else if (params.accountId) {
+            await deps.accountService.getById(params.accountId, userId)
+            accountId = params.accountId
+        } else {
+            throw createAppError('VALIDATION_ERROR')
+        }
+
+        const unread = await deps.db.getUnreadMessages({ userId, accountId: params.accountId, folderId: params.folderId })
+        if (unread.length === 0) return { updated: 0 }
+
+        const grouped = new Map<number, string[]>()
+        for (const m of unread) {
+            const arr = grouped.get(m.folderId) ?? []
+            arr.push(m.remoteMessageId)
+            grouped.set(m.folderId, arr)
+        }
+
+        try {
+            const { provider } = await deps.accountService.getProvider(accountId, userId)
+            await provider.connect()
+            try {
+                for (const [fid, remoteIds] of grouped) {
+                    const folder = await deps.db.getFolderById(fid)
+                    await provider.markRead(remoteIds, folder?.remoteFolderId).catch(() => {})
+                }
+            } finally {
+                await provider.disconnect().catch(() => {})
+            }
+        } catch {}
+
+        await deps.db.updateFlags(
+            unread.map((m) => m.id),
+            { isRead: true },
+        )
+
+        await Promise.all(
+            [...grouped.keys()].map(async (fid) => {
+                const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(fid), deps.db.countUnreadByFolder(fid)])
+                await deps.db.updateFolderCounts(fid, msgCount, unreadCount)
+            }),
+        )
+
+        return { updated: unread.length }
+    }
+
     const markStarred = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'markStarred')
     const unmarkStarred = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'unmarkStarred')
 
@@ -345,6 +404,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         getThread,
         markRead,
         markUnread,
+        markAllRead,
         markStarred,
         unmarkStarred,
         moveToFolder,

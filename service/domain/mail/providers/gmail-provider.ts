@@ -9,7 +9,7 @@ import type {
     EmailAddress,
 } from '../mail-provider'
 import { parseEmailAddress, getHeader, getBody, getAttachments } from './gmail-helpers'
-import { sanitizeHeaderValue, sanitizeEmailName } from '../../../../lib/mail-utils'
+import { sanitizeHeaderValue, encodeMimeWord, formatMailAddress } from '../../../../lib/mail-utils'
 
 type GmailProviderDeps = {
     email: string
@@ -389,12 +389,12 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
         },
 
         async sendMessage(data: ComposeEmailData): Promise<{ messageId: string }> {
-            const formatAddr = (a: EmailAddress) => (a.name ? `"${sanitizeEmailName(a.name)}" <${a.address}>` : a.address)
+            const formatAddr = (a: EmailAddress) => formatMailAddress(a)
             const headers: string[] = []
             headers.push(`To: ${data.to.map(formatAddr).join(', ')}`)
             if (data.cc?.length) headers.push(`Cc: ${data.cc.map(formatAddr).join(', ')}`)
             if (data.bcc?.length) headers.push(`Bcc: ${data.bcc.map(formatAddr).join(', ')}`)
-            headers.push(`Subject: ${sanitizeHeaderValue(data.subject)}`)
+            headers.push(`Subject: ${encodeMimeWord(sanitizeHeaderValue(data.subject))}`)
             if (data.inReplyTo) headers.push(`In-Reply-To: ${sanitizeHeaderValue(data.inReplyTo)}`)
             if (data.references) headers.push(`References: ${sanitizeHeaderValue(data.references)}`)
             headers.push('MIME-Version: 1.0')

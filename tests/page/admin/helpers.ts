@@ -1,0 +1,106 @@
+import { mock } from 'bun:test'
+import type { AdminDb } from '../../../page/admin/db'
+import type { AdminGetSession, AdminSessionUser } from '../../../page/admin/guard'
+
+export const mockAdmin: AdminSessionUser = { id: 'a1', name: 'Admin', email: 'admin@example.com', role: 'admin', image: null }
+export const mockUser: AdminSessionUser = { id: 'u1', name: 'User', email: 'user@example.com', role: 'user', image: null }
+
+export const sessionOf = (user: AdminSessionUser | null): AdminGetSession => mock(() => Promise.resolve(user ? { user } : null))
+
+const emptyList = <T>() => Promise.resolve({ rows: [] as T[], total: 0 })
+const emptyArr = <T>() => Promise.resolve([] as T[])
+const ok = () => Promise.resolve()
+
+export const stubAdminDb = (overrides: Partial<AdminDb> = {}): AdminDb => {
+    const base: AdminDb = {
+        counts: () =>
+            Promise.resolve({
+                users: 1,
+                posts: 0,
+                comments: 0,
+                messages: 0,
+                mailAccounts: 0,
+                spotifyAccounts: 0,
+                resumes: 0,
+                calendarEvents: 0,
+                driveAssets: 0,
+                apiTokens: 0,
+                activeSessions: 1,
+                requests24h: 0,
+                errors24h: 0,
+                weatherLogs: 0,
+                storageBytes: 0,
+            }),
+        recentUsers: () => emptyArr(),
+        recentRequests: () => emptyArr(),
+        recentErrors: () => emptyArr(),
+        listUsers: () => emptyList(),
+        getUser: () => Promise.resolve(null),
+        getUserAccounts: () => emptyArr(),
+        getUserSessions: () => emptyArr(),
+        getUserApiRequests: () => emptyArr(),
+        updateUserRole: () => ok(),
+        updateUserBan: () => ok(),
+        updateUserQuota: () => ok(),
+        revokeSession: () => ok(),
+        revokeAllUserSessions: () => ok(),
+        listSessions: () => emptyList(),
+        listApiTokens: () => emptyList(),
+        revokeApiToken: () => ok(),
+        listApiLogs: () => emptyList(),
+        listPosts: () => emptyList(),
+        togglePostFlag: () => ok(),
+        deletePost: () => ok(),
+        listComments: () => emptyList(),
+        toggleCommentHide: () => ok(),
+        deleteComment: () => ok(),
+        listCategories: () => emptyArr(),
+        insertCategory: () => ok(),
+        toggleCategoryHide: () => ok(),
+        listTags: () => emptyArr(),
+        insertTag: () => ok(),
+        deleteTag: () => ok(),
+        listImageAssets: () => emptyList(),
+        deleteImageAsset: () => ok(),
+        listMessages: () => emptyList(),
+        getMessage: () => Promise.resolve(null),
+        getMessageImages: () => emptyArr(),
+        getMessageLikes: () => emptyArr(),
+        getMessageBookmarks: () => emptyArr(),
+        softDeleteMessage: () => ok(),
+        restoreMessage: () => ok(),
+        listFollows: () => emptyList(),
+        listWeatherKeys: () => emptyList(),
+        revokeWeatherKey: () => ok(),
+        listWeatherLogs: () => emptyList(),
+        weatherCacheSummary: () => Promise.resolve({ current: 0, ultra: 0, short: 0 }),
+        weatherCacheGrids: () => emptyArr(),
+        deleteWeatherCacheGrid: () => ok(),
+        listMailAccounts: () => emptyList(),
+        toggleMailAccount: () => ok(),
+        listMailSyncLogs: () => emptyList(),
+        listMailSyncSessions: () => emptyList(),
+        listMailMessages: () => emptyList(),
+        listMailUploads: () => emptyList(),
+        deleteMailUpload: () => ok(),
+        listSpotifyAccounts: () => emptyList(),
+        listSpotifyKeys: () => emptyList(),
+        revokeSpotifyKey: () => ok(),
+        listSpotifyWidgetTokens: () => emptyList(),
+        toggleSpotifyWidgetToken: () => ok(),
+        listResumes: () => emptyList(),
+        getResume: () => Promise.resolve(null),
+        toggleResumeVisibility: () => ok(),
+        deleteResume: () => ok(),
+        listCalendarGroups: () => emptyList(),
+        listCalendarEvents: () => emptyList(),
+        listCalendarSubscriptions: () => emptyList(),
+        revokeCalendarSubscription: () => ok(),
+        listDeletedCalendarEvents: () => emptyList(),
+        listDriveAssets: () => emptyList(),
+        deleteDriveAsset: () => ok(),
+        listDriveFolders: () => emptyList(),
+        listLifecycleLogs: () => emptyList(),
+    } as unknown as AdminDb
+    return { ...base, ...overrides }
+}

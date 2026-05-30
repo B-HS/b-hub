@@ -1,21 +1,35 @@
 import { Hono } from 'hono'
 import { generateSpecs } from 'hono-openapi'
 import { swaggerUI } from '@hono/swagger-ui'
+import { eq } from 'drizzle-orm'
 import { createMiddleware } from './middleware'
 import { createPage } from './page'
 import { createRouter } from './route/index'
 import { compose } from './compose'
+import { getDb } from './db'
+import { mailAccounts } from './db/schema'
 import type { AuthContext } from './lib/hono-types'
 
 const app = new Hono<AuthContext>()
-const { api, caldav } = createRouter(compose())
+const composed = compose()
+const { api, caldav } = createRouter(composed)
+
+const triggerMailSync = async (accountId: number) => {
+    const [account] = await getDb().select({ userId: mailAccounts.userId }).from(mailAccounts).where(eq(mailAccounts.id, accountId)).limit(1)
+    if (account) await composed.mailSyncService.syncAccount(accountId, account.userId)
+}
 
 createMiddleware(app, {
     allowedDomains: ['gumyo.net', 'hyns.dev'],
     securityExcludePaths: ['/api/spotify/playing', '/caldav/', '/.well-known/caldav'],
     securityExcludeExactPaths: ['/', '/policy'],
 })
-app.route('', createPage())
+app.route(
+    '',
+    createPage({
+        admin: { getSession: composed.getSession, db: getDb(), auth: composed.auth, triggerMailSync },
+    }),
+)
 app.route('/api', api)
 app.route('/caldav', caldav)
 

@@ -46,6 +46,15 @@ export const mailMoveSchema = z.object({
     targetFolderId: z.number().int().positive(),
 })
 
+export const mailMarkAllReadSchema = z
+    .object({
+        accountId: z.number().int().positive().optional(),
+        folderId: z.number().int().positive().optional(),
+    })
+    .refine((d) => d.accountId !== undefined || d.folderId !== undefined, {
+        message: 'accountId 또는 folderId 중 하나는 필수입니다',
+    })
+
 export const mailComposeSchema = z.object({
     accountId: z.number().int().positive(),
     to: z.array(emailAddressSchema).min(1),
