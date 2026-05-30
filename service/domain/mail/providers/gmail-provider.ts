@@ -369,23 +369,27 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
 
         async downloadAttachment(messageId: string, attachmentId: string): Promise<AttachmentData> {
             const res = await gmailFetch(`/messages/${messageId}/attachments/${attachmentId}`)
-            const data = (await res.json()) as { data: string }
+            const data = (await res.json()) as { data?: string }
+            if (!data.data) throw new Error(`Gmail attachment ${attachmentId} returned no data`)
             const content = Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
             const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024
             if (content.length > MAX_ATTACHMENT_SIZE) {
                 throw new Error('Attachment exceeds maximum size (25MB)')
             }
 
-            const msgRes = await gmailFetch(`/messages/${messageId}?format=metadata&metadataHeaders=Content-Type`)
-            const msgData = (await msgRes.json()) as Record<string, unknown>
-            const attachments = getAttachments(msgData.payload as Record<string, unknown>)
-            const att = attachments.find((a) => a.id === attachmentId)
+            let filename = 'attachment'
+            let mimeType = 'application/octet-stream'
+            try {
+                const msgRes = await gmailFetch(`/messages/${messageId}?format=full`)
+                const msgData = (await msgRes.json()) as Record<string, unknown>
+                const att = getAttachments(msgData.payload as Record<string, unknown>).find((a) => a.id === attachmentId)
+                if (att) {
+                    filename = att.filename ?? filename
+                    mimeType = att.mimeType ?? mimeType
+                }
+            } catch {}
 
-            return {
-                content,
-                filename: att?.filename ?? 'attachment',
-                mimeType: att?.mimeType ?? 'application/octet-stream',
-            }
+            return { content, filename, mimeType }
         },
 
         async sendMessage(data: ComposeEmailData): Promise<{ messageId: string }> {

@@ -1,6 +1,6 @@
 import type { MailMessage, MailAttachment } from '../../../db/schema'
 import type { MailAccountService } from './mail-account'
-import type { AttachmentData, ComposeEmailData, EmailAddress } from './mail-provider'
+import type { AttachmentData, ComposeEmailData, EmailAddress, MailProvider, ProviderAttachment } from './mail-provider'
 import type { MailUploadService } from './mail-upload'
 import { createAppError, isAppError } from '../../../lib/error'
 import { escapeHtml, sanitizeFilename, sanitizeHeaderValue, maskProviderError } from '../../../lib/mail-utils'
@@ -59,6 +59,38 @@ type MailMessageServiceDeps = {
     accountService: MailAccountService
     storageService?: StorageService
     uploadService?: MailUploadService
+}
+
+const matchAttachmentRef = (refs: ProviderAttachment[], attachment: MailAttachment): ProviderAttachment | null => {
+    if (attachment.contentId) {
+        const byContentId = refs.find((r) => r.contentId && r.contentId === attachment.contentId)
+        if (byContentId) return byContentId
+    }
+    if (attachment.filename) {
+        const byName = refs.filter((r) => r.filename === attachment.filename)
+        if (byName.length === 1) return byName[0]
+        const bySize = byName.find((r) => attachment.sizeBytes != null && r.sizeBytes === attachment.sizeBytes)
+        if (bySize) return bySize
+        if (byName.length > 0) return byName[0]
+    }
+    if (refs.length === 1) return refs[0]
+    return null
+}
+
+const downloadAttachmentViaProvider = async (
+    provider: MailProvider,
+    remoteMessageId: string,
+    remoteAttachmentId: string,
+    attachment: MailAttachment,
+): Promise<AttachmentData> => {
+    try {
+        return await provider.downloadAttachment(remoteMessageId, remoteAttachmentId)
+    } catch (firstError) {
+        const detail = await provider.fetchMessageDetail(remoteMessageId).catch(() => null)
+        const match = detail ? matchAttachmentRef(detail.attachments, attachment) : null
+        if (!match || match.id === remoteAttachmentId) throw firstError
+        return await provider.downloadAttachment(remoteMessageId, match.id)
+    }
 }
 
 export const createMailMessageService = (deps: MailMessageServiceDeps) => {
@@ -306,7 +338,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             const { provider } = await deps.accountService.getProvider(msg.accountId, userId)
             await provider.connect()
             try {
-                data = await provider.downloadAttachment(msg.remoteMessageId, attachment.remoteAttachmentId)
+                data = await downloadAttachmentViaProvider(provider, msg.remoteMessageId, attachment.remoteAttachmentId, attachment)
             } finally {
                 await provider.disconnect().catch(() => {})
             }

@@ -382,6 +382,48 @@ describe('createMailMessageService', () => {
             expect(result.filename).toBe('file.pdf')
             expect(accountService._provider.downloadAttachment).toHaveBeenCalled()
         })
+
+        test('stale remote id면 메시지를 재조회해 fresh id로 재시도한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.downloadAttachment = mock((_mid: string, aid: string) =>
+                aid === 'att-remote-FRESH'
+                    ? Promise.resolve({ content: Buffer.from('recovered'), filename: 'file.pdf', mimeType: 'application/pdf' })
+                    : Promise.reject(new Error('Gmail API error 404')),
+            ) as never
+            accountService._provider.fetchMessageDetail = mock(() =>
+                Promise.resolve({
+                    attachments: [{ id: 'att-remote-FRESH', filename: 'file.pdf', mimeType: 'application/pdf', sizeBytes: 1024, contentId: null, isInline: false }],
+                }),
+            ) as never
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            const result = await service.downloadAttachment('user-1', 1, 10)
+            expect(result.content.toString()).toBe('recovered')
+        })
+
+        test('재조회로도 매칭 실패하면 원본 에러를 MAIL_ATTACHMENT_DOWNLOAD_FAILED로 던진다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.downloadAttachment = mock(() => Promise.reject(new Error('Gmail API error 404'))) as never
+            accountService._provider.fetchMessageDetail = mock(() => Promise.resolve({ attachments: [] })) as never
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await expect(service.downloadAttachment('user-1', 1, 10)).rejects.toMatchObject({ code: 'MAIL_ATTACHMENT_DOWNLOAD_FAILED' })
+        })
+
+        test('재조회 결과 id가 동일하면 재시도하지 않고 실패한다 (무한 루프 방지)', async () => {
+            const accountService = createMockAccountService()
+            const dl = mock(() => Promise.reject(new Error('Gmail API error 403')))
+            accountService._provider.downloadAttachment = dl as never
+            accountService._provider.fetchMessageDetail = mock(() =>
+                Promise.resolve({
+                    attachments: [{ id: 'att-remote-1', filename: 'file.pdf', mimeType: 'application/pdf', sizeBytes: 1024, contentId: null, isInline: false }],
+                }),
+            ) as never
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await expect(service.downloadAttachment('user-1', 1, 10)).rejects.toMatchObject({ code: 'MAIL_ATTACHMENT_DOWNLOAD_FAILED' })
+            expect(dl).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('moveToFolder', () => {
