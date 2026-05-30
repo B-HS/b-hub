@@ -367,7 +367,7 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             }
         },
 
-        async downloadAttachment(messageId: string, attachmentId: string): Promise<AttachmentData> {
+        async downloadAttachment(messageId: string, attachmentId: string, _folderId?: string): Promise<AttachmentData> {
             const res = await gmailFetch(`/messages/${messageId}/attachments/${attachmentId}`)
             const data = (await res.json()) as { data?: string }
             if (!data.data) throw new Error(`Gmail attachment ${attachmentId} returned no data`)

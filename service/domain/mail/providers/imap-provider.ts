@@ -432,26 +432,35 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
             await imap.messageDelete(messageIds.join(','), { uid: true })
         },
 
-        async downloadAttachment(messageId: string, attachmentId: string): Promise<AttachmentData> {
+        async downloadAttachment(messageId: string, attachmentId: string, folderId?: string): Promise<AttachmentData> {
             const imap = getClient()
             const uid = parseInt(messageId, 10)
             const MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024
 
-            const result = await imap.download(uid.toString(), attachmentId, { uid: true })
-            if (!result?.content) throw new Error(`Attachment part not found: uid=${uid}, part=${attachmentId}`)
-            const { content, meta } = result
-            const chunks: Buffer[] = []
-            let totalSize = 0
-            for await (const chunk of content) {
-                totalSize += chunk.length
-                if (totalSize > MAX_ATTACHMENT_SIZE) throw new Error('Attachment exceeds maximum size (25MB)')
-                chunks.push(Buffer.from(chunk))
+            const fetchPart = async (): Promise<AttachmentData> => {
+                const result = await imap.download(uid.toString(), attachmentId, { uid: true })
+                if (!result?.content) throw new Error(`Attachment part not found: uid=${uid}, part=${attachmentId}`)
+                const { content, meta } = result
+                const chunks: Buffer[] = []
+                let totalSize = 0
+                for await (const chunk of content) {
+                    totalSize += chunk.length
+                    if (totalSize > MAX_ATTACHMENT_SIZE) throw new Error('Attachment exceeds maximum size (25MB)')
+                    chunks.push(Buffer.from(chunk))
+                }
+                return {
+                    content: Buffer.concat(chunks),
+                    filename: meta.filename ?? 'attachment',
+                    mimeType: meta.contentType ?? 'application/octet-stream',
+                }
             }
 
-            return {
-                content: Buffer.concat(chunks),
-                filename: meta.filename ?? 'attachment',
-                mimeType: meta.contentType ?? 'application/octet-stream',
+            if (!folderId) return fetchPart()
+            const lock = await imap.getMailboxLock(folderId)
+            try {
+                return await fetchPart()
+            } finally {
+                lock.release()
             }
         },
 

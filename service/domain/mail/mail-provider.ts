@@ -103,7 +103,7 @@ export type MailProvider = {
     moveMessage(messageIds: string[], targetFolderId: string, sourceFolderId?: string): Promise<void>
     deleteMessage(messageIds: string[]): Promise<void>
 
-    downloadAttachment(messageId: string, attachmentId: string): Promise<AttachmentData>
+    downloadAttachment(messageId: string, attachmentId: string, folderId?: string): Promise<AttachmentData>
 
     sendMessage(data: ComposeEmailData): Promise<{ messageId: string }>
 }

@@ -383,6 +383,17 @@ describe('createMailMessageService', () => {
             expect(accountService._provider.downloadAttachment).toHaveBeenCalled()
         })
 
+        test('메시지 폴더의 remoteFolderId를 provider.downloadAttachment에 전달한다 (IMAP UID 조회용)', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                db: { getFolderById: mock(() => Promise.resolve({ id: 7, accountId: 1, remoteFolderId: 'Archive' })) } as never,
+                accountService: accountService as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.downloadAttachment('user-1', 1, 10)
+            expect(accountService._provider.downloadAttachment).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'Archive')
+        })
+
         test('stale remote id면 메시지를 재조회해 fresh id로 재시도한다', async () => {
             const accountService = createMockAccountService()
             accountService._provider.downloadAttachment = mock((_mid: string, aid: string) =>

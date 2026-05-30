@@ -82,14 +82,15 @@ const downloadAttachmentViaProvider = async (
     remoteMessageId: string,
     remoteAttachmentId: string,
     attachment: MailAttachment,
+    remoteFolderId?: string,
 ): Promise<AttachmentData> => {
     try {
-        return await provider.downloadAttachment(remoteMessageId, remoteAttachmentId)
+        return await provider.downloadAttachment(remoteMessageId, remoteAttachmentId, remoteFolderId)
     } catch (firstError) {
         const detail = await provider.fetchMessageDetail(remoteMessageId).catch(() => null)
         const match = detail ? matchAttachmentRef(detail.attachments, attachment) : null
         if (!match || match.id === remoteAttachmentId) throw firstError
-        return await provider.downloadAttachment(remoteMessageId, match.id)
+        return await provider.downloadAttachment(remoteMessageId, match.id, remoteFolderId)
     }
 }
 
@@ -335,10 +336,11 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
 
         let data: AttachmentData
         try {
+            const folder = await deps.db.getFolderById(msg.folderId)
             const { provider } = await deps.accountService.getProvider(msg.accountId, userId)
             await provider.connect()
             try {
-                data = await downloadAttachmentViaProvider(provider, msg.remoteMessageId, attachment.remoteAttachmentId, attachment)
+                data = await downloadAttachmentViaProvider(provider, msg.remoteMessageId, attachment.remoteAttachmentId, attachment, folder?.remoteFolderId)
             } finally {
                 await provider.disconnect().catch(() => {})
             }
