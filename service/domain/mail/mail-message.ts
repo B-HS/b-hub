@@ -1,8 +1,8 @@
 import type { MailMessage, MailAttachment } from '../../../db/schema'
 import type { MailAccountService } from './mail-account'
-import type { ComposeEmailData, EmailAddress } from './mail-provider'
+import type { AttachmentData, ComposeEmailData, EmailAddress } from './mail-provider'
 import type { MailUploadService } from './mail-upload'
-import { createAppError } from '../../../lib/error'
+import { createAppError, isAppError } from '../../../lib/error'
 import { escapeHtml, sanitizeFilename, sanitizeHeaderValue, maskProviderError } from '../../../lib/mail-utils'
 
 type MailMessageSummary = Omit<MailMessage, 'bodyHtml' | 'bodyText'>
@@ -282,34 +282,60 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         if (!attachment || attachment.messageId !== messageId) throw createAppError('MAIL_ATTACHMENT_NOT_FOUND')
 
         if (attachment.r2Key && deps.storageService) {
-            const data = await deps.storageService.download(attachment.r2Key)
-            if (data) {
-                return {
-                    content: data,
-                    filename: attachment.filename ?? 'attachment',
-                    mimeType: attachment.mimeType ?? 'application/octet-stream',
+            try {
+                const cached = await deps.storageService.download(attachment.r2Key)
+                if (cached) {
+                    return {
+                        content: cached,
+                        filename: attachment.filename ?? 'attachment',
+                        mimeType: attachment.mimeType ?? 'application/octet-stream',
+                    }
                 }
+            } catch (error) {
+                console.error('[mail] cached attachment read failed, refetching from provider', {
+                    attachmentId,
+                    reason: error instanceof Error ? error.message : 'unknown',
+                })
             }
         }
 
         if (!attachment.remoteAttachmentId) throw createAppError('MAIL_ATTACHMENT_NOT_FOUND')
 
-        const { provider } = await deps.accountService.getProvider(msg.accountId, userId)
-        await provider.connect()
-        let data: Awaited<ReturnType<typeof provider.downloadAttachment>>
+        let data: AttachmentData
         try {
-            data = await provider.downloadAttachment(msg.remoteMessageId, attachment.remoteAttachmentId)
-        } finally {
-            await provider.disconnect().catch(() => {})
+            const { provider } = await deps.accountService.getProvider(msg.accountId, userId)
+            await provider.connect()
+            try {
+                data = await provider.downloadAttachment(msg.remoteMessageId, attachment.remoteAttachmentId)
+            } finally {
+                await provider.disconnect().catch(() => {})
+            }
+        } catch (error) {
+            if (isAppError(error)) throw error
+            console.error('[mail] attachment download failed', {
+                messageId,
+                attachmentId,
+                reason: error instanceof Error ? error.message : 'unknown',
+            })
+            throw createAppError('MAIL_ATTACHMENT_DOWNLOAD_FAILED', {
+                message: maskProviderError(error instanceof Error ? error.message : 'Unknown error'),
+            })
         }
 
         const filename = attachment.filename ?? data.filename
         const mimeType = attachment.mimeType ?? data.mimeType
 
         if (deps.storageService) {
-            const r2Key = `mail/attachments/${messageId}/${attachmentId}/${sanitizeFilename(filename)}`
-            await deps.storageService.upload(r2Key, data.content, mimeType)
-            await deps.db.updateAttachmentR2Key(attachmentId, r2Key)
+            try {
+                const r2Key = `mail/attachments/${messageId}/${attachmentId}/${sanitizeFilename(filename)}`
+                await deps.storageService.upload(r2Key, data.content, mimeType)
+                await deps.db.updateAttachmentR2Key(attachmentId, r2Key)
+            } catch (error) {
+                console.error('[mail] attachment cache write failed, returning content anyway', {
+                    attachmentId,
+                    reason: error instanceof Error ? error.message : 'unknown',
+                })
+            }
         }
 
         return { content: data.content, filename, mimeType }

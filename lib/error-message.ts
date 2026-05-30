@@ -41,6 +41,7 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     MAIL_FOLDER_NOT_FOUND: '메일 폴더를 찾을 수 없습니다',
     MAIL_MESSAGE_NOT_FOUND: '메일 메시지를 찾을 수 없습니다',
     MAIL_ATTACHMENT_NOT_FOUND: '첨부 파일을 찾을 수 없습니다',
+    MAIL_ATTACHMENT_DOWNLOAD_FAILED: '첨부 파일을 내려받지 못했습니다',
     MAIL_PROVIDER_ERROR: '메일 서버 연결에 실패했습니다',
     MAIL_CONNECTION_FAILED: '메일 서버에 연결할 수 없습니다',
     MAIL_SYNC_IN_PROGRESS: '이미 동기화가 진행 중입니다',

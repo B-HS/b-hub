@@ -23,6 +23,7 @@ createMiddleware(app, {
     allowedDomains: ['gumyo.net', 'hyns.dev'],
     securityExcludePaths: ['/api/spotify/playing', '/caldav/', '/.well-known/caldav'],
     securityExcludeExactPaths: ['/', '/policy'],
+    securityHtmlPaths: ['/admin'],
 })
 app.route(
     '',

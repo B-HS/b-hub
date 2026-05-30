@@ -8,6 +8,7 @@ type MiddlewareDeps = {
     allowedDomains: string[]
     securityExcludePaths?: string[]
     securityExcludeExactPaths?: string[]
+    securityHtmlPaths?: string[]
 }
 
 const isAllowedOrigin = (origin: string, allowedDomains: string[]) => {
@@ -31,6 +32,13 @@ export const createMiddleware = (app: Hono<AuthContext>, deps: MiddlewareDeps) =
             credentials: true,
         }),
     )
-    app.use('*', securityHeaders({ excludePaths: deps.securityExcludePaths, excludeExactPaths: deps.securityExcludeExactPaths }))
+    app.use(
+        '*',
+        securityHeaders({
+            excludePaths: deps.securityExcludePaths,
+            excludeExactPaths: deps.securityExcludeExactPaths,
+            htmlPaths: deps.securityHtmlPaths,
+        }),
+    )
     app.use('*', errorHandler())
 }

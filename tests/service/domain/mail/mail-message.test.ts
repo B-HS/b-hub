@@ -342,6 +342,46 @@ describe('createMailMessageService', () => {
             const result = await service.downloadAttachment('user-1', 1, 10)
             expect(result.filename).toBe('file.pdf')
         })
+
+        test('프로바이더 다운로드 실패는 MAIL_ATTACHMENT_DOWNLOAD_FAILED로 변환된다 (INTERNAL_ERROR 아님)', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.downloadAttachment = mock(() => Promise.reject(new Error('Gmail API error 404'))) as never
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await expect(service.downloadAttachment('user-1', 1, 10)).rejects.toMatchObject({ code: 'MAIL_ATTACHMENT_DOWNLOAD_FAILED' })
+        })
+
+        test('R2 캐시 저장이 실패해도 내려받은 콘텐츠를 반환한다', async () => {
+            const storageService = {
+                upload: mock(() => Promise.reject(new Error('R2 upload down'))),
+                getUrl: mock(() => 'https://r2.example.com/file'),
+                download: mock(() => Promise.resolve(null)),
+            }
+            const accountService = createMockAccountService()
+            const deps = createDeps({ accountService: accountService as never, storageService })
+            const service = createMailMessageService(deps)
+            const result = await service.downloadAttachment('user-1', 1, 10)
+            expect(result.content.toString()).toBe('file-data')
+            expect(result.filename).toBe('file.pdf')
+        })
+
+        test('R2 캐시 읽기가 실패하면 프로바이더로 폴백한다', async () => {
+            const storageService = {
+                upload: mock(() => Promise.resolve()),
+                getUrl: mock(() => 'https://r2.example.com/file'),
+                download: mock(() => Promise.reject(new Error('R2 read down'))),
+            }
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                db: { getAttachment: mock(() => Promise.resolve(mockAttachment({ r2Key: 'mail/att/1' }))) } as never,
+                accountService: accountService as never,
+                storageService,
+            })
+            const service = createMailMessageService(deps)
+            const result = await service.downloadAttachment('user-1', 1, 10)
+            expect(result.filename).toBe('file.pdf')
+            expect(accountService._provider.downloadAttachment).toHaveBeenCalled()
+        })
     })
 
     describe('moveToFolder', () => {
