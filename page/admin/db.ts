@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, like, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm'
 import type { Database } from '../../db'
 import * as s from '../../db/schema'
 
@@ -28,6 +28,14 @@ export const createAdminDb = (db: Database) => ({
             .where(sql`status_code >= 400 and created_at > date_sub(now(), interval 1 day)`)
         const [storageBytes] = await db.select({ b: sql<number>`coalesce(sum(size_bytes), 0)` }).from(s.cloudAssets)
         const [weatherLogs] = await db.select({ c: sql<number>`count(*)` }).from(s.weatherApiLog)
+        const [logEvents24h] = await db
+            .select({ c: sql<number>`count(*)` })
+            .from(s.logEvents)
+            .where(sql`created_at > date_sub(now(), interval 1 day)`)
+        const [logErrors24h] = await db
+            .select({ c: sql<number>`count(*)` })
+            .from(s.logEvents)
+            .where(sql`severity >= 40 and created_at > date_sub(now(), interval 1 day)`)
         return {
             users: Number(u?.c ?? 0),
             posts: Number(posts?.c ?? 0),
@@ -43,6 +51,8 @@ export const createAdminDb = (db: Database) => ({
             requests24h: Number(requests24h?.c ?? 0),
             errors24h: Number(errors24h?.c ?? 0),
             weatherLogs: Number(weatherLogs?.c ?? 0),
+            logEvents24h: Number(logEvents24h?.c ?? 0),
+            logErrors24h: Number(logErrors24h?.c ?? 0),
             storageBytes: Number(storageBytes?.b ?? 0),
         }
     },
@@ -257,6 +267,54 @@ export const createAdminDb = (db: Database) => ({
             .offset(offset)
         return { rows, total: Number(c ?? 0) }
     },
+
+    // ── Log Events ────────────────────────────────────────────────────
+    listLogEvents: async (params: {
+        page: number
+        size: number
+        service?: string
+        severityGte?: number
+        deviceId?: string
+        errorCode?: string
+        unresolved?: 'y' | 'n'
+        from?: Date
+        to?: Date
+    }) => {
+        const offset = (params.page - 1) * params.size
+        const conds = []
+        if (params.service) conds.push(eq(s.logEvents.service, params.service))
+        if (params.severityGte != null) conds.push(gte(s.logEvents.severity, params.severityGte))
+        if (params.deviceId) conds.push(eq(s.logEvents.deviceId, params.deviceId))
+        if (params.errorCode) conds.push(like(s.logEvents.errorCode, `%${params.errorCode}%`))
+        if (params.unresolved === 'y') conds.push(isNull(s.logEvents.resolvedAt))
+        if (params.unresolved === 'n') conds.push(isNotNull(s.logEvents.resolvedAt))
+        if (params.from) conds.push(gte(s.logEvents.createdAt, params.from))
+        if (params.to) conds.push(lte(s.logEvents.createdAt, params.to))
+        const where = conds.length ? and(...conds) : undefined
+        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.logEvents).where(where)
+        const rows = await db.select().from(s.logEvents).where(where).orderBy(desc(s.logEvents.createdAt)).limit(params.size).offset(offset)
+        return { rows, total: Number(c ?? 0) }
+    },
+
+    resolveLogEvent: async (id: number) => {
+        await db.update(s.logEvents).set({ resolvedAt: new Date() }).where(eq(s.logEvents.id, id))
+    },
+
+    recentLogEvents: async (limit = 5) =>
+        db
+            .select({
+                id: s.logEvents.id,
+                service: s.logEvents.service,
+                errorCode: s.logEvents.errorCode,
+                severity: s.logEvents.severity,
+                deviceId: s.logEvents.deviceId,
+                resolvedAt: s.logEvents.resolvedAt,
+                createdAt: s.logEvents.createdAt,
+            })
+            .from(s.logEvents)
+            .where(gte(s.logEvents.severity, 40))
+            .orderBy(desc(s.logEvents.createdAt))
+            .limit(limit),
 
     // ── Blog: Posts ───────────────────────────────────────────────────
     listPosts: async (params: {

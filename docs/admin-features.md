@@ -33,6 +33,18 @@
 
 ---
 
+## 2.5. Log Events (`/admin/logs`) — `log_events`
+
+b-hub 통합 에러·이벤트 로그(서버 전 엔드포인트 4xx·5xx 자동 캡처 + 디바이스 수집). 상세는 [logging.md](./logging.md).
+
+- **List**: time / severity(Badge) / service / errorCode / description / device / resolved. 페이지네이션.
+- **Filter**: service, min severity(WARN+/ERROR+/FATAL), device, resolved 여부, 기간.
+- **Action** (form POST → 303): `/admin/logs/:id/resolve` — 해소 처리(`resolved_at` 기록).
+- **Dashboard**: `Log Errors (24h)` Stat + `최근 로그 이벤트(ERROR+)` 섹션.
+- **Device keys**: 발급/폐기는 API(`/api/logs/device-keys`, admin) 경유.
+
+---
+
 ## 3. Blog (`/admin/blog`) — `posts`, `comments`, `categories`, `tags`, `postTags`, `images`, `imageAssets`
 
 ### 3-1. Posts (`/admin/blog/posts`)

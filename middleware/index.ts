@@ -2,13 +2,16 @@ import type { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { securityHeaders } from './security-headers'
 import { errorHandler } from './error-handler'
+import { logCapture } from './log-capture'
 import type { AuthContext } from '../lib/hono-types'
+import type { LogEventService } from '../service/domain/logs/log-event'
 
 type MiddlewareDeps = {
     allowedDomains: string[]
     securityExcludePaths?: string[]
     securityExcludeExactPaths?: string[]
     securityHtmlPaths?: string[]
+    logEventService?: LogEventService
 }
 
 const isAllowedOrigin = (origin: string, allowedDomains: string[]) => {
@@ -40,5 +43,6 @@ export const createMiddleware = (app: Hono<AuthContext>, deps: MiddlewareDeps) =
             htmlPaths: deps.securityHtmlPaths,
         }),
     )
+    if (deps.logEventService) app.use('*', logCapture({ logEventService: deps.logEventService }))
     app.use('*', errorHandler())
 }

@@ -8,6 +8,7 @@ import { createDashboardRoute } from './dashboard'
 import { createUsersRoute } from './pages/users'
 import { createSessionsRoute } from './pages/sessions'
 import { createApiLogsRoute, createApiTokensRoute } from './pages/api'
+import { createLogEventsRoute } from './pages/logs'
 import { createBlogRoute } from './pages/blog'
 import { createMessagesRoute } from './pages/messages'
 import { createWeatherRoute } from './pages/weather'
@@ -41,6 +42,7 @@ export const createAdminRoute = (deps: AdminRouteDeps) => {
     app.route('/sessions', createSessionsRoute(baseDeps))
     app.route('/api/tokens', createApiTokensRoute(baseDeps))
     app.route('/api/logs', createApiLogsRoute(baseDeps))
+    app.route('/logs', createLogEventsRoute(baseDeps))
     app.route('/blog', createBlogRoute(baseDeps))
     app.route('/messages', createMessagesRoute(baseDeps))
     app.route('/weather', createWeatherRoute(baseDeps))

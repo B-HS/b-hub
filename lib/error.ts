@@ -96,6 +96,12 @@ const STATUS_MAP: Record<string, number> = {
     DRIVE_L3_DOWNLOAD_FAILED: 502,
     DRIVE_ALL_TIERS_FAILED: 500,
     DRIVE_UPLOAD_EVENT_FAILED: 500,
+
+    LOG_EVENT_NOT_FOUND: 404,
+    LOG_BATCH_TOO_LARGE: 413,
+    LOG_INGEST_FAILED: 500,
+    LOG_DEVICE_KEY_INVALID: 401,
+    LOG_DEVICE_KEY_RATE_LIMIT: 429,
 }
 
 export const getStatusCode = (code: ErrorCode) => STATUS_MAP[code] ?? 500

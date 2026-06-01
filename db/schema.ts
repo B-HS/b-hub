@@ -13,6 +13,7 @@ import {
     unique,
     mysqlEnum,
     tinyint,
+    smallint,
     customType,
 } from 'drizzle-orm/mysql-core'
 
@@ -853,3 +854,52 @@ export type CloudAsset = typeof cloudAssets.$inferSelect
 export type NewCloudAsset = typeof cloudAssets.$inferInsert
 export type StorageLifecycleLog = typeof storageLifecycleLogs.$inferSelect
 export type NewStorageLifecycleLog = typeof storageLifecycleLogs.$inferInsert
+
+export const logEvents = mysqlTable(
+    'log_events',
+    {
+        id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+        service: varchar('service', { length: 64 }).notNull(),
+        errorCode: varchar('error_code', { length: 64 }).notNull(),
+        errorDescription: text('error_description'),
+        severity: smallint('severity').default(20).notNull(),
+        category: varchar('category', { length: 64 }),
+        deviceId: varchar('device_id', { length: 64 }),
+        firmwareVersion: varchar('firmware_version', { length: 32 }),
+        source: varchar('source', { length: 32 }),
+        correlationId: varchar('correlation_id', { length: 36 }),
+        sessionId: varchar('session_id', { length: 36 }),
+        retryCount: smallint('retry_count'),
+        occurredAt: datetime('occurred_at', { fsp: 3 }),
+        resolvedAt: datetime('resolved_at', { fsp: 3 }),
+        details: json('details').$type<Record<string, unknown>>(),
+        ingestIp: varchar('ingest_ip', { length: 45 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [
+        index('idx_log_events_service_created').on(table.service, table.createdAt),
+        index('idx_log_events_device_created').on(table.deviceId, table.createdAt),
+        index('idx_log_events_code_resolved').on(table.errorCode, table.resolvedAt),
+        index('idx_log_events_severity_created').on(table.severity, table.createdAt),
+    ],
+)
+
+export const deviceKey = mysqlTable(
+    'device_key',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        token: varchar('token', { length: 64 }).notNull().unique(),
+        deviceId: varchar('device_id', { length: 64 }),
+        label: varchar('label', { length: 100 }),
+        dailyLimit: int('daily_limit').default(2000).notNull(),
+        lastUsedAt: timestamp('last_used_at', { fsp: 3 }),
+        revokedAt: timestamp('revoked_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_device_key_device').on(table.deviceId)],
+)
+
+export type LogEvent = typeof logEvents.$inferSelect
+export type NewLogEvent = typeof logEvents.$inferInsert
+export type DeviceKey = typeof deviceKey.$inferSelect
+export type NewDeviceKey = typeof deviceKey.$inferInsert

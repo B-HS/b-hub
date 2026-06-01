@@ -3,6 +3,7 @@ import { getEnv } from '../lib/env'
 import { composeShared } from './shared'
 import { composeBlog } from './blog'
 import { composeWeather } from './weather'
+import { composeLogs } from './logs'
 import { composeMail } from './mail'
 import { composeSpotify } from './spotify'
 import { composeResume } from './resume'
@@ -17,6 +18,7 @@ export const compose = () => {
     const shared = composeShared(core)
     const blog = composeBlog({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor })
     const weather = composeWeather(core)
+    const logs = composeLogs(core)
     const mail = composeMail({ ...core, storageService: shared.storageService })
     const spotify = composeSpotify(core)
     const resume = composeResume(core)
@@ -27,6 +29,7 @@ export const compose = () => {
         ...shared,
         ...blog,
         ...weather,
+        ...logs,
         ...mail,
         ...spotify,
         ...resume,

@@ -15,6 +15,7 @@ export const withErrorHandling = (handler: Handler) => async (c: Context) => {
             return c.json(errorResponse(error.code, error.message, error.details), error.statusCode as 400)
         }
         const safeMessage = error instanceof Error ? error.message : 'Unknown error'
+        c.set('errorDetail', safeMessage)
         if (process.env.NODE_ENV !== 'production') {
             const safeStack = error instanceof Error ? error.stack : undefined
             console.error('[withErrorHandling] Unhandled error:', safeMessage, safeStack)

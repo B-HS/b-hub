@@ -9,6 +9,7 @@ type AuthUser = {
 export type HonoVariables = {
     user: AuthUser
     errorCode: string
+    errorDetail: string
 }
 
 export type AuthContext = {

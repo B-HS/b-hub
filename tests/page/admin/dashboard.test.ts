@@ -26,6 +26,8 @@ const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null) => {
                         requests24h: 100,
                         errors24h: 2,
                         weatherLogs: 11,
+                        logEvents24h: 13,
+                        logErrors24h: 3,
                         storageBytes: 1024 * 1024 * 50,
                     }),
                 recentUsers: () =>

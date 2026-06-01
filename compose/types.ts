@@ -24,6 +24,7 @@ export type ComposeMailArgs = ComposeCoreArgs & {
 }
 
 export type ComposeWeatherArgs = ComposeCoreArgs
+export type ComposeLogsArgs = ComposeCoreArgs
 export type ComposeSpotifyArgs = ComposeCoreArgs
 export type ComposeResumeArgs = ComposeCoreArgs
 export type ComposeCalendarArgs = ComposeCoreArgs

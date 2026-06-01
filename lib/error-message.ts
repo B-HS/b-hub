@@ -91,4 +91,10 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     DRIVE_L3_DOWNLOAD_FAILED: 'Google Drive 파일 다운로드에 실패했습니다',
     DRIVE_ALL_TIERS_FAILED: '모든 스토리지 계층에서 파일을 가져올 수 없습니다',
     DRIVE_UPLOAD_EVENT_FAILED: '업로드 이벤트 처리에 실패했습니다',
+
+    LOG_EVENT_NOT_FOUND: '로그 이벤트를 찾을 수 없습니다',
+    LOG_BATCH_TOO_LARGE: '로그 배치 크기가 허용 한도를 초과했습니다',
+    LOG_INGEST_FAILED: '로그 수집에 실패했습니다',
+    LOG_DEVICE_KEY_INVALID: '디바이스 인증 키가 유효하지 않습니다',
+    LOG_DEVICE_KEY_RATE_LIMIT: '디바이스 로그 전송 한도를 초과했습니다',
 }

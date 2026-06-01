@@ -10,6 +10,7 @@ type Counts = Awaited<ReturnType<AdminDb['counts']>>
 type RecentUsers = Awaited<ReturnType<AdminDb['recentUsers']>>
 type RecentRequests = Awaited<ReturnType<AdminDb['recentRequests']>>
 type RecentErrors = Awaited<ReturnType<AdminDb['recentErrors']>>
+type RecentLogEvents = Awaited<ReturnType<AdminDb['recentLogEvents']>>
 
 const Dashboard: FC<{
     user: import('./guard').AdminSessionUser
@@ -17,7 +18,8 @@ const Dashboard: FC<{
     recentUsers: RecentUsers
     recentRequests: RecentRequests
     recentErrors: RecentErrors
-}> = ({ user, counts, recentUsers, recentRequests, recentErrors }) => (
+    recentLogEvents: RecentLogEvents
+}> = ({ user, counts, recentUsers, recentRequests, recentErrors, recentLogEvents }) => (
     <AdminShell title='Dashboard' subtitle='전체 시스템 상태 요약' user={user} currentPath='/admin'>
         <div class='cards-grid'>
             <Stat label='Users' value={counts.users} />
@@ -31,6 +33,7 @@ const Dashboard: FC<{
             <Stat label='Spotify Accounts' value={counts.spotifyAccounts} />
             <Stat label='Calendar Events' value={counts.calendarEvents} />
             <Stat label='Weather Logs' value={counts.weatherLogs} />
+            <Stat label='Log Errors (24h)' value={counts.logErrors24h} delta={`events ${counts.logEvents24h}`} />
             <Stat label='Resumes' value={counts.resumes} />
             <Stat label='Drive Assets' value={counts.driveAssets} delta={formatBytes(counts.storageBytes)} />
         </div>
@@ -86,6 +89,25 @@ const Dashboard: FC<{
                 }
             />
         </div>
+
+        <div class='card'>
+            <h2 style='font-size:1rem;font-weight:600;margin-bottom:0.75rem;'>최근 로그 이벤트 (ERROR+)</h2>
+            <DataTable
+                rows={recentLogEvents}
+                rowKey={(r) => r.id}
+                empty='최근 로그 이벤트가 없습니다.'
+                columns={
+                    [
+                        { key: 'createdAt', header: 'Time', cell: (r) => formatDate(r.createdAt), className: 'nowrap' },
+                        { key: 'service', header: 'Service', cell: (r) => <span class='mono'>{r.service}</span>, className: 'nowrap' },
+                        { key: 'errorCode', header: 'Error Code', cell: (r) => <span class='mono'>{r.errorCode}</span> },
+                        { key: 'severity', header: 'Severity', cell: (r) => r.severity, className: 'num' },
+                        { key: 'device', header: 'Device', cell: (r) => r.deviceId ?? '-', className: 'mono nowrap' },
+                        { key: 'resolved', header: 'Resolved', cell: (r) => (r.resolvedAt ? formatDate(r.resolvedAt) : '-'), className: 'nowrap' },
+                    ] as Column<RecentLogEvents[number]>[]
+                }
+            />
+        </div>
     </AdminShell>
 )
 
@@ -93,13 +115,23 @@ export const createDashboardRoute = (deps: { getSession: AdminGetSession; adminD
     const app = new Hono<AdminContext>()
     app.use('*', requireAdminPage(deps.getSession))
     app.get('/', async (c) => {
-        const [counts, recentUsers, recentRequests, recentErrors] = await Promise.all([
+        const [counts, recentUsers, recentRequests, recentErrors, recentLogEvents] = await Promise.all([
             deps.adminDb.counts(),
             deps.adminDb.recentUsers(),
             deps.adminDb.recentRequests(),
             deps.adminDb.recentErrors(),
+            deps.adminDb.recentLogEvents(),
         ])
-        return c.html(<Dashboard user={c.get('adminUser')} counts={counts} recentUsers={recentUsers} recentRequests={recentRequests} recentErrors={recentErrors} />)
+        return c.html(
+            <Dashboard
+                user={c.get('adminUser')}
+                counts={counts}
+                recentUsers={recentUsers}
+                recentRequests={recentRequests}
+                recentErrors={recentErrors}
+                recentLogEvents={recentLogEvents}
+            />,
+        )
     })
     return app
 }

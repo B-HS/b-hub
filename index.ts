@@ -24,6 +24,7 @@ createMiddleware(app, {
     securityExcludePaths: ['/api/spotify/playing', '/caldav/', '/.well-known/caldav'],
     securityExcludeExactPaths: ['/', '/policy'],
     securityHtmlPaths: ['/admin'],
+    logEventService: composed.logEventService,
 })
 app.route(
     '',

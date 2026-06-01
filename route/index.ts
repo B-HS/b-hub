@@ -34,6 +34,8 @@ import { createCalendarCaldavRoute } from './calendar/caldav'
 import { createDriveAssetRoute } from './drive/asset'
 import { createDriveFolderRoute } from './drive/folder'
 import { createDriveLifecycleRoute } from './drive/lifecycle'
+import { createLogEventRoute } from './logs/log-event'
+import { createDeviceKeyRoute } from './logs/device-key'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
 
@@ -310,6 +312,22 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createDriveLifecycleRoute({
             storageLifecycleService: stub(deps.storageLifecycleService),
             uploadServerSecret: deps.uploadServerSecret ?? '',
+        }),
+    )
+
+    router.route(
+        '/logs/device-keys',
+        createDeviceKeyRoute({
+            deviceKeyService: stub(deps.deviceKeyService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/logs',
+        createLogEventRoute({
+            logEventService: stub(deps.logEventService),
+            deviceKeyService: stub(deps.deviceKeyService),
+            getSession: stubFn(deps.getSession) as never,
         }),
     )
 
