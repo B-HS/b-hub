@@ -8,7 +8,7 @@
 확정 결정: 서버 캡처=**모든 4xx+5xx** / 인증=**전용 `X-Device-Key`** / 범위=**전체** / 테스트=**DTO+서비스+캡처**.
 
 - [x] a. 스키마·에러코드 — `db/schema.ts`(`logEvents`·`deviceKey`·`smallint` import), `lib/error-code.ts`·`error-message.ts`·`error.ts`(LOG_*). DDL 검증 완료(`drizzle-kit generate`).
-- [ ] a-1. **`bun run db:push`** — 실 DB 반영. `DATABASE_URL` 필요 → **사용자 환경에서 실행**(샌드박스에 .env 없음).
+- [x] a-1. **`bun run db:push`** — 실 DB(`hub`) 반영 완료. `log_events`(17컬럼·인덱스 4개)·`device_key`(8컬럼·token unique) 생성·검증 완료.
 - [x] b. DTO — `dto/logs/log-event.ts`(ingest/batch/resolve/listQuery/response + SEVERITY), `dto/logs/device-key.ts`.
 - [x] c. 서비스 — `service/domain/logs/log-event.ts`(`LogEventService`+`LogEventServiceDb`+`captureServerError`+`purgeByPolicy`), `device-key.ts`.
 - [x] d. Compose — `compose/logs.ts`(Drizzle 구현 + throttle alerter), `compose/types.ts`·`compose/index.ts` 배선.
@@ -21,9 +21,13 @@
 - [x] k. 테스트 — `tests/dto/logs`·`tests/service/domain/logs`·`tests/lib/log-service-name`·`tests/middleware/log-capture`. 어드민 mock(`tests/page/admin/helpers.ts`·`dashboard.test.ts`) 확장.
 - [x] l. 검증 — `bunx tsc --noEmit` 0 errors / `bun test` **2051 pass, 0 fail**.
 
+## 배포
+
+- [x] `bun run db:push` — `hub` DB에 `log_events`·`device_key` 생성 완료.
+- [x] `feat/logging-system` → `dev` fast-forward 머지 + `origin/dev` 푸시 완료(`a11dabe..6125fe6`). Vercel 배포 트리거.
+
 ## 남은 액션 (사용자)
 
-1. `bun run db:push` (실 DB에 `log_events`·`device_key` 생성).
-2. 어드민에서 `POST /api/logs/device-keys` 로 디바이스 키 발급 → 펌웨어에 주입.
-3. (선택) `DISCORD_WEBHOOK_URL` 설정 시 ERROR+ 알림 자동 활성.
-4. (선택) cron/`/loop` 로 `POST /api/logs/purge` 주기 호출.
+1. 어드민에서 `POST /api/logs/device-keys` 로 디바이스 키 발급 → 펌웨어에 주입.
+2. (선택) `DISCORD_WEBHOOK_URL` 설정 시 ERROR+ 알림 자동 활성.
+3. (선택) cron/`/loop` 로 `POST /api/logs/purge` 주기 호출.
