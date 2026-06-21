@@ -36,6 +36,7 @@ type MailMessageDb = {
         messageIds: number[],
         userId: string,
     ) => Promise<{ messageId: number; accountId: number; remoteMessageId: string; folderId: number }[]>
+    expandToThreadMessageIds: (messageIds: number[], userId: string) => Promise<number[]>
     getUnreadMessages: (params: {
         userId: string
         accountId?: number
@@ -236,8 +237,14 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         return { updated: unread.length }
     }
 
-    const markStarred = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'markStarred')
-    const unmarkStarred = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'unmarkStarred')
+    const markStarred = async (userId: string, messageIds: number[]) => {
+        const threadIds = await deps.db.expandToThreadMessageIds(messageIds, userId)
+        return applyFlagAction(userId, threadIds, 'markStarred')
+    }
+    const unmarkStarred = async (userId: string, messageIds: number[]) => {
+        const threadIds = await deps.db.expandToThreadMessageIds(messageIds, userId)
+        return applyFlagAction(userId, threadIds, 'unmarkStarred')
+    }
 
     const moveToFolder = async (userId: string, messageIds: number[], targetFolderId: number) => {
         const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)

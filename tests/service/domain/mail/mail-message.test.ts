@@ -57,6 +57,7 @@ const createMockDb = () => ({
     getAttachment: mock((id: number) => Promise.resolve(id === 10 ? mockAttachment() : null)),
     updateAttachmentR2Key: mock(() => Promise.resolve()),
     getAccountIdsByMessageIds: mock(() => Promise.resolve([{ messageId: 1, accountId: 1, remoteMessageId: 'remote-1', folderId: 1 }])),
+    expandToThreadMessageIds: mock((messageIds: number[]) => Promise.resolve(messageIds)),
     getSenderList: mock(() =>
         Promise.resolve([
             { address: 'alice@test.com', name: 'Alice' },
@@ -212,6 +213,76 @@ describe('createMailMessageService', () => {
             const deps = createDeps()
             const service = createMailMessageService(deps)
             await service.markUnread('user-1', [1])
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1], { isRead: false })
+        })
+    })
+
+    describe('markStarred / unmarkStarred (thread 단위)', () => {
+        test('thread 멤버 하나를 star하면 thread의 모든 메일이 isStarred=true가 된다', async () => {
+            const deps = createDeps({
+                db: {
+                    expandToThreadMessageIds: mock(() => Promise.resolve([1, 2, 3])),
+                    getAccountIdsByMessageIds: mock(() =>
+                        Promise.resolve([
+                            { messageId: 1, accountId: 1, remoteMessageId: 'remote-1', folderId: 1 },
+                            { messageId: 2, accountId: 1, remoteMessageId: 'remote-2', folderId: 1 },
+                            { messageId: 3, accountId: 1, remoteMessageId: 'remote-3', folderId: 1 },
+                        ]),
+                    ),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.markStarred('user-1', [1])
+            expect(deps.db.expandToThreadMessageIds).toHaveBeenCalledWith([1], 'user-1')
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1, 2, 3], { isStarred: true })
+        })
+
+        test('thread 멤버 하나를 unstar하면 thread의 모든 메일이 isStarred=false가 된다', async () => {
+            const deps = createDeps({
+                db: {
+                    expandToThreadMessageIds: mock(() => Promise.resolve([1, 2, 3])),
+                    getAccountIdsByMessageIds: mock(() =>
+                        Promise.resolve([
+                            { messageId: 1, accountId: 1, remoteMessageId: 'remote-1', folderId: 1 },
+                            { messageId: 2, accountId: 1, remoteMessageId: 'remote-2', folderId: 1 },
+                            { messageId: 3, accountId: 1, remoteMessageId: 'remote-3', folderId: 1 },
+                        ]),
+                    ),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.unmarkStarred('user-1', [2])
+            expect(deps.db.expandToThreadMessageIds).toHaveBeenCalledWith([2], 'user-1')
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1, 2, 3], { isStarred: false })
+        })
+
+        test('threadId가 null인 메일은 자기 자신만 영향받는다', async () => {
+            const deps = createDeps({
+                db: {
+                    expandToThreadMessageIds: mock(() => Promise.resolve([5])),
+                    getAccountIdsByMessageIds: mock(() => Promise.resolve([{ messageId: 5, accountId: 1, remoteMessageId: 'remote-5', folderId: 1 }])),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.markStarred('user-1', [5])
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([5], { isStarred: true })
+        })
+    })
+
+    describe('markRead / markUnread (thread로 확장되지 않음)', () => {
+        test('markRead는 expandToThreadMessageIds를 호출하지 않고 주어진 id만 처리한다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            await service.markRead('user-1', [1])
+            expect(deps.db.expandToThreadMessageIds).not.toHaveBeenCalled()
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1], { isRead: true })
+        })
+
+        test('markUnread도 thread로 확장되지 않는다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            await service.markUnread('user-1', [1])
+            expect(deps.db.expandToThreadMessageIds).not.toHaveBeenCalled()
             expect(deps.db.updateFlags).toHaveBeenCalledWith([1], { isRead: false })
         })
     })
