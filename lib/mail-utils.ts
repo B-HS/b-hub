@@ -123,6 +123,39 @@ export const maskProviderError = (message: string): string => {
         .replace(/\b[a-zA-Z0-9-]+\.(internal|local|localdomain|corp|lan)\b/g, '[redacted]')
 }
 
+const normalizeMessageIdToken = (token: string): string | null => {
+    const trimmed = token.trim()
+    if (!trimmed) return null
+    const stripped = trimmed.replace(/^</, '').replace(/>$/, '').trim()
+    if (!stripped) return null
+    return `<${stripped}>`
+}
+
+export const extractMessageIdTokens = (raw: string): string[] => {
+    const matches = raw.match(/<[^<>\s]+>/g)
+    if (matches) return matches.map(normalizeMessageIdToken).filter((t): t is string => t !== null)
+    return raw
+        .split(/[\s,]+/)
+        .map(normalizeMessageIdToken)
+        .filter((t): t is string => t !== null)
+}
+
+export const deriveThreadId = (params: { references?: string | null; inReplyTo?: string | null; messageIdHeader?: string | null }): string | null => {
+    if (params.references) {
+        const tokens = extractMessageIdTokens(params.references)
+        if (tokens.length > 0) return tokens[0]
+    }
+    if (params.inReplyTo) {
+        const fromInReplyTo = extractMessageIdTokens(params.inReplyTo)
+        if (fromInReplyTo.length > 0) return fromInReplyTo[0]
+    }
+    if (params.messageIdHeader) {
+        const fromMessageId = extractMessageIdTokens(params.messageIdHeader)
+        if (fromMessageId.length > 0) return fromMessageId[0]
+    }
+    return null
+}
+
 export const sanitizeFilename = (filename: string): string => {
     let decoded: string
     try {

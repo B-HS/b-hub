@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { sanitizeHeaderValue, sanitizeEmailName, escapeHtml, sanitizeFilename, isBlockedHost, maskProviderError } from '../../lib/mail-utils'
+import { sanitizeHeaderValue, sanitizeEmailName, escapeHtml, sanitizeFilename, isBlockedHost, maskProviderError, deriveThreadId } from '../../lib/mail-utils'
 
 describe('sanitizeHeaderValue', () => {
     test('일반 문자열을 그대로 반환한다', () => {
@@ -280,5 +280,62 @@ describe('maskProviderError', () => {
 
     test('빈 문자열을 처리한다', () => {
         expect(maskProviderError('')).toBe('')
+    })
+})
+
+describe('deriveThreadId', () => {
+    test('references가 여러 토큰이면 첫 번째 토큰(대화 root)을 반환한다', () => {
+        expect(
+            deriveThreadId({
+                references: '<root@a.com> <reply1@b.com> <reply2@c.com>',
+                inReplyTo: '<reply2@c.com>',
+                messageIdHeader: '<self@d.com>',
+            }),
+        ).toBe('<root@a.com>')
+    })
+
+    test('references가 개행/탭으로 접힌 경우에도 첫 토큰을 반환한다', () => {
+        expect(
+            deriveThreadId({
+                references: '<root@a.com>\r\n\t<reply1@b.com>\n <reply2@c.com>',
+            }),
+        ).toBe('<root@a.com>')
+    })
+
+    test('references가 없으면 inReplyTo를 사용한다', () => {
+        expect(
+            deriveThreadId({
+                references: null,
+                inReplyTo: '<parent@b.com>',
+                messageIdHeader: '<self@d.com>',
+            }),
+        ).toBe('<parent@b.com>')
+    })
+
+    test('references가 빈 문자열이면 inReplyTo를 사용한다', () => {
+        expect(deriveThreadId({ references: '   ', inReplyTo: '<parent@b.com>' })).toBe('<parent@b.com>')
+    })
+
+    test('references와 inReplyTo가 없으면 messageIdHeader(자기 자신이 root)를 사용한다', () => {
+        expect(
+            deriveThreadId({
+                references: null,
+                inReplyTo: null,
+                messageIdHeader: '<self@d.com>',
+            }),
+        ).toBe('<self@d.com>')
+    })
+
+    test('모두 없으면 null을 반환한다', () => {
+        expect(deriveThreadId({})).toBeNull()
+        expect(deriveThreadId({ references: null, inReplyTo: null, messageIdHeader: null })).toBeNull()
+    })
+
+    test('<> 없는 raw message-id도 <>로 정규화한다', () => {
+        expect(deriveThreadId({ inReplyTo: 'parent@b.com' })).toBe('<parent@b.com>')
+    })
+
+    test('앞뒤 공백을 제거하고 정규화한다', () => {
+        expect(deriveThreadId({ messageIdHeader: '  <self@d.com>  ' })).toBe('<self@d.com>')
     })
 })

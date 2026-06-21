@@ -241,6 +241,10 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                         isStarred: data.isStarred,
                         isDraft: data.isDraft,
                         hasAttachments: data.hasAttachments,
+                        threadId: data.threadId,
+                        messageIdHeader: data.messageIdHeader,
+                        inReplyTo: data.inReplyTo,
+                        referencesHeader: data.referencesHeader,
                     } as never,
                 })
             const [msg] = await db

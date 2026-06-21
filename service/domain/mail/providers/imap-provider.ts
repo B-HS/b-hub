@@ -12,7 +12,7 @@ import type {
     EmailAddress,
     ProviderAttachment,
 } from '../mail-provider'
-import { sanitizeHeaderValue, sanitizeEmailName } from '../../../../lib/mail-utils'
+import { sanitizeHeaderValue, sanitizeEmailName, deriveThreadId } from '../../../../lib/mail-utils'
 
 type ImapProviderDeps = {
     email: string
@@ -56,6 +56,15 @@ const parseAddress = (addr: { name?: string; address?: string } | undefined): Em
 const parseAddressList = (addrs: ({ name?: string; address?: string } | undefined)[] | undefined): EmailAddress[] => {
     if (!addrs) return []
     return addrs.map(parseAddress).filter((a): a is EmailAddress => a !== null)
+}
+
+const parseReferencesHeader = (headers: Buffer | undefined): string | undefined => {
+    if (!headers) return undefined
+    const text = headers.toString('utf-8')
+    const match = text.match(/^references:\s*([\s\S]*?)(?:\r?\n(?:\S|$))/im)
+    if (!match) return undefined
+    const value = match[1].replace(/\r?\n[ \t]+/g, ' ').trim()
+    return value || undefined
 }
 
 export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
@@ -207,11 +216,15 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                         bodyStructure: true,
                         source: true,
                         internalDate: true,
+                        headers: ['references'],
                     },
                     { uid: true },
                 )) {
                     const flags = msg.flags ?? new Set()
                     const envelope = parseEnvelope(msg as unknown as Record<string, unknown>)
+                    const references = parseReferencesHeader(msg.headers)
+                    const threadId =
+                        deriveThreadId({ references, inReplyTo: envelope.inReplyTo, messageIdHeader: envelope.messageIdHeader }) ?? undefined
 
                     let bodyHtml: string | null = null
                     let bodyText: string | null = null
@@ -254,7 +267,9 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                     messages.push({
                         id: msg.uid.toString(),
                         messageIdHeader: envelope.messageIdHeader,
+                        threadId,
                         inReplyTo: envelope.inReplyTo,
+                        references,
                         subject: envelope.subject ?? null,
                         from: envelope.from ?? null,
                         to: envelope.to ?? [],
@@ -306,11 +321,15 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                     bodyStructure: true,
                     source: true,
                     internalDate: true,
+                    headers: ['references'],
                 },
                 { uid: true },
             )) {
                 const flags = msg.flags ?? new Set()
                 const envelope = parseEnvelope(msg as unknown as Record<string, unknown>)
+                const references = parseReferencesHeader(msg.headers)
+                const threadId =
+                    deriveThreadId({ references, inReplyTo: envelope.inReplyTo, messageIdHeader: envelope.messageIdHeader }) ?? undefined
 
                 let bodyHtml: string | null = null
                 let bodyText: string | null = null
@@ -323,7 +342,9 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 return {
                     id: msg.uid.toString(),
                     messageIdHeader: envelope.messageIdHeader,
+                    threadId,
                     inReplyTo: envelope.inReplyTo,
+                    references,
                     subject: envelope.subject ?? null,
                     from: envelope.from ?? null,
                     to: envelope.to ?? [],
