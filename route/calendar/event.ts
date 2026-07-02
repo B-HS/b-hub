@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { validator } from 'hono-openapi/zod'
+import { validator } from 'hono-openapi'
 import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'

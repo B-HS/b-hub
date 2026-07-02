@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const envSchema = z.object({
     DATABASE_URL: z.string().min(1),
-    SITE_URL: z.string().url().optional(),
+    SITE_URL: z.url().optional(),
 
     BASE_URL: z.string().min(1).optional(),
 
@@ -15,7 +15,7 @@ const envSchema = z.object({
     SPOTIFY_CLIENT_ID: z.string().min(1).optional(),
     SPOTIFY_CLIENT_SECRET: z.string().min(1).optional(),
 
-    R2_END_POINT: z.string().url().optional(),
+    R2_END_POINT: z.url().optional(),
     R2_ACCESS_KEY_ID: z.string().min(1).optional(),
     R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
     R2_BUCKET: z.string().min(1).optional(),
@@ -24,9 +24,9 @@ const envSchema = z.object({
 
     KMA_API_KEY: z.string().min(1).optional(),
 
-    DISCORD_WEBHOOK_URL: z.string().url().optional(),
+    DISCORD_WEBHOOK_URL: z.url().optional(),
 
-    SENTRY_DSN: z.string().url().optional(),
+    SENTRY_DSN: z.url().optional(),
 
     BETTER_AUTH_SECRET: z.string().min(1).optional(),
 
@@ -39,7 +39,7 @@ const envSchema = z.object({
     GDRIVE_ROOT_FOLDER_ID: z.string().min(1).optional(),
 
     UPLOAD_SERVER_SECRET: z.string().min(1).optional(),
-    UPLOAD_SERVER_URL: z.string().url().optional(),
+    UPLOAD_SERVER_URL: z.url().optional(),
 
     REDIS_URL: z.string().min(1).optional(),
 

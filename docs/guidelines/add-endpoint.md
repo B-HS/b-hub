@@ -55,7 +55,7 @@ Zod 스키마만 둔다(별도 validator 클래스 없음). 입력 타입은 손
 - **쿼리 파라미터는 `z.coerce` + `.default(...)`** 로 문자열을 안전하게 강제 변환한다: `page: z.coerce.number().int().positive().default(1)`, `limit: ...min(1).max(100).default(20)` (`dto/blog/post.ts:4-5`).
 - 쿼리의 boolean 은 `z.enum(['true','false']).transform((v) => v === 'true').optional()` 패턴(`dto/blog/post.ts:9-12`). 바디의 boolean 은 `z.boolean()`(`:32`).
 - 타입은 파일 하단에 `export type X = z.infer<typeof xSchema>` 로만 선언한다(`dto/blog/post.ts:62-64`). 손으로 union 을 다시 적지 않는다.
-- 응답 스키마를 `describeRoute` 의 `resolver(...)` 로 노출하려면 `hono-openapi/zod` 의 `resolver` 를 쓴다(`route/logs/log-event.ts:80` 이 `resolver(z.array(logEventResponseSchema))` 로 감싼다. 스키마 정의는 `dto/logs/log-event.ts:51` 의 `logEventResponseSchema`. 인라인 응답이면 `:33` 처럼 `resolver(z.object({...}))` 도 가능).
+- 응답 스키마를 `describeRoute` 의 `resolver(...)` 로 노출하려면 `hono-openapi` 의 `resolver` 를 쓴다(`validator` 도 같은 모듈 — `hono-openapi/zod` 서브패스는 v1 에서 제거됨. `route/logs/log-event.ts` 가 `resolver(z.array(logEventResponseSchema))` 로 감싼다. 스키마 정의는 `dto/logs/log-event.ts` 의 `logEventResponseSchema`. 인라인 응답이면 `resolver(z.object({...}))` 도 가능).
 
 ---
 

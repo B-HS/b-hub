@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
-import { describeRoute } from 'hono-openapi'
-import { resolver, validator } from 'hono-openapi/zod'
+import { describeRoute, resolver, validator } from 'hono-openapi'
 import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { withAuth } from '../../lib/with-auth'

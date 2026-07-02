@@ -65,7 +65,7 @@ withErrorHandling(
 
 - **이유**: 인증 HOF 는 실패 시 `createAppError` 를 throw 한다(`withAuth`→`UNAUTHORIZED`, `withAdmin`→role 불일치 시 `FORBIDDEN`, `withApiToken`→`API_TOKEN_INVALID`). 이 throw 를 바깥 `withErrorHandling` 이 잡아 응답 봉투로 변환하고 `errorCode` 컨텍스트를 세팅해야 `logCapture` 가 캡처한다(§4). 순서를 뒤집으면 인증 실패가 잡히지 않는다.
 - 인증 HOF 는 성공 시 `user` 를 **핸들러의 2번째 인자**(`(c, user)`)로 넘긴다(컨텍스트 세팅 아님).
-- `validator(...)`(hono-openapi, 내부 `@hono/zod-validator`)는 HOF 바깥의 별도 미들웨어로 핸들러보다 먼저 실행된다 → 검증 실패 시 `throw` 없이 `validator` 자체가 `c.json(result, 400)` 으로 직접 응답한다(`withErrorHandling`/`errorHandler` 미경유). 이때 `errorCode` 컨텍스트가 없어 `logCapture` 는 status 폴백으로 코드를 정한다(§4-2).
+- `validator(...)`(hono-openapi, 내부 `@hono/standard-validator`)는 HOF 바깥의 별도 미들웨어로 핸들러보다 먼저 실행된다 → 검증 실패 시 `throw` 없이 `validator` 자체가 400 JSON(`{ data, error: issues[], success: false }`)으로 직접 응답한다(`withErrorHandling`/`errorHandler` 미경유). 이때 `errorCode` 컨텍스트가 없어 `logCapture` 는 status 폴백으로 코드를 정한다(§4-2).
 - 도메인 키·디바이스 인증(`require-weather-key`·`require-device-key`)은 HOF 가 아니라 라우트가 직접 다는 미들웨어다. 상세는 [../architecture.md](../architecture.md) §7.
 
 ---

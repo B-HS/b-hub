@@ -4,11 +4,11 @@ import { isBlockedHost } from '../../lib/mail-utils'
 const safeHost = z
     .string()
     .max(255)
-    .refine((v) => !isBlockedHost(v), { message: '내부 네트워크 주소는 사용할 수 없습니다' })
+    .refine((v) => !isBlockedHost(v), { error: '내부 네트워크 주소는 사용할 수 없습니다' })
 
 export const mailAccountCreateSchema = z.object({
     provider: z.enum(['gmail', 'naver', 'daum', 'imap']),
-    email: z.string().email(),
+    email: z.email(),
     displayName: z.string().max(100).optional(),
     credentials: z
         .object({

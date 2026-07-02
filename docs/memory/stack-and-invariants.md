@@ -7,7 +7,7 @@
 | 항목 | 값 |
 |------|-----|
 | 런타임 / 패키지매니저 | **Bun** (`bun run`, `bunx`) — npm/node/pnpm 사용 금지 |
-| 서버 프레임워크 | Hono 4 (`hono-openapi` + `@hono/zod-validator`, Swagger UI) |
+| 서버 프레임워크 | Hono 4 (`hono-openapi` 1 + `@hono/standard-validator`, Swagger UI) — 검증 스키마는 zod 4 |
 | DB | MySQL + Drizzle ORM (`mysql2` 풀) |
 | 인증 | better-auth (OAuth) + API 토큰 + 도메인별 키(디바이스 키·weather key·spotify widget token) |
 | 어드민 UI | Hono JSX **SSR 전용** (`jsxImportSource: 'hono/jsx'`), **CSR/클라이언트 JS 금지**, 폼 POST → 303 |

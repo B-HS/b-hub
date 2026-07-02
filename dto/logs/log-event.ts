@@ -20,7 +20,7 @@ export const logEventIngestSchema = z.object({
     sessionId: z.string().max(36).optional(),
     retryCount: z.coerce.number().int().min(0).optional(),
     occurredAt: z.coerce.date().optional(),
-    details: z.record(z.unknown()).optional(),
+    details: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const logEventBatchSchema = z.object({
@@ -63,7 +63,7 @@ export const logEventResponseSchema = z.object({
     retryCount: z.number().nullable(),
     occurredAt: z.string().nullable(),
     resolvedAt: z.string().nullable(),
-    details: z.record(z.unknown()).nullable(),
+    details: z.record(z.string(), z.unknown()).nullable(),
     ingestIp: z.string().nullable(),
     createdAt: z.string(),
 })

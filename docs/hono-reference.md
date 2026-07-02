@@ -143,10 +143,10 @@ export const requireAdminPage = (getSession: AdminGetSession) => async (c: Conte
 2. 핸들러에서 처리 후 `c.redirect(returnTo, 303)` — POST / Redirect / GET 패턴.
 3. 플래시는 query로 전달: 리다이렉트 URL에 `?flash=ok`를 붙이고(`appendFlash`) 다음 GET에서 `c.req.query('flash')`로 읽어 `AdminShell`의 `flash` prop에 넣는다. `returnTo`는 `sanitizeReturn`으로 `/admin` 접두를 검증한다.
 
-## 11. 페이지네이션 & 필터 — URL query + 수동 파서 (zValidator 미사용)
+## 11. 페이지네이션 & 필터 — URL query + 수동 파서 (validator 미사용)
 
 - 목록 상태(page · size · 필터)는 모두 URL query에 인코딩 — 북마크/뒤로가기 친화. `FilterBar`는 `method='get'` 폼, `Pagination`은 링크로 query를 유지한다.
-- 파싱은 `@hono/zod-validator`가 아니라 `page/admin/format.ts` 헬퍼로 수동 처리: `parseIntOr(v, fallback)`, `parseDateStart` / `parseDateEnd`, 범위는 `Math.min(Math.max(...))`로 클램프. `dto/*` Zod 스키마를 재사용하지 않는다.
+- 파싱은 `hono-openapi` 의 `validator` 가 아니라 `page/admin/format.ts` 헬퍼로 수동 처리: `parseIntOr(v, fallback)`, `parseDateStart` / `parseDateEnd`, 범위는 `Math.min(Math.max(...))`로 클램프. `dto/*` Zod 스키마를 재사용하지 않는다.
 
 ```ts
 app.get('/', async (c) => {

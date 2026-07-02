@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const emailAddressSchema = z.object({
     name: z.string(),
-    address: z.string().email(),
+    address: z.email(),
 })
 
 export const mailMessageListQuerySchema = z.object({
@@ -52,7 +52,7 @@ export const mailMarkAllReadSchema = z
         folderId: z.number().int().positive().optional(),
     })
     .refine((d) => d.accountId !== undefined || d.folderId !== undefined, {
-        message: 'accountId 또는 folderId 중 하나는 필수입니다',
+        error: 'accountId 또는 folderId 중 하나는 필수입니다',
     })
 
 export const mailComposeSchema = z.object({
@@ -63,7 +63,7 @@ export const mailComposeSchema = z.object({
     subject: z
         .string()
         .max(1000)
-        .refine((v) => !/[\r\n]/.test(v), { message: 'Subject must not contain CRLF characters' }),
+        .refine((v) => !/[\r\n]/.test(v), { error: 'Subject must not contain CRLF characters' }),
     bodyHtml: z.string().max(1_000_000).optional(),
     bodyText: z.string().max(1_000_000).optional(),
     attachmentIds: z.array(z.number().int().positive()).optional(),

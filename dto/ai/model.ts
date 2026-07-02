@@ -5,7 +5,7 @@ export const aiModelResponseSchema = z.object({
     providerId: z.number(),
     modelId: z.string(),
     displayName: z.string().nullable(),
-    metadata: z.record(z.unknown()).nullable(),
+    metadata: z.record(z.string(), z.unknown()).nullable(),
     fetchedAt: z.string(),
 })
 

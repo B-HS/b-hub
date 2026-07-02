@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { resolver } from 'hono-openapi/zod'
+import { resolver, type ResponsesWithResolver } from 'hono-openapi'
 import type { ErrorCode } from '../lib/error-code'
 import { ERROR_MESSAGE } from '../lib/error-message'
 import { getStatusCode } from '../lib/error'
@@ -9,11 +9,11 @@ export const errorResponseDto = z.object({
     error: z.object({
         code: z.string(),
         message: z.string(),
-        details: z.record(z.unknown()).optional(),
+        details: z.record(z.string(), z.unknown()).optional(),
     }),
 })
 
-export const errorResponses = (codes: ErrorCode[]) => {
+export const errorResponses = (codes: ErrorCode[]): ResponsesWithResolver => {
     const grouped = new Map<number, ErrorCode[]>()
 
     for (const code of codes) {

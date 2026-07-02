@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { validator } from 'hono-openapi/zod'
+import { validator } from 'hono-openapi'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { withAuth } from '../../lib/with-auth'
 import { successResponse } from '../../lib/api-response'

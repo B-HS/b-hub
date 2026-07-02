@@ -9,7 +9,7 @@ export const imagePrepareResponseSchema = z.object({
 })
 
 export const imageCompleteRequestSchema = z.object({
-    assetId: z.string().uuid(),
+    assetId: z.uuid(),
     s3Key: z.string(),
     uploadToken: z.string(),
     sizeBytes: z.number().int().positive(),

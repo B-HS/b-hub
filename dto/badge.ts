@@ -155,7 +155,7 @@ const CSS_COLOR_NAMES = new Set([
 const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
 const colorSchema = z.string().refine((val) => HEX_COLOR_REGEX.test(val) || CSS_COLOR_NAMES.has(val.toLowerCase()), {
-    message: 'Must be a hex color (#fff or #ffffff) or a CSS color name',
+    error: 'Must be a hex color (#fff or #ffffff) or a CSS color name',
 })
 
 const VALID_FONT_WEIGHTS = new Set([100, 200, 300, 400, 500, 600, 700, 800, 900])
@@ -170,14 +170,14 @@ export const badgeImageQuerySchema = z.object({
         .int()
         .min(0)
         .max(500)
-        .refine((v) => v === 0 || (v >= 8 && v <= 500), { message: 'fontSize must be 0 (auto) or between 8 and 500' })
+        .refine((v) => v === 0 || (v >= 8 && v <= 500), { error: 'fontSize must be 0 (auto) or between 8 and 500' })
         .optional(),
     fontWeight: z.coerce
         .number()
         .int()
         .min(100)
         .max(900)
-        .refine((v) => VALID_FONT_WEIGHTS.has(v), { message: 'fontWeight must be a multiple of 100 (100-900)' })
+        .refine((v) => VALID_FONT_WEIGHTS.has(v), { error: 'fontWeight must be a multiple of 100 (100-900)' })
         .default(400),
     color: colorSchema.default('#000000'),
     backgroundColor: colorSchema.default('#ffffff'),

@@ -20,6 +20,6 @@ export const searchQuerySchema = z.object({
 })
 
 export const timestampSchema = z.object({
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
 })
