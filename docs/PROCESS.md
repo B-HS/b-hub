@@ -5,7 +5,10 @@
 
 ## 현재 진행 중 작업
 
-(없음 — 최근 완료분은 아래 이력 참조)
+### 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`) — 결정 정본: [acknowledge/2026-07-02-deps-upgrade.md](./acknowledge/2026-07-02-deps-upgrade.md)
+
+- [x] 안전 최신화(minor/patch 전부 + 저위험 major 7 + 보안 `nodemailer` 9) — tsc 0 · `bun test` 2268 pass · docs 버전 반영. **미커밋(워킹트리)**.
+- [ ] breaking major 3개(**새 세션**): `hono` 4.12(param 40+지점)·`better-auth` 1.6(타입 3지점)·`zod` 4 생태계(37+지점). 새 세션 프롬프트는 acknowledge 문서에.
 
 ## 완료 작업 (이력)
 
