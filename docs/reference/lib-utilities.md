@@ -184,7 +184,7 @@
 - `sendDiscordAlert(webhookUrl, payload)`: 서비스·에러코드·severity(·device·설명)를 조합해 웹훅 POST(`content` 1900자 slice). 사용처: `compose/logs.ts`. 상세 → [../logging.md](../logging.md). 테스트: 없음.
 
 **`lib/log-service-name.ts`**
-- `serviceNameFromPath(path)`(경로→`b-hub-{도메인}`, 단 `/api/ai` 분기 없음 → `b-hub-api` 폴백), `severityFromStatus(status)`(≥500→40, else 30), `errorCodeFromStatus(status)`(상태→라벨, 미매핑 5xx→`INTERNAL_ERROR`, 그 외→`HTTP_{status}`). 사용처: `middleware/log-capture.ts`. 상세 → [../logging.md](../logging.md). 테스트: `log-service-name.test.ts`.
+- `serviceNameFromPath(path)`(경로→`b-hub-{도메인}`, `/api/ai` 포함 12분기 + `/api` 폴백 `b-hub-api`), `severityFromStatus(status)`(≥500→40, else 30), `errorCodeFromStatus(status)`(상태→라벨, 미매핑 5xx→`INTERNAL_ERROR`, 그 외→`HTTP_{status}`). 사용처: `middleware/log-capture.ts`. 상세 → [../logging.md](../logging.md). 테스트: `log-service-name.test.ts`.
 
 **`lib/hono-types.ts`**
 - `HonoVariables`(`user`·`errorCode`·`errorDetail`), `AuthContext = { Variables: HonoVariables }`. `new Hono<AuthContext>()` 및 `c.get/set` 타입 계약. 내부 `AuthUser` = `{id,name,email,role,image}`. 사용처: `index.ts`, `middleware/index.ts`, 다수 `route/*`. 테스트: 타입 전용(없음).

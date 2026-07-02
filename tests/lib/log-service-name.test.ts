@@ -7,6 +7,7 @@ describe('serviceNameFromPath', () => {
         ['/api/mail/messages', 'b-hub-mail'],
         ['/api/spotify/playing', 'b-hub-spotify'],
         ['/api/logs', 'b-hub-logs'],
+        ['/api/ai/sessions', 'b-hub-ai'],
         ['/api/unknown', 'b-hub-api'],
         ['/policy', 'b-hub-web'],
     ])('%s -> %s', (path, expected) => {

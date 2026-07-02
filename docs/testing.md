@@ -48,9 +48,9 @@
 
 | 항목 | 값 |
 |------|-----|
-| pass | 2268 |
+| pass | 2269 |
 | fail | 0 |
-| expect() calls | 5509 |
+| expect() calls | 5510 |
 | 파일 | 182 |
 | 소요 | 23.37s |
 | exit code | 0 |

@@ -9,6 +9,7 @@ export const serviceNameFromPath = (path: string) => {
     if (path.startsWith('/api/logs')) return 'b-hub-logs'
     if (path.startsWith('/api/badge')) return 'b-hub-badge'
     if (path.startsWith('/api/auth')) return 'b-hub-auth'
+    if (path.startsWith('/api/ai')) return 'b-hub-ai'
     if (path.startsWith('/caldav') || path.startsWith('/.well-known')) return 'b-hub-caldav'
     if (path.startsWith('/api')) return 'b-hub-api'
     return 'b-hub-web'
