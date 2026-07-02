@@ -1,6 +1,6 @@
 # API 엔드포인트 전수 인벤토리
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `vercel.json`
+> 기준: 2026-07-02 (chore/deps-update @ `5887a60`) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `vercel.json`
 
 ## 범위
 

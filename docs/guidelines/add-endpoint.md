@@ -90,18 +90,18 @@ HTTP 경계. `describeRoute`(문서) + `validator`(검증) + 인증(§7) + `with
 
 ### 6.1 팩토리 골격
 
-- 파일은 `create<Resource>Route(deps) => Hono` 팩토리다. 인스턴스는 `new Hono()`(`route/blog/post.ts:18`) 또는 컨텍스트 변수를 쓰면 `new Hono<AuthContext>()`(`route/logs/log-event.ts:23`).
-- deps 타입에 서비스와 `getSession` 을 선언한다. `getSession` 타입은 `Parameters<typeof withAuth>[0]['getSession']` 로 유도하면 정확하다(`route/logs/log-event.ts:19`).
-- 팩토리는 반드시 `route` 인스턴스를 반환하고(`route/blog/post.ts:111`), 마운트는 §6.4 의 `createRouter` 가 한다.
+- 파일은 `create<Resource>Route(deps) => Hono` 팩토리다. 인스턴스는 `new Hono()`(`route/blog/post.ts:17`) 또는 컨텍스트 변수를 쓰면 `new Hono<AuthContext>()`(`route/logs/log-event.ts:28`).
+- deps 타입에 서비스와 `getSession` 을 선언한다. `getSession` 타입은 `Parameters<typeof withAuth>[0]['getSession']` 로 유도하면 정확하다(`route/logs/log-event.ts:24`).
+- 팩토리는 반드시 `route` 인스턴스를 반환하고(`route/blog/post.ts:110`), 마운트는 §6.4 의 `createRouter` 가 한다.
 
 ### 6.2 핸들러 구성 (순서)
 
-`route.<method>(path, describeRoute({...}), validator(...), withErrorHandling(...))` 순서로 인자를 나열한다(`route/blog/post.ts:20-39`).
+`route.<method>(path, describeRoute({...}), validator(...), withErrorHandling(...))` 순서로 인자를 나열한다(`route/blog/post.ts:19-38`).
 
-- **`describeRoute`**: `tags`(도메인 태그, 예 `['Blog']`·`['Logs']`), `summary`(한국어 한 줄), `responses`(성공 200 + `...errorResponses([...])`)(`route/blog/post.ts:22-25`, `:43-49`).
-- **`validator`**: 쿼리는 `validator('query', xListQuerySchema)`, 바디는 `validator('json', xCreateSchema)`. 검증값은 `c.req.valid('json' as never) as z.infer<typeof xCreateSchema>` 로 꺼낸다(`route/blog/post.ts:27`·`:29`, `:72`·`:78`).
-- **`withErrorHandling`**: 모든 핸들러를 감싼다(`route/blog/post.ts:28`). 인증 HOF 를 쓰면 **바깥 `withErrorHandling` → 안쪽 `withAuth`/`withAdmin`** 순으로 합성한다(`route/logs/log-event.ts:86-87`, [../architecture.md](../architecture.md) §4).
-- **path 파라미터·조회 실패는 `createAppError`**: `const id = Number(c.req.param('id')); if (isNaN(id)) throw createAppError('BLOG_POST_NOT_FOUND')`, 서비스가 `null` 이면 다시 `throw`(`route/blog/post.ts:52-56`).
+- **`describeRoute`**: `tags`(도메인 태그, 예 `['Blog']`·`['Logs']`), `summary`(한국어 한 줄), `responses`(성공 200 + `...errorResponses([...])`)(`route/blog/post.ts:21-25`, `:42-49`).
+- **`validator`**: 쿼리는 `validator('query', xListQuerySchema)`, 바디는 `validator('json', xCreateSchema)`. 검증값은 `c.req.valid('json' as never) as z.infer<typeof xCreateSchema>` 로 꺼낸다(`route/blog/post.ts:26`·`:28`, `:71`·`:77`).
+- **`withErrorHandling`**: 모든 핸들러를 감싼다(`route/blog/post.ts:27`). 인증 HOF 를 쓰면 **바깥 `withErrorHandling` → 안쪽 `withAuth`/`withAdmin`** 순으로 합성한다(`route/logs/log-event.ts:95-96`, [../architecture.md](../architecture.md) §4).
+- **path 파라미터·조회 실패는 `createAppError`**: `const id = Number(c.req.param('id')); if (isNaN(id)) throw createAppError('BLOG_POST_NOT_FOUND')`, 서비스가 `null` 이면 다시 `throw`(`route/blog/post.ts:51-55`).
 
 ### 6.3 응답 헬퍼 (`lib/api-response.ts`)
 
@@ -109,11 +109,11 @@ HTTP 경계. `describeRoute`(문서) + `validator`(검증) + 인증(§7) + `with
 
 | 헬퍼 | 반환 | 정본 |
 |------|------|------|
-| `successResponse(data)` | `{ success: true, data }` | `route/blog/post.ts:58` `c.json(successResponse({ post }))` |
-| `paginatedResponse(data, { page, limit, total })` | `+ pagination`(`totalPages` 자동) | `route/blog/post.ts:31-37` |
+| `successResponse(data)` | `{ success: true, data }` | `route/blog/post.ts:57` `c.json(successResponse({ post }))` |
+| `paginatedResponse(data, { page, limit, total })` | `+ pagination`(`totalPages` 자동) | `route/blog/post.ts:30-36` |
 | `errorResponse(...)` | `{ success: false, error }` | 라우트가 직접 부르지 않음 — `withErrorHandling` 가 사용 |
 
-- **offset 기반 목록**은 page 를 계산해 넘긴다: `paginatedResponse(data, { page: Math.floor(q.offset / q.limit) + 1, limit: q.limit, total })`(`route/logs/log-event.ts:109`).
+- **offset 기반 목록**은 page 를 계산해 넘긴다: `paginatedResponse(data, { page: Math.floor(q.offset / q.limit) + 1, limit: q.limit, total })`(`route/logs/log-event.ts:118`).
 - 성공 응답에 200 외 상태가 필요하면 `c.json(successResponse(...), 201)` 처럼 상태를 명시한다(캘린더 생성 등, [../reference/api-endpoints.md](../reference/api-endpoints.md)).
 
 ### 6.4 route 배선 (`route/index.ts`)
@@ -132,17 +132,17 @@ HTTP 경계. `describeRoute`(문서) + `validator`(검증) + 인증(§7) + `with
 
 | 엔드포인트 성격 | 인증 표기 | 검사 수단 | 정본 예시 |
 |-----------------|-----------|-----------|-----------|
-| 공개 조회(목록·상세·공개 이미지) | `없음` | 인증 래퍼 없음 | `GET /api/blog/posts` (`route/blog/post.ts:20`) |
+| 공개 조회(목록·상세·공개 이미지) | `없음` | 인증 래퍼 없음 | `GET /api/blog/posts` (`route/blog/post.ts:19`) |
 | 로그인 사용자 본인 리소스 | `세션` | `withAuth({ getSession })(handler)` 또는 핸들러 내 `getSession` | mail·resume·calendar 등; `withAuth`(`lib/with-auth.ts:10`) |
-| 관리자 전용 | `어드민` | `withAdmin({ getSession })(handler)` / 핸들러 내 `getSession`+`role!=='admin'` / 라우트 로컬 `requireAdmin` 클로저 | HOF: `route/logs/log-event.ts:86-87` · 인라인: `route/blog/post.ts:74-76` · 로컬 클로저: blog admin/category/tag([../domains/auth.md](../domains/auth.md) §4.1) |
-| 디바이스(펌웨어) 수집 | `device-key` | `requireDeviceKey` 미들웨어(`X-Device-Key`) | `POST /api/logs` (`route/logs/log-event.ts:38`) |
+| 관리자 전용 | `어드민` | `withAdmin({ getSession })(handler)` / 핸들러 내 `getSession`+`role!=='admin'` / 라우트 로컬 `requireAdmin` 클로저 | HOF: `route/logs/log-event.ts:95-96` · 인라인: `route/blog/post.ts:73-75` · 로컬 클로저: blog admin/category/tag([../domains/auth.md](../domains/auth.md) §4.1) |
+| 디바이스(펌웨어) 수집 | `device-key` | `requireDeviceKey` 미들웨어(`X-Device-Key`) | `POST /api/logs` (`route/logs/log-event.ts:43`) |
 | weather 데이터 | `weather-key` | `requireWeatherKey`/`requireWeatherKeyNoLog`(`X-Weather-Key`) | `/api/weather/*` |
 | 발송·무거운 트리거(rate-limit) | `세션` + rate limit | `withRateLimit({ checkLimit })` 를 `withAuth` **안쪽**에 합성 | `POST /api/mail/messages/send`·`POST /api/mail/sync` ([../domains/auth.md](../domains/auth.md) §6.3) |
 | 헤더 API 토큰 | (미연결) | `withApiToken`(`lib/with-auth.ts:23`) 정의만, 라우트 미배선 | 없음 — 붙이려면 `validateToken: apiTokenService.validate` 주입 필요([../domains/auth.md](../domains/auth.md) §4.3) |
 
 - **HOF 시그니처**: `withAuth`/`withAdmin` 은 `(deps) => (handler) => (c)` 커링이고, 검증 통과 시 인증된 `user` 를 핸들러 2번째 인자로 넘긴다(`lib/with-auth.ts:10-21`). 실패는 `UNAUTHORIZED`(401)/`FORBIDDEN`(403).
 - **관리자 게이팅은 3가지 변형이 공존**한다(위 표). 새 라우트는 HOF(`withAdmin`)를 기본으로 하되, 같은 파일의 기존 패턴이 인라인/로컬 클로저면 그에 맞춘다([../architecture.md](../architecture.md) §7, [../domains/auth.md](../domains/auth.md) §4.1).
-- 미들웨어(`requireDeviceKey` 등)는 핸들러 인자 목록에서 `withErrorHandling` **앞**에 둔다(`route/logs/log-event.ts:38-40`).
+- 미들웨어(`requireDeviceKey` 등)는 핸들러 인자 목록에서 `withErrorHandling` **앞**에 둔다(`route/logs/log-event.ts:43-45`).
 
 ---
 

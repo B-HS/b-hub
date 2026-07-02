@@ -1,5 +1,7 @@
 # 합의 — 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`)
 
+> **완료됨** — 보류 3종 포함 전부 반영. 결과·커밋·대응 상세는 [../history/2026-07-deps-upgrade.md](../history/2026-07-deps-upgrade.md). 원계획과의 차이: `zod-openapi`·`@hono/zod-validator` 는 직접 사용 0(구 hono-openapi 의 내부 의존)으로 실측되어 업그레이드 대신 **제거**(hono-openapi 1 은 `@hono/standard-validator` 경로).
+
 ## 완료분 (안전 최신화 + 보안)
 
 tsc 0 · `bun test` 2268 pass 로 검증하며 아래를 올렸다.

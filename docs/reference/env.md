@@ -34,14 +34,13 @@
 | `lib/with-error-handling.ts:19` | `NODE_ENV` | 환경 분기 |
 | `middleware/error-handler.ts:17` | `NODE_ENV` | 환경 분기 |
 | `middleware/index.ts:23` | `NODE_ENV` | 환경 분기 |
-| `service/shared/auth-provider.ts:54` | `NODE_ENV` | 환경 분기 |
 | `service/shared/font-loader.ts:21` | `VERCEL` | Vercel 파일 경로 분기 |
 | `service/shared/icon-loader.ts:11` | `VERCEL` | Vercel 파일 경로 분기 |
 | `service/shared/redis-cache.ts:3` | `REDIS_URL` | 모듈 스코프 Redis 클라이언트 초기화 |
 
-- `NODE_ENV` 는 **주입 `env` 로는 소비되지 않고** 전부 `process.env` 직접 접근이다.
+- `NODE_ENV` 는 주입 소비 1곳(`compose/shared.ts:32` `isProduction: env.NODE_ENV === 'production'`, 2026-07 deps 업그레이드에서 auth-provider 직접접근을 주입으로 정리) + `process.env` 직접 접근 5곳이 혼재한다.
 - `DATABASE_URL`·`REDIS_URL`·`PORT` 도 소비는 `process.env` 로 하지만, `DATABASE_URL` 은 `getEnv()` 가 검증은 수행한다(`REDIS_URL`·`PORT`·`NODE_ENV`·`VERCEL` 은 optional).
-- `VERCEL` 은 `compose/shared.ts:69` 에서는 주입 `env` 로, 폰트/아이콘 로더에서는 `process.env` 로 이중 접근.
+- `VERCEL` 은 `compose/shared.ts:70` 에서는 주입 `env` 로, 폰트/아이콘 로더에서는 `process.env` 로 이중 접근.
 
 ## 변수 인벤토리
 
@@ -58,12 +57,12 @@
 | `GOOGLE_CLIENT_SECRET` | 선택 (min1) | — | 상동 | `compose/shared.ts:29`, `compose/mail.ts:46`·`109` |
 | `SPOTIFY_CLIENT_ID` | 선택 (min1) | — | Spotify OAuth connect | `compose/spotify.ts:74`·`151` |
 | `SPOTIFY_CLIENT_SECRET` | 선택 (min1) | — | Spotify OAuth connect | `compose/spotify.ts:75`·`151` |
-| `R2_END_POINT` | 선택 (url) | — | R2(S3) 엔드포인트 | `compose/shared.ts:52` |
-| `R2_ACCESS_KEY_ID` | 선택 (min1) | — | R2 자격증명(미설정 시 `''`) | `compose/shared.ts:54` |
-| `R2_SECRET_ACCESS_KEY` | 선택 (min1) | — | R2 자격증명(미설정 시 `''`) | `compose/shared.ts:55` |
-| `R2_BUCKET` | 선택 (min1) | — | R2 버킷(미설정 시 `'blog-cloud'`) | `compose/shared.ts:61`, `compose/blog.ts:491` |
-| `R2_CUSTOM_DOMAIN` | 선택 (min1) | — | R2 CDN 도메인(우선). 미설정 시 `R2_CUSTOME_DOMAIN` → `'https://blogimg.gumyo.net'` | `compose/shared.ts:62` |
-| `R2_CUSTOME_DOMAIN` | 선택 (min1) | — | **오타 별칭**. `R2_CUSTOM_DOMAIN` 미설정 시 fallback 소스 | `compose/shared.ts:62` |
+| `R2_END_POINT` | 선택 (url) | — | R2(S3) 엔드포인트 | `compose/shared.ts:53` |
+| `R2_ACCESS_KEY_ID` | 선택 (min1) | — | R2 자격증명(미설정 시 `''`) | `compose/shared.ts:55` |
+| `R2_SECRET_ACCESS_KEY` | 선택 (min1) | — | R2 자격증명(미설정 시 `''`) | `compose/shared.ts:56` |
+| `R2_BUCKET` | 선택 (min1) | — | R2 버킷(미설정 시 `'blog-cloud'`) | `compose/shared.ts:62`, `compose/blog.ts:491` |
+| `R2_CUSTOM_DOMAIN` | 선택 (min1) | — | R2 CDN 도메인(우선). 미설정 시 `R2_CUSTOME_DOMAIN` → `'https://blogimg.gumyo.net'` | `compose/shared.ts:63` |
+| `R2_CUSTOME_DOMAIN` | 선택 (min1) | — | **오타 별칭**. `R2_CUSTOM_DOMAIN` 미설정 시 fallback 소스 | `compose/shared.ts:63` |
 | `KMA_API_KEY` | 선택 (min1) | — | 기상청 서비스키(미설정 시 `''` 주입) | `compose/weather.ts:9` |
 | `DISCORD_WEBHOOK_URL` | 선택 (url) | — | 로그 알림 Discord webhook. 미설정 시 alerter 비활성 | `compose/logs.ts:52`·`58` |
 | `SENTRY_DSN` | 선택 (url) | — | **선언·`.env.example` 에 있으나 소비 코드 없음**(`initSentry` 런타임 미호출) | (없음) |
@@ -75,9 +74,9 @@
 | `UPLOAD_SERVER_SECRET` | 선택 (min1) | — | upload-server 토큰 서명 시크릿(blog·drive, 미설정 시 `''`) | `compose/blog.ts:493`, `compose/drive.ts:244`·`297` |
 | `UPLOAD_SERVER_URL` | 선택 (url) | — | upload-server base URL(blog, 미설정 시 `''`) | `compose/blog.ts:494` |
 | `REDIS_URL` | 선택 (min1) | — | 캐시 Redis 접속. 미설정/실패 시 인메모리 fallback | `service/shared/redis-cache.ts:3` (process.env 직접) |
-| `VERCEL` | 선택 | — | Vercel 런타임 감지(파일 경로 분기) | `compose/shared.ts:69`(env), `service/shared/font-loader.ts:21`·`service/shared/icon-loader.ts:11`(process.env) |
+| `VERCEL` | 선택 | — | Vercel 런타임 감지(파일 경로 분기) | `compose/shared.ts:70`(env), `service/shared/font-loader.ts:21`·`service/shared/icon-loader.ts:11`(process.env) |
 | `PORT` | 선택 | — | 서버 리슨 포트(미설정 시 `9999`) | `index.ts:60` (process.env 직접) |
-| `NODE_ENV` | 선택 (enum) | `'development'` | 환경 분기. 허용값 `development`\|`production`\|`test` | `index.ts:38`, `lib/api-response.ts:49`, `lib/with-error-handling.ts:19`, `middleware/error-handler.ts:17`, `middleware/index.ts:23`, `service/shared/auth-provider.ts:54` (전부 process.env) |
+| `NODE_ENV` | 선택 (enum) | `'development'` | 환경 분기. 허용값 `development`\|`production`\|`test` | `compose/shared.ts:32`(주입 env → `isProduction`), `index.ts:38`, `lib/api-response.ts:49`, `lib/with-error-handling.ts:19`, `middleware/error-handler.ts:17`, `middleware/index.ts:23`(이상 5곳 process.env) |
 
 - 도메인별 env 요약은 각 도메인 문서에도 있다(예: weather 의 `KMA_API_KEY`·`REDIS_URL` → [../domains/weather.md](../domains/weather.md#환경변수)).
 
@@ -137,7 +136,7 @@
 - **`SITE_URL`·`SENTRY_DSN` 은 선언만 되고 소비되지 않음**: 코드 어디서도 읽지 않는다. `SENTRY_DSN` 은 `lib/sentry.ts` 의 `initSentry(dsn)` 인자로 전달돼야 하나, 프로덕션 코드에 `initSentry` 호출이 없어(`tests/lib/sentry.test.ts` 만 호출) 항상 미초기화 → `captureException` 이 no-op. (로깅 세부는 [../logging.md](../logging.md))
 - **`R2_CUSTOME_DOMAIN` 오타 별칭**: `compose/shared.ts:62` 가 `R2_CUSTOM_DOMAIN ?? R2_CUSTOME_DOMAIN ?? 'https://blogimg.gumyo.net'` 로 두 철자 모두 fallback으로 읽는다. 정상 철자(`_CUSTOM_`)가 우선.
 - **소비 측 fallback 이 zod default 를 대체**: 대부분의 optional 키는 zod default 가 없고, 미설정 시 compose 에서 `?? ''`/`?? 'blog-cloud'`/`?? 'http://localhost:9999'` 등으로 흡수된다. "미설정=빈 문자열/로컬 기본"이라 인증·업로드가 조용히 무력화될 수 있다(에러 아님).
-- **`NODE_ENV` 는 주입 env 미경유**: 검증된 `env.NODE_ENV`(default 적용본) 대신 6개 파일이 `process.env.NODE_ENV` 를 직접 본다. `process.env.NODE_ENV` 는 미설정 시 `undefined` 라 zod default(`'development'`)와 값이 다를 수 있다.
+- **`NODE_ENV` 는 주입 env 미경유**: 검증된 `env.NODE_ENV`(default 적용본) 대신 5개 파일(`index.ts`·`middleware/error-handler.ts`·`middleware/index.ts`·`lib/api-response.ts`·`lib/with-error-handling.ts`)이 `process.env.NODE_ENV` 를 직접 본다(`service/shared/auth-provider.ts` 는 2026-07 `isProduction` 주입으로 정리됨). `process.env.NODE_ENV` 는 미설정 시 `undefined` 라 zod default(`'development'`)와 값이 다를 수 있다.
 
 ## 관련 문서
 

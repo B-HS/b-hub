@@ -33,13 +33,13 @@
 
 ## 조립·주입 관계 (compose 근거)
 
-- `composeShared(core)` 가 생성해 반환하는 것: `auth`, `getSession`, `apiTokenService`, `storageService`, `imageProcessor`, `imageGenerator`, `fontLoader`, `badgeService`, `gdriveStorageService`(항상 `null` 플레이스홀더 — 실제 인스턴스는 `initGdriveStorage` 로 지연 생성), `initGdriveStorage`, `getGdriveAccessToken`. (`compose/shared.ts:132-144`)
+- `composeShared(core)` 가 생성해 반환하는 것: `auth`, `getSession`, `apiTokenService`, `storageService`, `imageProcessor`, `imageGenerator`, `fontLoader`, `badgeService`, `gdriveStorageService`(항상 `null` 플레이스홀더 — 실제 인스턴스는 `initGdriveStorage` 로 지연 생성), `initGdriveStorage`, `getGdriveAccessToken`. (`compose/shared.ts:133-145`)
 - `compose/index.ts` 의 도메인 주입(스프레드 병합 전):
   - `composeBlog({ ...core, storageService, imageProcessor })` (`compose/index.ts:19`)
   - `composeMail({ ...core, storageService })` (`compose/index.ts:22`, `ComposeMailArgs`)
   - `composeDrive({ ...core, storageService, imageProcessor, gdriveStorageService: null, initGdriveStorage })` (`compose/index.ts:26`)
   - `composeWeather`·`composeLogs`·`composeSpotify`·`composeResume`·`composeCalendar` 는 `core`(`{db, env}`)만 받는다 — 공유 서비스 주입 없음.
-- `badgeService` 는 별도 도메인 compose 없이 `composeShared` 내부에서 `imageGenerator`·`fontLoader`·`iconLoader`·`badgeCache` 를 조합해 만든다(`compose/shared.ts:81-88`). 이미지/배지 서비스 4종은 사실상 badge 도메인 전용 소비자다.
+- `badgeService` 는 별도 도메인 compose 없이 `composeShared` 내부에서 `imageGenerator`·`fontLoader`·`iconLoader`·`badgeCache` 를 조합해 만든다(`compose/shared.ts:82-89`). 이미지/배지 서비스 4종은 사실상 badge 도메인 전용 소비자다.
 
 ---
 
@@ -54,7 +54,7 @@
 - env(주입값, `composeShared` 경유): `BASE_URL`(기본 `http://localhost:9999`), `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, `TRUSTED_ORIGINS`(콤마 분리), `NODE_ENV`(→ `isProduction`).
 - 팩토리 시그니처: `createAuthProvider({ db, baseUrl, githubClientId, githubClientSecret, googleClientId, googleClientSecret, secret?, trustedOrigins?, isProduction })`. 반환은 명시 `Auth` 타입(base) — better-auth 1.6 이 내부 zod v4 를 참조해 추론 타입이 non-portable(TS2883)해지는 것을 옵션 `BetterAuthOptions` 타입 + 명시 annotation 으로 해소. admin 플러그인 전용 API 타입은 코드에서 미사용이라 손실 없음.
 - 기타: `ALWAYS_TRUSTED_ORIGINS = ['*.gumyo.net', '*.hyns.dev', '*.seok.dev']` 상시 신뢰. `crossSubDomainCookies` 는 프로덕션에서만 활성(domain `.gumyo.net`, `isProduction` 주입값 기준).
-- 주입: `composeShared` 가 `auth` 와, 세션을 `{ user: { id, name, email, role, image } }` 로 정규화하는 `getSession` 을 함께 노출(`compose/shared.ts:34-46`).
+- 주입: `composeShared` 가 `auth` 와, 세션을 `{ user: { id, name, email, role, image } }` 로 정규화하는 `getSession` 을 함께 노출(`compose/shared.ts:35-47`).
 - 테스트: 없음(better-auth 위임 래퍼).
 
 ### api-token.ts
@@ -93,7 +93,7 @@
 - 역할: Google Drive v3 다운로드·삭제(L3). refresh token → access token 교환(만료 60초 전까지 캐시). `download`→`ReadableStream`(`alt=media&supportsAllDrives=true`), `del`(404 는 무시).
 - 외부 의존: `https://oauth2.googleapis.com/token`, `https://www.googleapis.com/drive/v3`. SDK 없이 `fetch` 직접 호출.
 - 에러: `DRIVE_L3_DOWNLOAD_FAILED`(토큰 교환/다운로드 실패), `STORAGE_DELETE_FAILED`.
-- env: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. `refreshToken` 은 env 가 아니라 **DB `account` 테이블에서 조회** — `composeShared.getGdriveRefreshToken` 이 `scope LIKE '%drive.file%'` 계정의 `refreshToken` 을 읽는다(`compose/shared.ts:90-97`).
+- env: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. `refreshToken` 은 env 가 아니라 **DB `account` 테이블에서 조회** — `composeShared.getGdriveRefreshToken` 이 `scope LIKE '%drive.file%'` 계정의 `refreshToken` 을 읽는다(`compose/shared.ts:91-98`).
 - 팩토리 시그니처: `createGdriveStorageService({ clientId, clientSecret, refreshToken })`.
 - 주입: `composeShared` 가 **lazy** 로 감싼다 — `initGdriveStorage()`(최초 호출 시 refresh token 이 있으면 생성, `GOOGLE_CLIENT_*` 또는 토큰 없으면 `null`). drive 에 `initGdriveStorage` 로 전달되어 `getGdriveStorage`·`getL3` 로 소비.
 - 테스트: `tests/service/shared/gdrive-storage.test.ts`.

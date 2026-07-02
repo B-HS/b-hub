@@ -89,6 +89,7 @@
 |------|------|
 | [quality-assurance/pre-merge-checklist.md](./quality-assurance/pre-merge-checklist.md) | 머지 전 체크(typecheck·test·prettier·컨벤션·문서·시크릿) |
 | [quality-assurance/endpoint-qa.md](./quality-assurance/endpoint-qa.md) | 엔드포인트 QA(검증·인증·봉투·OpenAPI·캡처·테스트) |
+| [quality-assurance/fe-deps-impact-check.md](./quality-assurance/fe-deps-impact-check.md) | FE 소비자 영향 검수(2026-07 deps 업그레이드 — 400 바디 구조·문구·이메일·코드젠) |
 
 ### 기록 폴더 (ai-process §9)
 

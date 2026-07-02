@@ -89,10 +89,10 @@
 ### ⑥ 라우트 배선 — `route/<domain>/` + `route/index.ts`
 
 - **정본 예시**: `route/logs/log-event.ts`·`route/logs/device-key.ts`, `route/index.ts:318-332`.
-- [ ] `route/<domain>/*.ts` 신규: `create<Domain>Route(deps)` 팩토리가 `new Hono<AuthContext>()` 를 반환한다(`route/logs/log-event.ts:22-23`). 세션 의존은 `getSession: Parameters<typeof withAuth>[0]['getSession']` 로 타입을 유도한다(`route/logs/log-event.ts:19`).
+- [ ] `route/<domain>/*.ts` 신규: `create<Domain>Route(deps)` 팩토리가 `new Hono<AuthContext>()` 를 반환한다(`route/logs/log-event.ts:27-28`). 세션 의존은 `getSession: Parameters<typeof withAuth>[0]['getSession']` 로 타입을 유도한다(`route/logs/log-event.ts:24`).
 - [ ] 각 핸들러 = `describeRoute({ tags, summary, responses: { 200: {...}, ...errorResponses([...codes]) } })` + `validator('json'|'query', <schema>)` + HOF 합성. 값은 `c.req.valid('json' as never) as z.infer<typeof <schema>>` 로 꺼낸다.
-- [ ] **HOF 합성 순서**: 바깥 `withErrorHandling` → 안쪽 인증(`withAdmin`/`withAuth`). 예: `withErrorHandling(withAdmin({ getSession: deps.getSession })(async (c) => { ... }))`(`route/logs/log-event.ts:86-111`). 디바이스/도메인 키 미들웨어는 핸들러 앞 체인에 둔다(`describeRoute, requireDeviceKey({...}), validator, withErrorHandling(...)`, `route/logs/log-event.ts:25-46`).
-- [ ] "없음"은 서비스가 준 `null` 을 라우트가 `throw createAppError('...')` 로 변환한다. 응답은 봉투 헬퍼로만: `successResponse(data)` / `paginatedResponse(data, { page, limit, total })`. 목록은 row → 응답 shape 매핑 시 `Date` 를 `?.toISOString() ?? null` 로 직렬화한다(`route/logs/log-event.ts:90-109`).
+- [ ] **HOF 합성 순서**: 바깥 `withErrorHandling` → 안쪽 인증(`withAdmin`/`withAuth`). 예: `withErrorHandling(withAdmin({ getSession: deps.getSession })(async (c) => { ... }))`(`route/logs/log-event.ts:95-120`). 디바이스/도메인 키 미들웨어는 핸들러 앞 체인에 둔다(`describeRoute, requireDeviceKey({...}), validator, withErrorHandling(...)`, `route/logs/log-event.ts:30-45`).
+- [ ] "없음"은 서비스가 준 `null` 을 라우트가 `throw createAppError('...')` 로 변환한다. 응답은 봉투 헬퍼로만: `successResponse(data)` / `paginatedResponse(data, { page, limit, total })`. 목록은 row → 응답 shape 매핑 시 `Date` 를 `?.toISOString() ?? null` 로 직렬화한다(`route/logs/log-event.ts:99-118`).
 - [ ] `route/index.ts` 의 `createRouter` 에 마운트한다: `import { create<Domain>Route } ...` → `router.route('/<domain>', create<Domain>Route({ <service>: stub(deps.<service>), getSession: stubFn(deps.getSession) as never }))`. 각 의존성은 `stub()`/`stubFn()` 로 감싸 미주입 시 `SERVICE_NOT_CONFIGURED`(503) 를 던지게 한다(`route/index.ts:44-59,318-332`). 더 구체적인 접두사를 먼저 등록한다(정본은 `/logs/device-keys` 를 `/logs` 앞에 등록, `route/index.ts:318,325`). `index.ts` 가 이 라우터를 `app.route('/api', api)` 로 마운트하므로 최종 경로는 `/api/<domain>/...` 이다.
 
 ### ⑦ 미들웨어 (필요 시)

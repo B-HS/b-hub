@@ -98,7 +98,7 @@ ai     = composeAi({ ...core, storageService, logEventService })  // AI_ENCRYPTI
 return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume, ...calendar, ...drive, ...ai, baseUrl, gdriveRootFolderId }
 ```
 
-- **`composeShared(core)`** 가 먼저 생성하는 공용 의존성: `auth`(better-auth), `getSession`(세션 정규화 어댑터), `apiTokenService`, `storageService`(R2/S3), `imageProcessor`(sharp), `imageGenerator`(satori+resvg), `fontLoader`, `badgeService`, `initGdriveStorage`, `getGdriveAccessToken`. 도메인 compose 는 core + 이 shared 산출물을 주입받는다.
+- **`composeShared(core)`** 가 먼저 생성하는 공용 의존성: `auth`(better-auth), `getSession`(세션 정규화 어댑터), `apiTokenService`, `storageService`(R2/S3), `imageProcessor`(sharp), `imageGenerator`(satori+resvg), `fontLoader`, `badgeService`, `gdriveStorageService`(`null` 플레이스홀더), `initGdriveStorage`, `getGdriveAccessToken`. 도메인 compose 는 core + 이 shared 산출물을 주입받는다.
 - **스프레드 병합**: `composed.postService`·`composed.mailSyncService`·`composed.logEventService` 처럼 도메인 접두 없이 평탄한 키로 노출된다. `createRouter(composed)` 와 `createPage` 가 이 평탄 객체에서 필요한 서비스를 꺼내 쓴다.
 - **`compose/types.ts`** 역할: 조립 인자 타입 정의. `Db = ReturnType<typeof getDb>`, `Env = ReturnType<typeof getEnv>`, `ComposeCoreArgs = { db, env }`, 그리고 도메인별 주입 요구를 표현하는 `ComposeBlogArgs`(+storage/imageProcessor), `ComposeMailArgs`(+storage), `ComposeDriveArgs`(+storage/imageProcessor/gdrive) 등. 각 도메인이 core 외에 무엇을 더 받는지 이 파일이 계약한다.
 - **ServiceDb 인라인 구현**: 각 `compose/<domain>.ts` 가 도메인 ServiceDb 인터페이스를 Drizzle 로 구현해 `create*Service(...)` 에 주입한다. Service 는 순수 로직, 쿼리는 조립부에 격리. (도메인별 조립 상세는 [domains/](./domains/))

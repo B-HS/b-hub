@@ -18,7 +18,7 @@
 | 3 | `lib/error.ts` | `STATUS_MAP` 에 `NEW_CODE: <status>` | `STATUS_MAP` 은 `Record<string, number>` → **`tsc` 가 못 잡음**, `getStatusCode` 가 `?? 500` 으로 **조용히 500 fallback** |
 
 - `ERROR_CODE` 는 `as const` → `ErrorCode = (typeof ERROR_CODE)[keyof typeof ERROR_CODE]` 로 union 이 자동 확장된다. 코드 문자열은 키와 동일하게 적는다.
-- **prefix 규칙(도메인 접두)**: `BLOG_*`, `MAIL_*`, `WEATHER_*`, `SPOTIFY_*`, `CALENDAR_*`, `DRIVE_*`, `RESUME_*`, `BADGE_*`, `LOG_*`. 공통은 접두 없음(`VALIDATION_ERROR`, `NOT_FOUND`, `UNAUTHORIZED`, `FORBIDDEN`, `RATE_LIMIT_EXCEEDED`, `INTERNAL_ERROR`, `EXTERNAL_API_ERROR`), 인프라 횡단은 `STORAGE_*`/`IMAGE_*`/`FONT_*`/`ICON_*`/`NOTIFICATION_*`/`AI_*`/`API_TOKEN_*`/`SERVICE_NOT_CONFIGURED`.
+- **prefix 규칙(도메인 접두)**: `BLOG_*`, `MAIL_*`, `WEATHER_*`, `SPOTIFY_*`, `CALENDAR_*`, `DRIVE_*`, `RESUME_*`, `BADGE_*`, `LOG_*`, `AI_*`(프로바이더 도메인 15종). 공통은 접두 없음(`VALIDATION_ERROR`, `NOT_FOUND`, `UNAUTHORIZED`, `FORBIDDEN`, `RATE_LIMIT_EXCEEDED`, `INTERNAL_ERROR`, `EXTERNAL_API_ERROR`), 인프라 횡단은 `STORAGE_*`/`IMAGE_*`/`FONT_*`/`ICON_*`/`NOTIFICATION_*`/`AI_SUMMARIZE_FAILED`/`API_TOKEN_*`/`SERVICE_NOT_CONFIGURED`.
 
 ### 상태코드 매핑 규칙 (`STATUS_MAP` 실물)
 
@@ -37,7 +37,7 @@
 
 ## 2. throw 규칙
 
-- **도메인 서비스·라우트 경계에서는 `throw createAppError('CODE'[, details])` 만** 쓴다. 저장소 전체에서 `throw createAppError` 280여 곳이 표준이다.
+- **도메인 서비스·라우트 경계에서는 `throw createAppError('CODE'[, details])` 만** 쓴다. 저장소 전체에서 `throw createAppError` 330여 곳이 표준이다.
 - `createAppError(code, details?)` 결과: `message = ERROR_MESSAGE[code]`, `statusCode = getStatusCode(code)`. `details` 는 **비프로덕션 응답 봉투에만** 실리고 **로그에는 실리지 않는다**(§4·§6).
 - Service 는 "없음"을 `null` 로 반환하고 `throw` 변환은 Route 가 한다 — 계층 규칙은 [../architecture.md](../architecture.md) §5.
 - `isAppError` 는 구조 검사(`code`·`message`·`statusCode` 보유)로 AppError 여부를 판정한다. 일반 `Error` 는 미처리 예외로 분류된다.

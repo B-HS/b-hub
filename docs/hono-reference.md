@@ -1,6 +1,6 @@
 # Hono SSR Admin Page — 핵심 레퍼런스
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `tsconfig.json`, `page/index.ts`, `page/admin/index.ts`, `page/admin/components.tsx`, `page/admin/styles.ts`, `page/admin/guard.ts`, `page/admin/login.tsx`, `page/admin/dashboard.tsx`, `page/admin/format.ts`, `page/admin/pages/logs.tsx`, `page/home.tsx`
+> 기준: 2026-07-02 (chore/deps-update @ `5887a60`) 코드 검증. 다루는 코드: `tsconfig.json`, `page/index.ts`, `page/admin/index.ts`, `page/admin/components.tsx`, `page/admin/styles.ts`, `page/admin/guard.ts`, `page/admin/login.tsx`, `page/admin/dashboard.tsx`, `page/admin/format.ts`, `page/admin/pages/logs.tsx`, `page/home.tsx`
 
 hyun-hub 어드민 페이지(`page/admin/`) 작성용 Hono 기능 요약. 어드민 페이지는 **CSR 없음, SSR JSX 전용**. 이 문서는 Hono 렌더링·폼·가드 패턴만 소유한다 — 어드민 기능 인벤토리는 [admin-features.md](./admin-features.md), 부트스트랩·계층·미들웨어 구성은 [architecture.md](./architecture.md), 불변 규칙은 [memory/stack-and-invariants.md](./memory/stack-and-invariants.md) 참조.
 
