@@ -1,5 +1,7 @@
 # 펌웨어 로깅 클라이언트 계약 (ESP32 등)
 
+> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/logs/log-event.ts`(`logEventIngestSchema`·`SEVERITY`), `route/logs/log-event.ts`, `route/logs/device-key.ts`, `middleware/require-device-key.ts`, `lib/error-code.ts`·`lib/error.ts`. 저장 스키마·서버 자동 캡처는 [logging.md](./logging.md).
+
 > ESP32 weather 펌웨어는 **별도 레포**에 있으므로, b-hub 서버가 기대하는 **수집 계약**을 여기에 명세한다.
 > 이 문서를 기준으로 펌웨어 레포에서 `LOG_ERR` 매크로 + 링버퍼 + WiFi 복구 flush 를 구현한다.
 

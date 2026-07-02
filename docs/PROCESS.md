@@ -1,33 +1,19 @@
-# PROCESS — 중앙 로깅/에러-이벤트 시스템
+# PROCESS — 현재/누적 작업 상태
 
 > 베이스 룰: `CLAUDE.md` + `~/.claude/convention/*`(arrow only, 반환타입 추론, any/unknown 금지, 코드 주석 금지, named export, Factory DI + ServiceDb, `z.infer`/`ReturnType` 유도, 응답 헬퍼, 에러 3파일).
-> 상세 설계: [logging.md](./logging.md) · 디바이스 계약: [firmware-logging-contract.md](./firmware-logging-contract.md).
+> 문서 진입점: [index.md](./index.md) · 완료 작업 이력: [history/](./history/)
 
-## 작업: `log_events` 기반 통합 에러·이벤트 로깅
+## 작업: docs/ 전면 고도화 (2026-07-02)
 
-확정 결정: 서버 캡처=**모든 4xx+5xx** / 인증=**전용 `X-Device-Key`** / 범위=**전체** / 테스트=**DTO+서비스+캡처**.
+목표: 어떤 코딩 에이전트/LLM 이 와도 이 레포를 일관되게 인지·작업할 수 있도록 docs/ 를 코드 기준 사실로 완성하고, 폴더·파일별 작업 지침서와 체크리스트를 만든다.
 
-- [x] a. 스키마·에러코드 — `db/schema.ts`(`logEvents`·`deviceKey`·`smallint` import), `lib/error-code.ts`·`error-message.ts`·`error.ts`(LOG_*). DDL 검증 완료(`drizzle-kit generate`).
-- [x] a-1. **`bun run db:push`** — 실 DB(`hub`) 반영 완료. `log_events`(17컬럼·인덱스 4개)·`device_key`(8컬럼·token unique) 생성·검증 완료.
-- [x] b. DTO — `dto/logs/log-event.ts`(ingest/batch/resolve/listQuery/response + SEVERITY), `dto/logs/device-key.ts`.
-- [x] c. 서비스 — `service/domain/logs/log-event.ts`(`LogEventService`+`LogEventServiceDb`+`captureServerError`+`purgeByPolicy`), `device-key.ts`.
-- [x] d. Compose — `compose/logs.ts`(Drizzle 구현 + throttle alerter), `compose/types.ts`·`compose/index.ts` 배선.
-- [x] e. 수집/조회 API — `middleware/require-device-key.ts`, `route/logs/log-event.ts`·`device-key.ts`, `route/index.ts` 배선.
-- [x] f. 전체 엔드포인트 서버 캡처 — `lib/log-service-name.ts`, `middleware/log-capture.ts`, `hono-types.ts`(errorDetail), `with-error-handling.ts`·`error-handler.ts`(errorDetail set), `middleware/index.ts`·`index.ts` 배선.
-- [x] g. 어드민 — `page/admin/db.ts`(listLogEvents/resolveLogEvent/recentLogEvents/counts 확장), `pages/logs.tsx`, `index.ts`·`nav.ts`·`dashboard.tsx`.
-- [x] h. 알림 — `lib/discord.ts` + alerter(severity≥40, throttle 60s).
-- [x] i. 리텐션 — `purgeByPolicy`(7/30/180일) + `POST /api/logs/purge`(admin).
-- [x] j. 문서 — `logging.md`, `firmware-logging-contract.md`, `PROCESS.md`, `admin-features.md` 갱신.
-- [x] k. 테스트 — `tests/dto/logs`·`tests/service/domain/logs`·`tests/lib/log-service-name`·`tests/middleware/log-capture`. 어드민 mock(`tests/page/admin/helpers.ts`·`dashboard.test.ts`) 확장.
-- [x] l. 검증 — `bunx tsc --noEmit` 0 errors / `bun test` **2051 pass, 0 fail**.
+- [x] a. 현황 파악 — 기존 docs 7개 통독, 전체 파일 트리·package.json·vercel.json 확인.
+- [x] b. 구조 확정 — `domains/`(도메인별) · `reference/`(스키마·엔드포인트·env·lib) · `guidelines/`(작업 지침) · `quality-assurance/`(검증 체크리스트) + ai-process §9 분류 폴더(memory/history/bug/acknowledge/feedback/utils). `mail-imap-thread-id.md` → `bug/` 이관, 완료된 로깅 PROCESS → `history/2026-06-logging-system.md` 이관.
+- [x] c. 집필 1차 — 아키텍처·도메인 11종·레퍼런스 5종·deploy·testing 문서를 코드 통독 기반으로 작성, 기존 문서 4종(admin-features/logging/firmware-contract/hono-reference) 사실 검증·갱신.
+- [x] d. 집필 2차 — guidelines(도메인 추가·엔드포인트 추가·DB 변경·어드민 페이지·외부 API 연동·에러/로깅·폴더별 지침·문서 유지보수) + quality-assurance(pre-merge·endpoint QA) 체크리스트 작성.
+- [x] e. 검증 — 각 문서의 사실 주장(엔드포인트·테이블·컬럼·함수·env)을 코드와 대조하는 적대적 검증 패스, 불일치 수정.
+- [x] f. 마감 — `docs/index.md`(진입점·읽기 순서) 작성, 루트 `CLAUDE.md`/`AGENTS.md` 작성, memory/acknowledge/history 초기 콘텐츠, 링크 무결성 검사.
 
-## 배포
+## 완료 작업 (이력)
 
-- [x] `bun run db:push` — `hub` DB에 `log_events`·`device_key` 생성 완료.
-- [x] `feat/logging-system` → `dev` fast-forward 머지 + `origin/dev` 푸시 완료(`a11dabe..6125fe6`). Vercel 배포 트리거.
-
-## 남은 액션 (사용자)
-
-1. 어드민에서 `POST /api/logs/device-keys` 로 디바이스 키 발급 → 펌웨어에 주입.
-2. (선택) `DISCORD_WEBHOOK_URL` 설정 시 ERROR+ 알림 자동 활성.
-3. (선택) cron/`/loop` 로 `POST /api/logs/purge` 주기 호출.
+- [history/2026-06-logging-system.md](./history/2026-06-logging-system.md) — `log_events` 중앙 로깅/에러-이벤트 시스템 (배포 완료, 2051 tests pass).

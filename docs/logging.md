@@ -1,5 +1,7 @@
 # 중앙 로깅 / 에러-이벤트 시스템 (`log_events`)
 
+> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error.ts`.
+
 > b-hub 전 도메인과 외부 디바이스(ESP32 등)가 공통으로 쓰는 **단일 에러·이벤트 저장소**.
 > 두 가지 입력 경로 — ① 디바이스가 직접 올리는 이벤트, ② 기존 모든 API 엔드포인트의 서버 측 4xx·5xx 자동 캡처 — 가 같은 `log_events` 테이블로 모인다.
 
@@ -78,7 +80,8 @@
 | POST | `/api/logs/purge` | admin | 보관기간 경과 정리 |
 | PATCH | `/api/logs/:id/resolve` | admin | 해소 처리 |
 | GET | `/api/logs` | admin | 목록/필터 조회 |
-| `*` | `/api/logs/device-keys` | admin | 디바이스 키 발급/목록/폐기 |
+| GET / POST | `/api/logs/device-keys` | admin | 목록 조회 / 발급(응답에 평문 키 1회, DB엔 sha256 해시 저장) |
+| DELETE | `/api/logs/device-keys/:id` | admin | 폐기(`revoked_at` 기록) |
 
 - 디바이스 인증 `middleware/require-device-key.ts`: `X-Device-Key` 검증 + 디바이스별 24h 레이트리밋(`log_events` 카운트). weather 키/쿼터/로그와 **무관**.
 - 흐름: Route(DTO 검증 `dto/logs/`·인증·`createAppError`) → `service/domain/logs/log-event.ts`(순수 로직) → `LogEventServiceDb`(compose `compose/logs.ts` 의 Drizzle 구현).
@@ -87,7 +90,7 @@
 
 ## 4. 알림 (Discord)
 
-- `lib/discord.ts` `sendDiscordAlert()`. `createLogEventService` 의 주입 `alerter` 가 **severity ≥ 40** 에서만 fire-and-forget 호출(`ingest`·`captureServerError` 공통).
+- `lib/discord.ts` `sendDiscordAlert()`. `createLogEventService` 의 주입 `alerter` 가 **severity ≥ 40** 에서만 fire-and-forget 호출(`ingest`·`ingestBatch`·`captureServerError` 공통).
 - `compose/logs.ts` 에서 `service:errorCode` 키로 **60초 throttle**(아웃에이지 시 폭주 방지). `DISCORD_WEBHOOK_URL` 미설정 시 알림 off.
 
 ---
@@ -102,8 +105,8 @@
 
 ## 6. 어드민
 
-- `/admin/logs` (`page/admin/pages/logs.tsx`): service / min severity / device / resolved / 기간 필터 + resolve 액션.
-- 대시보드: `Log Errors (24h)` Stat + `최근 로그 이벤트(ERROR+)` 섹션(`page/admin/db.ts` 의 `listLogEvents`·`recentLogEvents`·`counts` 확장).
+- 어드민 UI(`/admin/logs` 필터·resolve 액션, 대시보드 `Log Errors (24h)` Stat·`최근 로그 이벤트` 섹션)는 [admin-features.md](./admin-features.md) §5(Log Events)·§0(Dashboard) 가 소유 — 상세는 그쪽 참조.
+- 데이터 계층(`page/admin/db.ts`): `listLogEvents`(목록·필터) / `recentLogEvents`(대시보드) / `resolveLogEvent`(해소) / `counts`(24h `logEvents24h`·`logErrors24h`).
 
 ---
 

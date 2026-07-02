@@ -1,229 +1,305 @@
-# Admin Features — DB 전수검사 & 기능 리스트
+# Admin Features — 어드민 페이지 기능 맵
 
-`db/schema.ts` 38개 테이블 / `service/domain/*` 22개 서비스 / `route/**` 38개 라우트를 도메인별로 묶어 어드민 페이지 기능으로 매핑한다. 모든 페이지는 **SSR(JSX) + 폼 POST → 303 리다이렉트** 패턴으로 작성한다. (CSR 없음)
+> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `db/schema.ts`
 
----
+`db/schema.ts` 테이블 43개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다.
 
-## 0. Dashboard (`/admin`)
+- 스키마 전수: [reference/db-schema.md](./reference/db-schema.md) · API 엔드포인트 전수: [reference/api-endpoints.md](./reference/api-endpoints.md) (중복 서술하지 않고 이 문서는 어드민 UI 만 다룬다).
+- 참고 수치(2026-07-02): `service/domain/` 서비스 팩토리 26개 + KMA mock 1개(9개 도메인), `route/` 라우트 팩토리 36개 / 라우트 파일 38개.
 
-- 전체 카운트 요약: users, posts, comments, messages, mail accounts, spotify accounts, drive assets, calendar events, weather logs, api requests (최근 24h).
-- 최근 활동 5건 (apiRequestLog), 최근 가입 사용자 5명, 디스크 사용량(cloudAssets sum), 최근 에러 5건 (errorCode 있는 로그).
-
----
-
-## 1. Users (`/admin/users`) — `user`, `session`, `account`, `verification`
-
-- **List**: 가입일 / 이메일 / 이름 / role / banned / timezone / storageQuotaBytes / image 썸네일.
-- **Filter**: 이메일 검색, role(admin/user/null), banned 여부.
-- **Detail (`/admin/users/:id`)**: 프로필 + 연결된 OAuth account 리스트(provider) + 활성 세션 리스트(ipAddress, userAgent, expiresAt) + 최근 apiRequestLog 20건.
-- **Actions** (form POST):
-    - `/admin/users/:id/role` — role 변경 (user/admin)
-    - `/admin/users/:id/ban` — banned 토글 + banReason + banExpires
-    - `/admin/users/:id/quota` — storageQuotaBytes 변경
-    - `/admin/users/:id/sessions/:sid/revoke` — 세션 강제 만료
+사이드바 그룹(`nav.ts` `NAV`): Overview · Identity · Blog · Social · Weather · Mail · Spotify · Observability · Other.
 
 ---
 
-## 2. API Tokens & Logs (`/admin/api`) — `apiToken`, `apiRequestLog`
+## 0. Dashboard (`/admin`) — `dashboard.tsx`
 
-- **Tokens list**: 토큰 이름 / 사용자 / 생성일 / 만료일 / 최근 사용.
-- **Logs list**: method / path / statusCode / userId / ip / durationMs / errorCode / createdAt. 페이지네이션 + statusCode/path 필터 + 기간 필터.
-- **Actions**:
-    - `/admin/api/tokens/:id/revoke` — 토큰 즉시 만료.
-
----
-
-## 2.5. Log Events (`/admin/logs`) — `log_events`
-
-b-hub 통합 에러·이벤트 로그(서버 전 엔드포인트 4xx·5xx 자동 캡처 + 디바이스 수집). 상세는 [logging.md](./logging.md).
-
-- **List**: time / severity(Badge) / service / errorCode / description / device / resolved. 페이지네이션.
-- **Filter**: service, min severity(WARN+/ERROR+/FATAL), device, resolved 여부, 기간.
-- **Action** (form POST → 303): `/admin/logs/:id/resolve` — 해소 처리(`resolved_at` 기록).
-- **Dashboard**: `Log Errors (24h)` Stat + `최근 로그 이벤트(ERROR+)` 섹션.
-- **Device keys**: 발급/폐기는 API(`/api/logs/device-keys`, admin) 경유.
+- **Stat 카드 14개**(`counts()`): Users, Active Sessions(`session`), API Tokens(`apiToken`), Requests (24h)[delta `errors N`], Posts, Comments, Messages, Mail Accounts, Spotify Accounts, Calendar Events, Weather Logs(`weatherApiLog`), Log Errors (24h)[delta `events N`], Resumes, Drive Assets[delta `storageBytes` = `cloudAssets.size_bytes` 합].
+    - `requests24h`/`errors24h` = `apiRequestLog` 최근 24h(에러 = `status_code >= 400`). `logErrors24h`/`logEvents24h` = `logEvents` 최근 24h(에러 = `severity >= 40`).
+- **테이블 4개**: 최근 가입 사용자(5), 최근 API 요청(10, `apiRequestLog`), 최근 에러(5, `errorCode` not null), 최근 로그 이벤트 ERROR+(5, `logEvents` `severity >= 40`).
+- 액션 없음(읽기 전용).
 
 ---
 
-## 3. Blog (`/admin/blog`) — `posts`, `comments`, `categories`, `tags`, `postTags`, `images`, `imageAssets`
+## 1. Users (`/admin/users`) — `user`, `session`, `account`, `apiRequestLog`
 
-### 3-1. Posts (`/admin/blog/posts`)
-- **List**: title / category / 작성일 / views / isPublished / isHide / isNotice / isComment.
-- **Filter**: 키워드, category, tag, 발행/숨김/공지 플래그.
-- **Actions** (각 row form POST):
-    - `/admin/blog/posts/:id/publish` — isPublished 토글
-    - `/admin/blog/posts/:id/hide` — isHide 토글
-    - `/admin/blog/posts/:id/notice` — isNotice 토글
-    - `/admin/blog/posts/:id/comments` — isComment 토글
-    - `/admin/blog/posts/:id/delete` — 삭제
-
-### 3-2. Comments (`/admin/blog/comments`)
-- **List**: postId(title) / userId(email) / comment 일부 / isHide / createdAt.
-- **Filter**: 키워드, postId, userId, isHide.
-- **Actions**: `/admin/blog/comments/:id/hide` (토글), `/admin/blog/comments/:id/delete`.
-
-### 3-3. Categories (`/admin/blog/categories`)
-- 단순 list + isHide 토글. 추가 form (`/admin/blog/categories/new`).
-
-### 3-4. Tags (`/admin/blog/tags`)
-- List + 추가/삭제.
-
-### 3-5. Image Assets (`/admin/blog/images`)
-- imageAssets / images 두 테이블 통합 뷰. r2Key / mimeType / sizeBytes / uploadedBy / createdAt. 삭제 액션.
+- **List**: Email(→상세) / Name / Role(badge) / Banned(badge) / TZ(`timezone`) / Quota(`storageQuotaBytes`) / Joined(`createdAt`). (이미지 썸네일 컬럼 없음)
+- **Filter**: `q`(email·name), `role`(admin / user·null), `banned`(y=banned only / n=unbanned only), `size`.
+- **Detail (`/:id`)**: 프로필 카드 + 인라인 폼 3개(Role 변경 · Ban 상태 reason/expires + Ban/Unban · Storage Quota bytes) + 연결된 계정(`account`: providerId/accountId/연결일) + 활성 세션(`session`: IP/UA/Created/Expires + 강제 만료, 하단 "모든 세션 강제 만료") + 최근 API 요청 20건(`apiRequestLog`).
+- **Actions** (form POST → 303, `?flash=ok`):
+    - `/admin/users/:id/role` — role(admin/user)
+    - `/admin/users/:id/ban` — action=ban/unban + reason + expires
+    - `/admin/users/:id/quota` — bytes
+    - `/admin/users/:id/sessions/:sid/revoke` — 세션 단건 만료
+    - `/admin/users/:id/sessions/revoke-all` — 해당 사용자 전체 세션 만료
 
 ---
 
-## 4. Messages — 소셜 피드 (`/admin/messages`) — `messages`, `messageImages`, `messageLikes`, `messageBookmarks`, `follows`
+## 2. Sessions (`/admin/sessions`) — `session`
 
-- **List**: 작성자 / body 일부 / replyToId 여부 / retweetOfId 여부 / 좋아요 수 / 북마크 수 / createdAt / deletedAt.
-- **Filter**: userId, 키워드, deleted 포함 여부.
-- **Detail**: 메시지 본문 + 첨부 이미지 + 좋아요/북마크 사용자 리스트.
-- **Actions**: 소프트 딜리트(`/admin/messages/:id/delete`), 복구.
-- **Follows 탭** (`/admin/messages/follows`): 팔로우 그래프 전체 리스트.
+- **List**: User(→상세, `userEmail`) / IP / User Agent / Created / Expires + 강제 만료 / 전체 만료.
+- **Filter**: `q`(email), `size`.
+- **Actions**: `/admin/sessions/:id/revoke`, `/admin/sessions/user/:userId/revoke-all`.
 
 ---
 
-## 5. Weather (`/admin/weather`) — `weatherCurrent`, `weatherUltra`, `weatherShort`, `weatherApiKey`, `weatherApiLog`
+## 3. API Tokens (`/admin/api/tokens`) — `apiToken`
 
-### 5-1. Keys (`/admin/weather/keys`)
-- 사용자별 API 키 list + dailyLimit + 만료 / 최근 사용. Revoke action.
+- **List**: User(→상세) / Name / Token(`maskToken`) / Expires / Last used / Created + 취소.
+- **Filter**: `q`(email·token name), `size`.
+- **Action**: `/admin/api/tokens/:id/revoke`.
 
-### 5-2. Logs (`/admin/weather/logs`)
-- 호출 log: endpoint / nx,ny / statusCode / durationMs / errorCode. statusCode/userId/기간 필터.
+## 4. Request Logs (`/admin/api/logs`) — `apiRequestLog`
 
-### 5-3. Cache (`/admin/weather/cache`)
-- 캐시된 weatherCurrent / Ultra / Short 카운트 (격자별 최근 baseDate/baseTime). Drop 옵션 (특정 격자 캐시 삭제).
-
----
-
-## 6. Mail (`/admin/mail`) — `mailAccounts`, `mailFolders`, `mailMessages`, `mailAttachments`, `mailSyncLogs`, `mailSyncSessions`, `mailUploads`
-
-### 6-1. Accounts (`/admin/mail/accounts`)
-- userId / provider / email / isActive / lastSyncAt / lastSyncStatus.
-- Actions: `isActive` 토글, sync 강제(`/admin/mail/accounts/:id/sync`).
-
-### 6-2. Sync logs (`/admin/mail/sync-logs`)
-- accountId / syncType / status / 추가/수정/삭제 수 / durationMs / startedAt~completedAt.
-
-### 6-3. Sync sessions (`/admin/mail/sync-sessions`)
-- accountId / folder / status / synced/total / cursor / startedAt / lastBatchAt.
-
-### 6-4. Messages (`/admin/mail/messages`)
-- accountId 필터, folder 필터, isRead, hasAttachments. subject / from / receivedAt 표시.
-
-### 6-5. Uploads (`/admin/mail/uploads`)
-- userId / filename / mimeType / sizeBytes / r2Key. Delete.
+- **List**: Time / Method / Path / Status(badge: ≥500 dest, ≥400 outline, else success) / User(→상세, id 8자) / IP / ms(`durationMs`) / Error(`errorCode`). (읽기 전용)
+- **Filter**: `path`, `status`, `userId`, `from`, `to`, `size`.
 
 ---
 
-## 7. Spotify (`/admin/spotify`) — `spotifyAccounts`, `spotifyApiKeys`, `spotifyWidgetTokens`
+## 5. Log Events (`/admin/logs`) — `logEvents`
 
-- **Accounts** (`/admin/spotify/accounts`): user / spotifyUserId / displayName / isActive.
-- **API Keys** (`/admin/spotify/keys`): account / name / 만료 / 최근 사용. Revoke.
-- **Widget Tokens** (`/admin/spotify/widget-tokens`): account / isActive 토글.
+b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이스 수집). 상세는 [logging.md](./logging.md).
 
----
-
-## 8. Resume (`/admin/resumes`) — `resumes`
-
-- List: user / type / title / isPublic / 작성일.
-- Detail: data(JSON) raw view.
-- Actions: `/admin/resumes/:id/visibility` (isPublic 토글), 삭제.
+- **List**: Time / Severity(badge: DEBUG/INFO/WARN/ERROR/FATAL, 임계 20/30/40/50) / Service / Error Code / Description(`errorDescription`) / Device(`deviceId`) / Resolved(`resolvedAt`) + 해소(미해소 행만).
+- **Filter**: `service`, Min severity(`severity`: WARN+ 30 / ERROR+ 40 / FATAL 50), `deviceId`, Resolved(`unresolved`: All / Unresolved(y) / Resolved(n)), `from`, `to`, `size`.
+- **Action**: `/admin/logs/:id/resolve` — `resolved_at` 기록(`?flash=ok`, "해소 처리되었습니다.").
+- **Device keys**(`deviceKey`)는 어드민 페이지 없이 API(`/api/logs/device-keys`)로 관리.
 
 ---
 
-## 9. Calendar (`/admin/calendar`) — `calendarGroup`, `calendarEvent`, `deletedCalendarEvent`, `calendarSubscription`
+## 6. Blog
 
-- **Groups** (`/admin/calendar/groups`): user / name / color / sortOrder / isVisible.
-- **Events** (`/admin/calendar/events`): user / summary / dtstart / dtend / status / 그룹. 기간 필터.
-- **Deleted events** (`/admin/calendar/deleted`): user / uid / deletedAt / syncToken — 동기화 충돌 추적.
-- **Subscriptions** (`/admin/calendar/subscriptions`): user / token(masked) / isActive / lastAccessedAt / ctag. Revoke.
+### 6-1. Posts (`/admin/blog/posts`) — `posts`, `categories`, `postTags`
+- **List**: ID / Title / Category(badge, `categoryName`) / Views / Flags(published·draft / hidden / notice / no-comment) / Created.
+- **Filter**: `q`(title·body), `categoryId`, `tagId`, `published`(y/n), `hidden`(y/n), `notice`(y/n), `size`.
+- **Actions** (각 row): `/posts/:id/publish` · `/hide` · `/notice` · `/comments`(토글 `isPublished`/`isHide`/`isNotice`/`isComment`) · `/posts/:id/delete`.
+
+### 6-2. Comments (`/admin/blog/comments`) — `comments`
+- **List**: ID / Post(title 또는 `#postId`) / User(email 또는 id) / Comment / State(hidden/visible) / Created.
+- **Filter**: `q`(본문), `postId`, `userId`, `hidden`(y/n), `size`.
+- **Actions**: `/comments/:id/hide`(토글), `/comments/:id/delete`.
+
+### 6-3. Categories (`/admin/blog/categories`) — `categories`
+- **List**: ID / Name / Hidden + hide 토글. 상단에 새 카테고리 폼.
+- **Actions**: `POST /admin/blog/categories`(생성, `name`), `POST /admin/blog/categories/:id/hide`(토글).
+
+### 6-4. Tags (`/admin/blog/tags`) — `tags`
+- **List**: ID / Tag + delete. 상단에 새 태그 폼.
+- **Actions**: `POST /admin/blog/tags`(생성, `tag`), `POST /admin/blog/tags/:id/delete`.
+
+### 6-5. Image Assets (`/admin/blog/images`) — `imageAssets`
+- **List**: ID(8자) / R2 key / Bucket / MIME / Size / WxH(`width`×`height`) / Uploaded by(→user) / Created + delete.
+- **Filter**: `q`(r2Key), `size`.
+- **Action**: `/admin/blog/images/:id/delete`.
+- 레거시 `images` 테이블은 어드민에 미노출(`imageAssets` 만 조회).
 
 ---
 
-## 10. Drive (`/admin/drive`) — `driveFolders`, `cloudAssets`, `storageLifecycleLogs`
+## 7. Social
 
-- **Assets** (`/admin/drive/assets`): user / originalName / mimeType / sizeBytes / storageTiers / uploadStatus / accessCount / lastViewedAt. 필터: user / tier / status. Delete action.
-- **Folders** (`/admin/drive/folders`): user / parentId / name.
-- **Lifecycle logs** (`/admin/drive/lifecycle-logs`): asset / action / fromTier→toTier / reason.
+### 7-1. Messages (`/admin/messages`) — `messages`, `messageImages`, `messageLikes`, `messageBookmarks`
+- **List**: Time / User(email 또는 id) / Body(→상세) / Kind(reply / retweet / post) / Likes(`likesCount`) / Bookmarks(`bookmarksCount`) / State(deleted/live) + 액션.
+- **Filter**: `q`(본문), `userId`, `includeDeleted`(y=포함), `size`.
+- **Detail (`/:id`)**: 본문 카드(ID/User/Kind/State/Created + body) + 첨부 이미지(`messageImages`: order/r2Key/mime) + 좋아요(`messageLikes`) + 북마크(`messageBookmarks`).
+- **Actions**: `/messages/:id/delete`(soft delete), `/messages/:id/restore`.
 
----
-
-## 11. Auth Sessions overview (`/admin/sessions`)
-
-- 전 사용자 활성 세션 리스트(`session` 테이블). user, ip, userAgent, createdAt, expiresAt.
-- Action: revoke 단일 세션, 사용자 전체 세션 revoke.
+### 7-2. Follows (`/admin/messages/follows`) — `follows`
+- **List**: Follower(→user) / Following(→user) / Since. (읽기 전용)
 
 ---
 
-## 라우트 구조 요약
+## 8. Weather (`/admin/weather`) — `weatherApiKey`, `weatherApiLog`, `weatherCurrent`, `weatherUltra`, `weatherShort`
+
+### 8-1. API Keys (`/admin/weather/keys`)
+- **List**: User(→상세) / Name / Token(`maskToken`) / Daily limit(`dailyLimit`) / Last used / Expires + 취소.
+- **Filter**: `q`, `size`. **Action**: `/admin/weather/keys/:id/revoke`.
+
+### 8-2. Request Logs (`/admin/weather/logs`)
+- **List**: Time / Endpoint / Grid(`nx,ny`) / Status(badge) / ms / Error.
+- **Filter**: `endpoint`, `status`, `userId`, `from`, `to`, `size`.
+
+### 8-3. Forecast Cache (`/admin/weather/cache`)
+- **Stat**: Current / Ultra / Short rows(`weatherCacheSummary`).
+- **Grid table**: Grid(`nx, ny`) / Last base date / Last base time / Rows + drop.
+- **Action**: `/admin/weather/cache/:nx/:ny/drop` — 격자 캐시 삭제.
+
+---
+
+## 9. Mail (`/admin/mail`) — `mailAccounts`, `mailMessages`, `mailSyncLogs`, `mailSyncSessions`, `mailUploads`
+
+사이드바 순서: Accounts · Sync Sessions · Sync Logs · Messages · Uploads.
+
+### 9-1. Accounts (`/admin/mail/accounts`)
+- **List**: User(→상세) / Provider(badge) / Email / Active / Last sync(`lastSyncAt`) / Status(`lastSyncStatus`) / Connected + 활성·비활성 토글 · 동기화.
+- **Filter**: `q`(email), `size`.
+- **Actions**: `/accounts/:id/toggle`, `/accounts/:id/sync`(`triggerMailSync` 호출; 실패 시 `?flash=err`).
+
+### 9-2. Sync Logs (`/admin/mail/sync-logs`)
+- **List**: Time / Account / Type(`syncType`) / Status(badge: completed/failed/기타) / Added / Updated / Deleted / ms / Error(`errorMessage`).
+- **Filter**: `accountId`, `status`, `size`.
+
+### 9-3. Sync Sessions (`/admin/mail/sync-sessions`)
+- **List**: Started / Account / Folder(`folderId`) / Type / Status(badge) / Progress(`syncedCount`/`totalEstimate`) / Last batch(`lastBatchAt`). (cursor 컬럼 없음)
+- **Filter**: `status`, `size`.
+
+### 9-4. Messages (`/admin/mail/messages`)
+- **List**: Received / Account / Folder / Subject / From(`fromAddress` name<address>) / Flags(read·unread / attach). (읽기 전용)
+- **Filter**: `accountId`, `q`(subject), `folderId`, `isRead`(y/n), `hasAttachments`(y/n), `size`.
+
+### 9-5. Uploads (`/admin/mail/uploads`) — `mailUploads`
+- **List**: User(→상세) / Filename / MIME / Size / R2 key / Inline(`isInline`) / Created + delete.
+- **Filter**: `q`(filename), `size`. **Action**: `/mail/uploads/:id/delete`.
+
+---
+
+## 10. Spotify (`/admin/spotify`) — `spotifyAccounts`, `spotifyApiKeys`, `spotifyWidgetTokens`
+
+- **Accounts (`/admin/spotify/accounts`)**: User(→상세) / Spotify ID / Display Name / Spotify email / Active / Connected. (읽기 전용, filter `q`·`size`)
+- **API Keys (`/admin/spotify/keys`)**: User(id 12자→상세) / Spotify Acc(`spotifyAccountId`) / Name / Expires / Last used + 취소. Action `/spotify/keys/:id/revoke`.
+- **Widget Tokens (`/admin/spotify/widget-tokens`)**: ID / User ID(→상세) / Spotify Acc / Name / Token(`maskToken`) / Active + 활성·비활성 토글. Action `/spotify/widget-tokens/:id/toggle`.
+
+---
+
+## 11. Resumes (`/admin/resumes`) — `resumes`
+
+- **List**: ID(→상세) / User(→상세) / Type(badge) / Title / Visibility(public/private) / 작성일 + 공개 토글 · delete.
+- **Filter**: `q`(title), `size`.
+- **Detail (`/:id`)**: 메타 카드(ID/User/Type/Public/Created/Updated) + Data(`JSON.stringify` pretty view).
+- **Actions**: `/resumes/:id/visibility`(`isPublic` 토글), `/resumes/:id/delete`.
+
+---
+
+## 12. Calendar (`/admin/calendar`) — `calendarGroup`, `calendarEvent`, `calendarSubscription`, `deletedCalendarEvent`
+
+- **Events (`/admin/calendar/events`)**: User(→상세) / Summary / Start(`dtstart`) / End(`dtend`) / All day(`isAllDay`) / Group(`groupName`) / Status(badge: CANCELLED/TENTATIVE/기타). Filter `q`(summary)·`userId`·`from`·`to`·`size`. (읽기 전용)
+- **Groups (`/admin/calendar/groups`)**: ID(8자) / User(→상세) / Name / Color(swatch+hex) / Order(`sortOrder`) / Visible / Created. (읽기 전용)
+- **Subscriptions (`/admin/calendar/subscriptions`)**: User(→상세) / Name / Token(`maskToken`) / Active / Last access(`lastAccessedAt`) / CTag / Created + 취소(활성 행만). Action `/calendar/subscriptions/:id/revoke`.
+- **Tombstones (`/admin/calendar/deleted`)**: User(→상세) / UID / Sync token(12자) / Deleted(`deletedAt`). 동기화 충돌 추적, 읽기 전용.
+
+---
+
+## 13. Drive (`/admin/drive`) — `cloudAssets`, `driveFolders`, `storageLifecycleLogs`
+
+- **Assets (`/admin/drive/assets`)**: ID / User(→상세) / Original name / MIME / Size / Tier(`storageTiers` badge) / Status(`uploadStatus` badge) / Access(`accessCount`) / Last viewed / Created + delete. Filter `q`(filename)·`userId`·`tier`(L1/L2/L3)·`status`(ready/uploading/failed)·`size`. Action `/drive/assets/:id/delete`.
+- **Folders (`/admin/drive/folders`)**: ID(8자) / User(→상세) / Parent(`parentId` 8자) / Name / Created. (읽기 전용)
+- **Lifecycle Logs (`/admin/drive/lifecycle-logs`)**: Time / Asset(`assetId`) / Action(badge) / Tier(`fromTier` → `toTier`) / Reason. Filter `assetId`·`size`.
+
+---
+
+## 14. 인증 · 정적 라우트
+
+- **Guard**: `page/admin/guard.ts` `requireAdminPage(getSession)`. 각 도메인 라우트가 `app.use('*', requireAdminPage(...))` 로 게이팅. 미인증 → `/admin/login?next=...`(303), `role !== 'admin'` → 403 HTML(`renderForbidden`). `getSession` 은 compose 의 `composed.getSession`(better-auth 세션 정규화).
+- **Login (`/admin/login`)** — `login.tsx`:
+    - `GET /admin/login` — 관리자면 `next` 로 303, 아니면 로그인 카드(Google/GitHub) 또는 비관리자 안내(로그아웃 링크).
+    - `GET /admin/login/social/:provider`(`google`|`github`) — better-auth `signInSocial`, set-cookie 포워딩 후 302.
+    - `GET /admin/login/logout` — `signOut`.
+- **Static**: `GET /admin/styles.css` — `ADMIN_DESIGN_TOKENS_CSS`(`styles.ts`) + 캐시 헤더. guard 밖.
+- 루트 배선(`index.ts`): `createPage({ admin: { getSession, db, auth, triggerMailSync } })`, `securityHtmlPaths: ['/admin']`.
+
+---
+
+## 15. 라우트 구조 요약
 
 ```
-/admin                      → dashboard
-/admin/login                → 미인증/비관리자용 안내 페이지
-/admin/styles.css           → 디자인 토큰 정적 CSS
-/admin/users                → list
-  /:id                      → detail
-  /:id/role                 → POST
-  /:id/ban                  → POST
-  /:id/quota                → POST
-  /:id/sessions/:sid/revoke → POST
-/admin/api/tokens           → list
-  /:id/revoke               → POST
-/admin/api/logs             → list
-/admin/blog/posts           → list
-  /:id/publish              → POST
-  /:id/hide                 → POST
-  /:id/notice               → POST
-  /:id/comments             → POST
-  /:id/delete               → POST
-/admin/blog/comments        → list (with hide/delete POST)
-/admin/blog/categories      → list + create + toggle
-/admin/blog/tags            → list + create + delete
-/admin/blog/images          → list + delete
-/admin/messages             → list (+ delete)
-/admin/messages/follows     → list
-/admin/weather/keys         → list + revoke
-/admin/weather/logs         → list
-/admin/weather/cache        → list + drop
-/admin/mail/accounts        → list + toggle + sync trigger
-/admin/mail/sync-logs       → list
-/admin/mail/sync-sessions   → list
-/admin/mail/messages        → list
-/admin/mail/uploads         → list + delete
-/admin/spotify/accounts     → list
-/admin/spotify/keys         → list + revoke
-/admin/spotify/widget-tokens→ list + toggle
-/admin/resumes              → list + visibility toggle + delete
-  /:id                      → detail (json view)
-/admin/calendar/groups      → list
-/admin/calendar/events      → list
-/admin/calendar/deleted     → list
-/admin/calendar/subscriptions → list + revoke
-/admin/drive/assets         → list + delete
-/admin/drive/folders        → list
-/admin/drive/lifecycle-logs → list
-/admin/sessions             → list + revoke
+GET  /admin/styles.css                     → 디자인 토큰 CSS (guard 밖)
+GET  /admin/login                          → 로그인/비관리자 안내
+GET  /admin/login/social/:provider         → google|github OAuth 시작
+GET  /admin/login/logout                   → 로그아웃
+GET  /admin                                → dashboard
+     /admin/users                          → list
+       /:id                                → detail
+       /:id/role                           → POST
+       /:id/ban                            → POST
+       /:id/quota                          → POST
+       /:id/sessions/:sid/revoke           → POST
+       /:id/sessions/revoke-all            → POST
+     /admin/sessions                       → list
+       /:id/revoke                         → POST
+       /user/:userId/revoke-all            → POST
+     /admin/api/tokens                     → list ( /:id/revoke POST )
+     /admin/api/logs                       → list
+     /admin/logs                           → list ( /:id/resolve POST )
+     /admin/blog/posts                     → list ( /:id/publish|hide|notice|comments|delete POST )
+     /admin/blog/comments                  → list ( /:id/hide|delete POST )
+     /admin/blog/categories                → list + create(POST /) + /:id/hide POST
+     /admin/blog/tags                       → list + create(POST /) + /:id/delete POST
+     /admin/blog/images                    → list ( /:id/delete POST )
+     /admin/messages                       → list ( /:id/delete|restore POST )
+       /:id                                → detail
+     /admin/messages/follows               → list
+     /admin/weather/keys                   → list ( /:id/revoke POST )
+     /admin/weather/logs                   → list
+     /admin/weather/cache                  → list ( /:nx/:ny/drop POST )
+     /admin/mail/accounts                  → list ( /:id/toggle|sync POST )
+     /admin/mail/sync-logs                 → list
+     /admin/mail/sync-sessions             → list
+     /admin/mail/messages                  → list
+     /admin/mail/uploads                   → list ( /:id/delete POST )
+     /admin/spotify/accounts               → list
+     /admin/spotify/keys                   → list ( /:id/revoke POST )
+     /admin/spotify/widget-tokens          → list ( /:id/toggle POST )
+     /admin/resumes                        → list ( /:id/visibility|delete POST )
+       /:id                                → detail (JSON view)
+     /admin/calendar/groups                → list
+     /admin/calendar/events                → list
+     /admin/calendar/deleted               → list
+     /admin/calendar/subscriptions         → list ( /:id/revoke POST )
+     /admin/drive/assets                   → list ( /:id/delete POST )
+     /admin/drive/folders                  → list
+     /admin/drive/lifecycle-logs           → list
 ```
 
----
-
-## 데이터 액세스 정책
-
-기존 `service/*`는 사용자(자기 자신) 범위로 작동한다. 어드민은 **모든 사용자 데이터**를 봐야 하므로:
-
-- 어드민 페이지 전용 DB 어댑터(`page/admin/db.ts`)를 만든다. `getDb()`에서 `drizzle` 인스턴스를 가져와 `select`/`update`/`delete` 직접 실행. 사용자 범위 필터 없음.
-- 단순한 read는 raw query, write는 트랜잭션 없이 단일 update.
-- `requireAdmin`은 기존 미들웨어 재사용 (`middleware/require-admin.ts`).
-- 단, 어드민 페이지는 **HTML 응답**이라 기존 `errorHandler`(JSON 응답)와 충돌 — 별도 admin 전용 에러 페이지 응답.
+- 페이지 사이즈: `size` 쿼리(기본 20 또는 30, 도메인별 5~100/5~200 클램프). 페이지네이션은 `page` 쿼리.
+- 대부분 액션은 처리 후 `returnTo`(또는 기본 경로)에 `?flash=ok` 를 붙여 303 → 페이지가 배너 렌더. mail sync 실패만 `?flash=err`.
 
 ---
 
-## 페이지 컴포넌트 공통
+## 16. 데이터 액세스 정책
 
-- `<AdminShell title="..." breadcrumbs={[...]}>` — 모든 페이지의 외곽
-- `<DataTable columns rows>` — 도메인 무관 list 렌더링
-- `<Pagination page total pageSize baseUrl>` — query 보존 페이지네이션
-- `<FilterBar fields>` — query string ↔ form 동기화
-- `<Badge variant>` — published/hidden/banned 등 상태 표시 (DESIGN.md §10‑2 매핑)
-- `<ActionForm method action confirmText>` — POST 폼 + JS 없는 확인용 새 페이지 패턴 (또는 인라인 submit)
+- 어드민 전용 어댑터 `page/admin/db.ts`(`AdminDb = ReturnType<typeof createAdminDb>`). `getDb()` Drizzle 인스턴스로 `select`/`update`/`delete` 직접 실행, **사용자 범위 필터 없음**(전 사용자 데이터 조회). 계층상 `service/`·`route/` 를 우회하는 유일한 예외.
+- 인가는 미들웨어가 아니라 페이지 그룹별 `requireAdminPage` 게이트(`guard.ts`). `middleware/require-admin.ts` 의 `requireAdmin` 은 JSON 에러(`createAppError`)를 던지는 API용 어드민 게이트로 어드민 페이지 게이트와는 별개다(현재 라우터엔 미배선 — 정의·테스트만 존재. `route/blog/*` admin 엔드포인트는 각자 인라인 `requireAdmin` 헬퍼를 씀).
+- 어드민 응답은 HTML 이라 JSON `errorHandler` 대신 `renderForbidden`(403 HTML) 로 권한 거부를 처리한다.
+
+---
+
+## 17. 공통 컴포넌트 (`components.tsx`)
+
+| 컴포넌트 | 역할 |
+|---|---|
+| `AdminShell` | 외곽(사이드바 `NAV` + 토바 + breadcrumbs + flash 배너). props: `title`·`subtitle`·`user`·`currentPath`·`breadcrumbs`·`flash`. |
+| `DataTable<T>` | 도메인 무관 list(`columns`·`rows`·`rowKey`·`empty`). |
+| `Pagination` | `page`·`pageSize`·`total`·`baseQuery`·`basePath` — query 보존 이전/다음. |
+| `FilterBar` | `action`·`fields`(text/select/number/date)·`hidden` — query string ↔ GET 폼. |
+| `Badge` | 상태 표시. kind: `default`/`secondary`/`outline`/`success`/`muted`/`destructive`(→ [DESIGN.md](./DESIGN.md) 토큰). |
+| `RowAction` | 단건 POST 폼(`action`·`label`·`variant`·`confirmText`·`hidden`·`returnTo`). |
+| `Stat` | 대시보드 카드(`label`·`value`·`delta`). |
+
+---
+
+## 18. 파일 맵 (`page/admin/`)
+
+| 파일 | 역할 |
+|---|---|
+| `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. |
+| `nav.ts` | 사이드바 `NAV`(9개 그룹) + `isActivePath`. |
+| `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`. |
+| `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수). |
+| `components.tsx` | 공통 JSX 컴포넌트(§17). |
+| `dashboard.tsx` | `createDashboardRoute` — Stat 14 + 최근 4 테이블. |
+| `styles.ts` | `ADMIN_DESIGN_TOKENS_CSS` + `ADMIN_DESIGN_TOKENS_CACHE_HEADERS`. |
+| `format.ts` | `formatDate`·`formatDateShort`·`formatBytes`·`maskToken`·`truncate`·`ynLabel`·`parseIntOr`·`parseDateStart`·`parseDateEnd`·`clampPage`. |
+| `login.tsx` | `createLoginRoute` — social 로그인/로그아웃, set-cookie 포워딩. |
+| `pages/users.tsx` | Users list/detail + role·ban·quota·session revoke(all). |
+| `pages/sessions.tsx` | 전 사용자 세션 list + revoke / revoke-all. |
+| `pages/api.tsx` | `createApiTokensRoute`(tokens list + revoke) · `createApiLogsRoute`(request logs). |
+| `pages/logs.tsx` | Log Events list + resolve(severity 라벨/badge 헬퍼). |
+| `pages/blog.tsx` | Posts·Comments·Categories·Tags·Images 전체. |
+| `pages/messages.tsx` | Messages list/detail + delete/restore, Follows list. |
+| `pages/weather.tsx` | Keys·Logs·Cache(+drop). |
+| `pages/mail.tsx` | Accounts(toggle/sync)·Sync Logs·Sync Sessions·Messages·Uploads. `TriggerMailSync` 타입. |
+| `pages/spotify.tsx` | Accounts·Keys·Widget Tokens. |
+| `pages/resumes.tsx` | Resumes list/detail + visibility/delete. |
+| `pages/calendar.tsx` | Groups·Events·Subscriptions(revoke)·Deleted. |
+| `pages/drive.tsx` | Assets(delete)·Folders·Lifecycle Logs. |
+
+### 어드민 페이지가 없는 테이블
+`verification`(better-auth), `postTags`(`tagId` 필터 조인만), `images`(레거시), `mailFolders`(`folderId` 필터만), `mailAttachments`(`hasAttachments` 플래그만), `deviceKey`(API `/api/logs/device-keys` 로 관리) — 전용 뷰 없음.
