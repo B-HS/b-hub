@@ -1,4 +1,4 @@
-import { betterAuth } from 'better-auth'
+import { betterAuth, type Auth, type BetterAuthOptions } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
 import type { Database } from '../../db/index'
@@ -12,12 +12,13 @@ type AuthProviderDeps = {
     googleClientSecret: string
     secret?: string
     trustedOrigins?: string[]
+    isProduction: boolean
 }
 
 const ALWAYS_TRUSTED_ORIGINS = ['*.gumyo.net', '*.hyns.dev', '*.seok.dev']
 
-export const createAuthProvider = (deps: AuthProviderDeps) => {
-    const auth = betterAuth({
+export const createAuthProvider = (deps: AuthProviderDeps): Auth => {
+    const options: BetterAuthOptions = {
         baseURL: deps.baseUrl,
         secret: deps.secret,
         database: drizzleAdapter(deps.db, { provider: 'mysql' }),
@@ -51,13 +52,13 @@ export const createAuthProvider = (deps: AuthProviderDeps) => {
         trustedOrigins: [...new Set([...ALWAYS_TRUSTED_ORIGINS, ...(deps.trustedOrigins ?? [])])],
         advanced: {
             crossSubDomainCookies: {
-                enabled: process.env.NODE_ENV === 'production',
+                enabled: deps.isProduction,
                 domain: '.gumyo.net',
             },
         },
-    })
+    }
 
-    return auth
+    return betterAuth(options)
 }
 
 export type AuthProvider = ReturnType<typeof createAuthProvider>

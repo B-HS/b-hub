@@ -50,10 +50,10 @@
 ### auth-provider.ts
 
 - 역할: `better-auth` 인스턴스 생성. `drizzleAdapter`(provider `'mysql'`) + `admin` 플러그인(defaultRole `'user'`, adminRoles `['admin']`). `emailAndPassword` 비활성.
-- 외부 의존: `better-auth`(^1.4.18). 소셜 프로바이더 GitHub·Google. Google scope 에 `gmail.modify`·`gmail.send`·`drive.file` 포함(+`openid`/`email`/`profile`), `accessType: 'offline'`, `prompt: 'consent'`.
-- env(주입값, `composeShared` 경유): `BASE_URL`(기본 `http://localhost:9999`), `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, `TRUSTED_ORIGINS`(콤마 분리).
-- 팩토리 시그니처: `createAuthProvider({ db, baseUrl, githubClientId, githubClientSecret, googleClientId, googleClientSecret, secret?, trustedOrigins? })`.
-- 기타: `ALWAYS_TRUSTED_ORIGINS = ['*.gumyo.net', '*.hyns.dev', '*.seok.dev']` 상시 신뢰. `crossSubDomainCookies` 는 프로덕션에서만 활성(domain `.gumyo.net`).
+- 외부 의존: `better-auth`(^1.6). 소셜 프로바이더 GitHub·Google. Google scope 에 `gmail.modify`·`gmail.send`·`drive.file` 포함(+`openid`/`email`/`profile`), `accessType: 'offline'`, `prompt: 'consent'`.
+- env(주입값, `composeShared` 경유): `BASE_URL`(기본 `http://localhost:9999`), `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`, `TRUSTED_ORIGINS`(콤마 분리), `NODE_ENV`(→ `isProduction`).
+- 팩토리 시그니처: `createAuthProvider({ db, baseUrl, githubClientId, githubClientSecret, googleClientId, googleClientSecret, secret?, trustedOrigins?, isProduction })`. 반환은 명시 `Auth` 타입(base) — better-auth 1.6 이 내부 zod v4 를 참조해 추론 타입이 non-portable(TS2883)해지는 것을 옵션 `BetterAuthOptions` 타입 + 명시 annotation 으로 해소. admin 플러그인 전용 API 타입은 코드에서 미사용이라 손실 없음.
+- 기타: `ALWAYS_TRUSTED_ORIGINS = ['*.gumyo.net', '*.hyns.dev', '*.seok.dev']` 상시 신뢰. `crossSubDomainCookies` 는 프로덕션에서만 활성(domain `.gumyo.net`, `isProduction` 주입값 기준).
 - 주입: `composeShared` 가 `auth` 와, 세션을 `{ user: { id, name, email, role, image } }` 로 정규화하는 `getSession` 을 함께 노출(`compose/shared.ts:34-46`).
 - 테스트: 없음(better-auth 위임 래퍼).
 

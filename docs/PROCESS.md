@@ -7,8 +7,12 @@
 
 ### 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`) — 결정 정본: [acknowledge/2026-07-02-deps-upgrade.md](./acknowledge/2026-07-02-deps-upgrade.md)
 
-- [x] 안전 최신화(minor/patch 전부 + 저위험 major 7 + 보안 `nodemailer` 9) — tsc 0 · `bun test` 2268 pass · docs 버전 반영. **미커밋(워킹트리)**.
-- [ ] breaking major 3개(**새 세션**): `hono` 4.12(param 40+지점)·`better-auth` 1.6(타입 3지점)·`zod` 4 생태계(37+지점). 새 세션 프롬프트는 acknowledge 문서에.
+- [x] 안전 최신화(minor/patch 전부 + 저위험 major 7 + 보안 `nodemailer` 9) — tsc 0 · `bun test` 2268 pass · docs 버전 반영 · 커밋 `c70b372`.
+- [ ] breaking major 3개 업그레이드(진행 중):
+    - [x] ① `better-auth` 1.6.23 — TS2883(비-portable 추론) 3지점을 leaf(`createAuthProvider`)의 `BetterAuthOptions` 옵션 타입 + 명시 `Auth` 반환 annotation 으로 일괄 해소(compose 2곳은 연쇄 해결). `process.env.NODE_ENV` 직접접근도 `isProduction` deps 주입으로 정리. tsc 0 · 2268 pass.
+    - [ ] ② `hono` 4.12 — `c.req.param()` `string|undefined` 엄격화 40+지점. `?? ''` 금지(Number('')=0 오인). tsc+test 후 독립 커밋.
+    - [ ] ③ `zod` 4 생태계(zod 4 + zod-openapi 6 + @hono/zod-validator 0.8 + hono-openapi 1) 동시 업그레이드 — dto/**·route/** 전수. tsc+test 후 독립 커밋.
+    - [ ] 단계별 docs 갱신(reference/shared-services.md 등) → 완료 시 history 이관 + docs↔코드 정합 재검증 → 전체 test+tsc+prettier → 커밋·병합 여부 사용자 확인.
 
 ## 완료 작업 (이력)
 

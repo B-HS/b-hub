@@ -29,6 +29,7 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         googleClientSecret: env.GOOGLE_CLIENT_SECRET ?? '',
         secret: env.BETTER_AUTH_SECRET,
         trustedOrigins: env.TRUSTED_ORIGINS?.split(',') ?? [],
+        isProduction: env.NODE_ENV === 'production',
     })
 
     const getSession = async (c: { req: { raw: { headers: Headers } } }) => {
