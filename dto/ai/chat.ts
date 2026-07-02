@@ -3,7 +3,7 @@ import { aiProviderNameSchema } from './provider'
 
 export const aiChatSendSchema = z.object({
     content: z.string().min(1).max(100000),
-    attachmentIds: z.array(z.coerce.number().int().positive()).max(20).optional(),
+    attachmentIds: z.array(z.coerce.number().int().positive()).max(8).optional(),
     modelId: z.string().min(1).max(100).optional(),
     maxTokens: z.coerce.number().int().min(1).max(32000).optional(),
     temperature: z.coerce.number().min(0).max(2).optional(),

@@ -1,6 +1,7 @@
 import type { AiProvider } from '../../../db/schema'
 import type { CredentialCrypto } from '../../../lib/credential-crypto'
 import type { AiProviderClient } from './ai-provider'
+import { providerErrorMessage } from './ai-provider'
 import { createAnthropicProvider } from './providers/anthropic-provider'
 import { createOllamaProvider } from './providers/ollama-provider'
 import { createCodexProvider } from './providers/codex-provider'
@@ -36,6 +37,7 @@ export type CodexRefreshResult = {
 }
 
 type BuildOpts = {
+    providerId?: number
     onRefresh?: (encryptedCredentials: string) => Promise<void>
     onReauth?: (detail: string) => Promise<void>
 }
@@ -49,20 +51,30 @@ type AiProviderFactoryDeps = {
 }
 
 export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
+    const refreshInFlight = new Map<number, Promise<CodexRefreshResult>>()
+
+    const refreshWithLock = (providerId: number | undefined, refreshToken: string) => {
+        if (providerId == null) return deps.refreshCodexToken(refreshToken)
+        const existing = refreshInFlight.get(providerId)
+        if (existing) return existing
+        const promise = deps.refreshCodexToken(refreshToken).finally(() => refreshInFlight.delete(providerId))
+        refreshInFlight.set(providerId, promise)
+        return promise
+    }
+
     const buildCodexClient = (stored: StoredCodexCredentials, opts: BuildOpts): AiProviderClient => {
         if (!stored.accessToken || !stored.refreshToken) throw createAppError('AI_CREDENTIALS_INVALID')
         let current = stored
 
         const getAccessToken = async () => {
             const expiryMs = getJwtExpiryMs(current.accessToken)
-            const needsRefresh = expiryMs !== null && expiryMs - Date.now() < CODEX_REFRESH_WINDOW_MS
+            const needsRefresh = expiryMs === null || expiryMs - Date.now() < CODEX_REFRESH_WINDOW_MS
             if (needsRefresh) {
                 let refreshed: CodexRefreshResult
                 try {
-                    refreshed = await deps.refreshCodexToken(current.refreshToken)
+                    refreshed = await refreshWithLock(opts.providerId, current.refreshToken)
                 } catch (error) {
-                    const detail = error instanceof Error ? error.message : 'refresh failed'
-                    if (opts.onReauth) await opts.onReauth(detail).catch(() => {})
+                    if (opts.onReauth) await opts.onReauth(providerErrorMessage(error)).catch(() => {})
                     throw createAppError('AI_REAUTH_REQUIRED')
                 }
                 current = {
@@ -72,7 +84,14 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
                     idToken: refreshed.idToken ?? current.idToken,
                     lastRefresh: new Date().toISOString(),
                 }
-                if (opts.onRefresh) await opts.onRefresh(deps.crypto.encrypt(JSON.stringify(current))).catch(() => {})
+                if (opts.onRefresh) {
+                    try {
+                        await opts.onRefresh(deps.crypto.encrypt(JSON.stringify(current)))
+                    } catch (persistError) {
+                        if (opts.onReauth)
+                            await opts.onReauth(`token rotated but persist failed: ${providerErrorMessage(persistError)}`).catch(() => {})
+                    }
+                }
             }
             const accountId = current.accountId ?? getCodexAccountId(current.idToken) ?? ''
             if (!accountId) throw createAppError('AI_CREDENTIALS_INVALID')
@@ -104,6 +123,7 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
 
     const create = (row: AiProvider): AiProviderClient =>
         buildClient(row.provider, decode(row), {
+            providerId: row.id,
             onRefresh: (encrypted) => deps.persistCodexCredentials(row.id, encrypted),
             onReauth: (detail) => deps.markReauthRequired(row.id, detail),
         })

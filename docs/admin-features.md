@@ -2,10 +2,10 @@
 
 > 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `db/schema.ts`
 
-`db/schema.ts` 테이블 43개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다.
+`db/schema.ts` 테이블 49개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다.
 
 - 스키마 전수: [reference/db-schema.md](./reference/db-schema.md) · API 엔드포인트 전수: [reference/api-endpoints.md](./reference/api-endpoints.md) (중복 서술하지 않고 이 문서는 어드민 UI 만 다룬다).
-- 참고 수치(2026-07-02): `service/domain/` 서비스 팩토리 26개 + KMA mock 1개(9개 도메인), `route/` 라우트 팩토리 36개 / 라우트 파일 38개.
+- 참고 수치(2026-07-02): `service/domain/` 서비스 팩토리 32개 + KMA mock 1개(10개 도메인), `route/` 라우트 팩토리 42개 / 라우트 파일 44개.
 
 사이드바 그룹(`nav.ts` `NAV`): Overview · Identity · Blog · Social · Weather · Mail · Spotify · AI · Observability · Other.
 
@@ -290,7 +290,7 @@ GET  /admin                                → dashboard
 | 파일 | 역할 |
 |---|---|
 | `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. |
-| `nav.ts` | 사이드바 `NAV`(9개 그룹) + `isActivePath`. |
+| `nav.ts` | 사이드바 `NAV`(10개 그룹) + `isActivePath`. |
 | `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`. |
 | `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수). |
 | `components.tsx` | 공통 JSX 컴포넌트(§17). |

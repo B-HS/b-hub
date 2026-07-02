@@ -18,14 +18,14 @@
 
 | tests/ 폴더 | 대응 소스 | 검증 대상 | 파일 수 |
 |-------------|-----------|-----------|:------:|
-| `tests/dto/` | `dto/` | Zod 스키마의 `parse` — 기본값·강제변환(`z.coerce`)·범위 제약·실패 케이스 | 28 |
-| `tests/lib/` | `lib/` | 에러 3파일(`error-code`·`error`), 응답 헬퍼(`api-response`), HOF(`with-*`), 순수 유틸(pagination·token·url·xml·mail-thread 등) | 25 |
+| `tests/dto/` | `dto/` | Zod 스키마의 `parse` — 기본값·강제변환(`z.coerce`)·범위 제약·실패 케이스 | 32 |
+| `tests/lib/` | `lib/` | 에러 3파일(`error-code`·`error`), 응답 헬퍼(`api-response`), HOF(`with-*`), 순수 유틸(pagination·token·url·xml·mail-thread·jwt-decode·credential-crypto 등) | 27 |
 | `tests/middleware/` | `middleware/` | Hono 미들웨어 게이트 — 인증(`require-auth`)·권한(`require-admin`)·토큰(`require-api-token`)·로깅·보안헤더·에러핸들러 | 9 |
-| `tests/page/` | `page/` | SSR JSX 어드민 라우트 — HTML 렌더 결과 + 폼 POST → 303 리다이렉트(CSR 없음) | 21 |
-| `tests/route/` | `route/` | HTTP 엔드포인트 — 상태코드 + JSON 응답 봉투(`success`/`data`/`pagination`/`error`) | 33 |
-| `tests/service/` | `service/domain/*`·`service/shared/*` | 도메인 서비스 로직(ServiceDb mock, 34) + 횡단 서비스(storage·cache·image 등, 13) | 47 |
+| `tests/page/` | `page/` | SSR JSX 어드민 라우트 — HTML 렌더 결과 + 폼 POST → 303 리다이렉트(CSR 없음) | 22 |
+| `tests/route/` | `route/` | HTTP 엔드포인트 — 상태코드 + JSON 응답 봉투(`success`/`data`/`pagination`/`error`) | 35 |
+| `tests/service/` | `service/domain/*`·`service/shared/*` | 도메인 서비스 로직(ServiceDb mock) + 횡단 서비스(storage·cache·image 등) | 57 |
 
-합계 163개 `*.test.ts` 파일. `tests/page/admin/helpers.ts` 는 테스트가 아니라 어드민 페이지 테스트용 공용 mock 헬퍼다.
+합계 182개 `*.test.ts` 파일. `tests/page/admin/helpers.ts` 는 테스트가 아니라 어드민 페이지 테스트용 공용 mock 헬퍼다.
 
 ---
 
@@ -48,11 +48,11 @@
 
 | 항목 | 값 |
 |------|-----|
-| pass | 2077 |
+| pass | 2268 |
 | fail | 0 |
-| expect() calls | 4973 |
-| 파일 | 163 |
-| 소요 | 22.68s |
+| expect() calls | 5509 |
+| 파일 | 182 |
+| 소요 | 23.37s |
 | exit code | 0 |
 
 - 콘솔에 찍히는 `[mail] attachment download failed ...`, `[prepare] quota=... `, `Gmail API error 500/404/403` 등의 로그는 **테스트 실패가 아니다.** 에러 경로(다운로드 실패·쿼터 초과·API 오류)를 의도적으로 트리거하는 케이스에서 SUT 자체 로깅이 출력된 것이며, 해당 테스트는 통과한다(0 fail).

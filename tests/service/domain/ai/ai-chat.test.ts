@@ -197,4 +197,26 @@ describe('createAiChatService', () => {
             expect(deps.connectionService.touchUsed).not.toHaveBeenCalled()
         })
     })
+
+    describe('send 견고성', () => {
+        test('provider 실패 시 user/assistant 메시지를 저장하지 않는다(고아 방지)', async () => {
+            const deps = createDeps()
+            deps.client.complete = mock((_req: AiCompletionRequest) => Promise.reject(new Error('provider down')))
+            const service = createAiChatService(deps as never)
+
+            await expect(service.send('user-1', 'sess-1', { content: 'hello world' })).rejects.toThrow('provider down')
+            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+        })
+
+        test('touchLastMessage/touchUsed가 실패해도 send는 성공 응답을 반환한다', async () => {
+            const deps = createDeps()
+            deps.sessionService.touchLastMessage = mock((_id: string) => Promise.reject(new Error('touch fail')))
+            deps.connectionService.touchUsed = mock((_id: number) => Promise.reject(new Error('touch fail')))
+            const service = createAiChatService(deps as never)
+
+            const result = await service.send('user-1', 'sess-1', { content: 'hello world' })
+            expect(result.content).toBe('answer')
+            expect(deps.logUsage.mock.calls[0][0].severity).toBe(20)
+        })
+    })
 })

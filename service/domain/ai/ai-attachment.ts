@@ -22,6 +22,7 @@ export type AiAttachmentServiceDb = {
     insert: (data: AiAttachmentInsert) => Promise<{ id: number }>
     getById: (id: number) => Promise<AiAttachment | null>
     getByIds: (ids: number[]) => Promise<AiAttachment[]>
+    getTotalSizeByUser: (userId: string) => Promise<number>
     attachToMessage: (ids: number[], messageId: number) => Promise<void>
     deleteById: (id: number) => Promise<void>
 }
@@ -30,6 +31,7 @@ type AiAttachmentDeps = {
     storage: StorageService
     db: AiAttachmentServiceDb
     generateId: () => string
+    getUserQuotaBytes: (userId: string) => Promise<number>
 }
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
@@ -41,7 +43,7 @@ const MAGIC_BYTES: Record<string, number[][]> = {
     'image/webp': [[0x52, 0x49, 0x46, 0x46]],
 }
 
-export const createAiAttachmentService = ({ storage, db, generateId }: AiAttachmentDeps) => {
+export const createAiAttachmentService = ({ storage, db, generateId, getUserQuotaBytes }: AiAttachmentDeps) => {
     const upload = async (file: File, userId: string) => {
         if (!ALLOWED_MIME_TYPES.includes(file.type)) throw createAppError('AI_ATTACHMENT_INVALID_TYPE')
         if (file.size > MAX_SIZE) throw createAppError('AI_ATTACHMENT_TOO_LARGE')
@@ -53,6 +55,9 @@ export const createAiAttachmentService = ({ storage, db, generateId }: AiAttachm
         if (signatures && !signatures.some((sig) => sig.every((byte, i) => buffer[i] === byte))) {
             throw createAppError('AI_ATTACHMENT_INVALID_TYPE')
         }
+
+        const [quotaBytes, usedBytes] = await Promise.all([getUserQuotaBytes(userId), db.getTotalSizeByUser(userId)])
+        if (usedBytes + buffer.length > quotaBytes) throw createAppError('AI_ATTACHMENT_TOO_LARGE', { detail: 'storage quota exceeded' })
 
         const safeName = sanitizeFilename(file.name)
         const r2Key = `ai/attachments/${userId}/${generateId()}/${safeName}`

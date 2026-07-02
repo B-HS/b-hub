@@ -356,6 +356,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createAiAttachmentRoute({
             aiAttachmentService: stub(deps.aiAttachmentService),
             getSession: stubFn(deps.getSession) as never,
+            checkLimit: deps.aiCheckLimit,
         }),
     )
     router.route(
@@ -363,6 +364,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createAiSessionRoute({
             aiSessionService: stub(deps.aiSessionService),
             aiConnectionService: stub(deps.aiConnectionService),
+            aiPromptService: stub(deps.aiPromptService),
             getSession: stubFn(deps.getSession) as never,
         }),
     )

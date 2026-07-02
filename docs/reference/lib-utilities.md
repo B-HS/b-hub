@@ -28,7 +28,7 @@
 | 파일 | 주요 export | 역할 | 주 사용처 (Grep 근거) | 테스트 |
 |------|-------------|------|------------------------|--------|
 | `lib/api-response.ts` | `successResponse`, `paginatedResponse`, `errorResponse` + 동명 `*Schema` | 응답 봉투 3종 + OpenAPI용 Zod 스키마 | 거의 모든 `route/*` + `middleware/error-handler.ts` | `api-response.test.ts` |
-| `lib/error-code.ts` | `ERROR_CODE`, `ErrorCode` | 에러 코드 상수 86종 + union 타입 | `dto/error-response.ts`, `middleware/log-capture.ts`, `route/weather/*` | `error-code.test.ts` |
+| `lib/error-code.ts` | `ERROR_CODE`, `ErrorCode` | 에러 코드 상수 101종 + union 타입 | `dto/error-response.ts`, `middleware/log-capture.ts`, `route/weather/*` | `error-code.test.ts` |
 | `lib/error-message.ts` | `ERROR_MESSAGE` | 코드→한국어 메시지 `Record<ErrorCode,string>` | `dto/error-response.ts`, `middleware/{error-handler,log-capture}.ts` | (전용 없음; error-code·error 테스트가 커버) |
 | `lib/error.ts` | `createAppError`, `isAppError`, `getStatusCode`, `AppError` | 코드→상태 매핑 + 에러 팩토리·가드 | 광범위: `route/*`, `service/domain/*`, `service/shared/*`, `middleware/*` | `error.test.ts` |
 | `lib/with-error-handling.ts` | `withErrorHandling` | 핸들러 try/catch → AppError/500 변환 HOF | 사실상 모든 `route/*` 핸들러 | `with-error-handling.test.ts` |

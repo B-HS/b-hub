@@ -56,7 +56,7 @@ describe('POST /chat/sessions/:sessionId/messages', () => {
             body: JSON.stringify({ content: '안녕' }),
         })
         expect(res.status).toBe(200)
-        expect(checkLimit).toHaveBeenCalledWith('u1', '/chat/sessions/s1/messages')
+        expect(checkLimit).toHaveBeenCalledWith('u1', 'ai:chat:send')
         expect(res.headers.get('X-RateLimit-Limit')).toBe('10')
         expect(deps.aiChatService.send).toHaveBeenCalled()
     })

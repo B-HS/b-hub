@@ -366,7 +366,7 @@
 
 ### 어드민 SSR (`/admin/*`)
 
-`page/admin/index.ts` 가 `/admin` 하위로 로그인·대시보드 및 13개 도메인 페이지를 마운트한다. 각 서브앱은 `app.use('*', requireAdminPage(...))`(`page/admin/guard.ts`)로 `어드민` 게이팅, **SSR(JSX) + 폼 POST → 303** 패턴(CSR 없음). 개별 페이지·폼 POST 경로는 이 문서가 소유하지 않는다 — [../admin-features.md](../admin-features.md) 로 위임.
+`page/admin/index.ts` 가 `/admin` 하위로 로그인·대시보드 및 14개 도메인 페이지를 마운트한다. 각 서브앱은 `app.use('*', requireAdminPage(...))`(`page/admin/guard.ts`)로 `어드민` 게이팅, **SSR(JSX) + 폼 POST → 303** 패턴(CSR 없음). 개별 페이지·폼 POST 경로는 이 문서가 소유하지 않는다 — [../admin-features.md](../admin-features.md) 로 위임.
 
 | 대표 경로(마운트 접두사) | 핸들러 |
 |--------------------------|--------|

@@ -145,7 +145,7 @@
 ## `service/domain/`
 
 - **역할**: 도메인 로직. 입력 DTO 타입 → 도메인 결과/`null`. HTTP `Context` 와 Drizzle 를 모른다.
-- **배치 규칙**: 도메인 폴더 9개(`badge`·`blog`·`calendar`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`). 메일 프로바이더처럼 하위 구현은 `mail/providers/` 로. DB 쿼리는 여기 두지 않고 `compose/` 의 ServiceDb 로 주입받는다.
+- **배치 규칙**: 도메인 폴더 10개(`ai`·`badge`·`blog`·`calendar`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`). 메일 프로바이더처럼 하위 구현은 `mail/providers/` 로. DB 쿼리는 여기 두지 않고 `compose/` 의 ServiceDb 로 주입받는다.
 - **작성 컨벤션** (근거: `service/domain/resume/resume.ts`)
   - 팩토리 `createXxxService(deps) => ({ ... })` + `export type XxxService = ReturnType<typeof createXxxService>`.
   - `XxxServiceDb` 타입 = **도메인 동작 단위 메서드**(`getResumesByUserId`·`insertResume` 식, 범용 CRUD 아님). 이 인터페이스만 의존하고 구현은 `compose/` 가 준다.
@@ -179,7 +179,7 @@
 ## `compose/`
 
 - **역할**: Factory DI 조립 + **ServiceDb 인터페이스의 Drizzle 인라인 구현**. 계층상 Drizzle 쿼리가 존재하는 기본 위치.
-- **배치 규칙**: `index.ts`(루트 조립)·`types.ts`(조립 인자 타입)·`shared.ts`(공유 서비스) + 도메인별 8개(`blog`·`calendar`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`). 도메인 로직은 넣지 않는다(그건 `service/`). compose 는 "쿼리 구현 + 조립"만.
+- **배치 규칙**: `index.ts`(루트 조립)·`types.ts`(조립 인자 타입)·`shared.ts`(공유 서비스) + 도메인별 9개(`ai`·`blog`·`calendar`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`). 도메인 로직은 넣지 않는다(그건 `service/`). compose 는 "쿼리 구현 + 조립"만.
 - **작성 컨벤션** (근거: `compose/resume.ts`, `compose/index.ts`, `compose/types.ts`)
   - `composeXxx({ db, ... }: ComposeXxxArgs) => ({ xxxService, ... })`. `import * as schema from '../db/schema'` 후 `db.select/insert/update/delete` 로 ServiceDb 메서드를 인라인 구현해 `createXxxService(...)` 에 주입.
   - `compose/index.ts` 는 `env=getEnv()` `db=getDb()` `core={db,env}` → `composeShared(core)` → 도메인 compose(core + shared 산출물 주입) 순서, 결과를 **스프레드로 평탄 병합**(`return { ...shared, ...blog, ... }`)해 도메인 접두 없는 단일 객체로 노출.
@@ -197,7 +197,7 @@
 
 ## `db/`
 
-- **역할**: `schema.ts`(Drizzle 스키마, 물리 테이블 43개) + `index.ts`(`getDb()` 싱글톤).
+- **역할**: `schema.ts`(Drizzle 스키마, 물리 테이블 49개) + `index.ts`(`getDb()` 싱글톤).
 - **배치 규칙**: 스키마 정의와 풀 생성만. 쿼리는 여기 두지 않는다(`compose/` 및 문서화된 예외 파일). 두 파일 외 추가 파일 없음.
 - **작성 컨벤션** (근거: `db/index.ts`, `db/schema.ts`, [reference/db-schema.md](../reference/db-schema.md))
   - `index.ts`: `getDb()` = `mysql2` 풀(`connectionLimit: 20`, `queueLimit: 0`, `uri: DATABASE_URL`) 위 `drizzle(pool, { schema, mode: 'default' })` 싱글톤. `Database = ReturnType<typeof getDb>`, `closeDb()`. `DATABASE_URL` 은 `process.env` 직접(부트스트랩 싱글톤).
@@ -215,7 +215,7 @@
 
 ## `lib/`
 
-- **역할**: 도메인·HTTP 프레임워크 무관 순수 유틸 + 코어(에러 3파일·응답 헬퍼·HOF·env·컨텍스트 타입). 파일 30개, 배럴(`index.ts`) 없음 — 소비자는 파일 직접 상대경로 import.
+- **역할**: 도메인·HTTP 프레임워크 무관 순수 유틸 + 코어(에러 3파일·응답 헬퍼·HOF·env·컨텍스트 타입). 파일 32개, 배럴(`index.ts`) 없음 — 소비자는 파일 직접 상대경로 import.
 - **배치 규칙**: 2곳 이상 쓰이는 순수 함수만. **새 유틸 작성 전 [reference/lib-utilities.md](../reference/lib-utilities.md) 인벤토리에서 기존 것을 먼저 찾는다**(현존 중복: `external-api.ts`·`pagination.ts`·`db-helper.ts`·`sensitive-filter.ts` 는 비-test 미사용). 상태·외부 SDK 를 가진 건 `service/shared/` 로.
 - **작성 컨벤션** (근거: `lib/error.ts`·`lib/api-response.ts`·`lib/with-*.ts`, [reference/lib-utilities.md](../reference/lib-utilities.md))
   - **에러는 3파일**(`error-code.ts` 코드 86종 + `error-message.ts` `Record<ErrorCode,string>` + `error.ts` `STATUS_MAP`/`createAppError`/`isAppError`). 새 에러는 **세 파일 모두** 추가(코드·메시지·상태). `STATUS_MAP` 은 `Record<string,number>` 라 컴파일러가 누락을 못 잡음 — 정합 수동 확인. 도메인 접두사(`BLOG_`·`MAIL_` …).

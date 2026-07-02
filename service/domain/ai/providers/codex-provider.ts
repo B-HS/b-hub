@@ -61,15 +61,19 @@ const parseResponsesSse = async (res: Response): Promise<{ text: string; usage: 
         else if (evt.type === 'response.failed' || evt.type === 'response.incomplete') failed = evt.response?.error?.message ?? evt.type
     }
 
-    for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-        for (const line of lines) handleLine(line)
+    try {
+        for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) handleLine(line)
+        }
+        if (buffer) handleLine(buffer)
+    } catch (error) {
+        throw createAppError('AI_COMPLETION_FAILED', { detail: maskProviderError(providerErrorMessage(error)).slice(0, 500) })
     }
-    if (buffer) handleLine(buffer)
 
     if (failed) throw createAppError('AI_COMPLETION_FAILED', { detail: maskProviderError(failed).slice(0, 500) })
     return { text, usage }

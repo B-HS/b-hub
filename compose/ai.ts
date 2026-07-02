@@ -234,6 +234,13 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
         },
         getByIds: async (ids: number[]) =>
             ids.length === 0 ? [] : db.select().from(schema.aiAttachments).where(inArray(schema.aiAttachments.id, ids)),
+        getTotalSizeByUser: async (userId: string) => {
+            const [row] = await db
+                .select({ total: sql<number>`coalesce(sum(size_bytes), 0)` })
+                .from(schema.aiAttachments)
+                .where(eq(schema.aiAttachments.userId, userId))
+            return Number(row?.total ?? 0)
+        },
         attachToMessage: async (ids: number[], messageId: number) => {
             if (ids.length === 0) return
             await db.update(schema.aiAttachments).set({ messageId }).where(inArray(schema.aiAttachments.id, ids))
@@ -247,6 +254,10 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
         storage: aiStorageAdapter,
         db: attachmentDb,
         generateId: () => globalThis.crypto.randomUUID(),
+        getUserQuotaBytes: async (userId: string) => {
+            const [u] = await db.select({ quota: schema.user.storageQuotaBytes }).from(schema.user).where(eq(schema.user.id, userId)).limit(1)
+            return u?.quota ?? 10 * 1024 * 1024
+        },
     })
 
     const logUsage: AiUsageLogger = (entry) => {

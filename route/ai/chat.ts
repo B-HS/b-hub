@@ -30,8 +30,8 @@ const CHAT_ERROR_CODES = [
 export const createAiChatRoute = (deps: AiChatRouteDeps) => {
     const route = new Hono()
 
-    const rateLimited = (handler: (c: Context, user: { id: string }) => Promise<Response>) =>
-        deps.checkLimit ? withRateLimit({ checkLimit: deps.checkLimit })(handler) : handler
+    const rateLimited = (handler: (c: Context, user: { id: string }) => Promise<Response>, pathKey: string) =>
+        deps.checkLimit ? withRateLimit({ checkLimit: deps.checkLimit, pathKey })(handler) : handler
 
     route.post(
         '/sessions/:sessionId/messages',
@@ -48,7 +48,7 @@ export const createAiChatRoute = (deps: AiChatRouteDeps) => {
                     const input = c.req.valid('json' as never) as z.infer<typeof aiChatSendSchema>
                     const result = await deps.aiChatService.send(user.id, sessionId, input)
                     return c.json(successResponse(result))
-                }),
+                }, 'ai:chat:send'),
             ),
         ),
     )
@@ -67,7 +67,7 @@ export const createAiChatRoute = (deps: AiChatRouteDeps) => {
                     const input = c.req.valid('json' as never) as z.infer<typeof aiCompletionSchema>
                     const result = await deps.aiChatService.complete(user.id, input)
                     return c.json(successResponse(result))
-                }),
+                }, 'ai:chat:completion'),
             ),
         ),
     )

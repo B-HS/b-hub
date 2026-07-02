@@ -1147,7 +1147,7 @@ export const createAdminDb = (db: Database) => ({
     },
 
     setAiProviderStatus: async (id: number, status: string) => {
-        await db.update(s.aiProviders).set({ status }).where(eq(s.aiProviders.id, id))
+        await db.update(s.aiProviders).set({ status, statusDetail: null }).where(eq(s.aiProviders.id, id))
     },
 
     deleteAiProvider: async (id: number) => {

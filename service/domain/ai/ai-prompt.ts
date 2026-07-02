@@ -47,8 +47,9 @@ export const createAiPromptService = ({ db }: AiPromptDeps) => {
 
     const resolveOwned = async (userId: string, ids: number[]) => {
         if (ids.length === 0) return []
-        const rows = await db.getByIds([...new Set(ids)])
-        if (rows.some((r) => r.userId !== userId)) throw createAppError('AI_PROMPT_NOT_FOUND')
+        const unique = [...new Set(ids)]
+        const rows = await db.getByIds(unique)
+        if (rows.length !== unique.length || rows.some((r) => r.userId !== userId)) throw createAppError('AI_PROMPT_NOT_FOUND')
         return rows
     }
 

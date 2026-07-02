@@ -45,7 +45,7 @@ git diff --name-only --diff-filter=d origin/dev...HEAD | grep -E '\.tsx?$' | xar
 |------|-----|
 | 명령 | `bun test` (부분: `bun test <경로>`) |
 | 통과 기준 | fail 0, exit code 0 |
-| 베이스라인 | 163 파일 / pass 2077 / fail 0 ([../testing.md](../testing.md) §3) |
+| 베이스라인 | 182 파일 / pass 2268 / fail 0 ([../testing.md](../testing.md) §3) |
 
 - 콘솔의 `[mail] attachment download failed`·`Gmail API error 500` 등은 에러 경로를 의도적으로 트리거하는 케이스의 SUT 로그이며 **실패가 아니다**(해당 테스트는 통과).
 - `tests/` 는 소스 트리를 미러한다. dto→`tests/dto/`, service→`tests/service/`, route→`tests/route/`, 어드민 페이지→`tests/page/`, 미들웨어→`tests/middleware/`, lib/HOF→`tests/lib/`.

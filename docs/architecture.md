@@ -94,7 +94,8 @@ blog   = composeBlog({ ...core, storageService, imageProcessor })
 weather/logs/spotify/resume/calendar = compose*(core)
 mail   = composeMail({ ...core, storageService })
 drive  = composeDrive({ ...core, storageService, imageProcessor, gdriveStorageService: null, initGdriveStorage })
-return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume, ...calendar, ...drive, baseUrl, gdriveRootFolderId }
+ai     = composeAi({ ...core, storageService, logEventService })  // AI_ENCRYPTION_KEY 없으면 {} 반환(graceful)
+return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume, ...calendar, ...drive, ...ai, baseUrl, gdriveRootFolderId }
 ```
 
 - **`composeShared(core)`** 가 먼저 생성하는 공용 의존성: `auth`(better-auth), `getSession`(세션 정규화 어댑터), `apiTokenService`, `storageService`(R2/S3), `imageProcessor`(sharp), `imageGenerator`(satori+resvg), `fontLoader`, `badgeService`, `initGdriveStorage`, `getGdriveAccessToken`. 도메인 compose 는 core + 이 shared 산출물을 주입받는다.
@@ -151,7 +152,7 @@ withErrorHandling(
 
 | 파일 | 책임 |
 |------|------|
-| `lib/error-code.ts` | `ERROR_CODE` 상수 객체 + `ErrorCode` union 타입 (도메인 접두: `BLOG_*`·`MAIL_*`·`WEATHER_*`·`CALENDAR_*`·`DRIVE_*`·`SPOTIFY_*`·`RESUME_*`·`BADGE_*`·`LOG_*` + 공통·`STORAGE_*`/`IMAGE_*` 등 인프라) |
+| `lib/error-code.ts` | `ERROR_CODE` 상수 객체 + `ErrorCode` union 타입 (도메인 접두: `BLOG_*`·`MAIL_*`·`WEATHER_*`·`CALENDAR_*`·`DRIVE_*`·`SPOTIFY_*`·`RESUME_*`·`BADGE_*`·`LOG_*`·`AI_*` + 공통·`STORAGE_*`/`IMAGE_*` 등 인프라) |
 | `lib/error-message.ts` | `ERROR_MESSAGE: Record<ErrorCode, string>` (한국어 메시지, 코드 전수 대응) |
 | `lib/error.ts` | `AppError` 타입, `STATUS_MAP`, `getStatusCode`(미매핑 시 500), `createAppError`, `isAppError` |
 

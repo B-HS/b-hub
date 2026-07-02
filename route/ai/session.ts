@@ -11,10 +11,12 @@ import { aiMessageListQuerySchema } from '../../dto/ai/chat'
 import type { AiSession, AiMessage } from '../../db/schema'
 import type { AiSessionService } from '../../service/domain/ai/ai-session'
 import type { AiConnectionService } from '../../service/domain/ai/ai-connection'
+import type { AiPromptService } from '../../service/domain/ai/ai-prompt'
 
 type AiSessionRouteDeps = {
     aiSessionService: AiSessionService
     aiConnectionService: AiConnectionService
+    aiPromptService: AiPromptService
     getSession: (c: { req: { raw: { headers: Headers } } }) => Promise<{ user: { id: string; role: string | null } } | null>
 }
 
@@ -75,6 +77,7 @@ export const createAiSessionRoute = (deps: AiSessionRouteDeps) => {
             if (!session) throw createAppError('UNAUTHORIZED')
             const input = c.req.valid('json' as never) as z.infer<typeof aiSessionCreateSchema>
             const { row } = await deps.aiConnectionService.resolveClient(session.user.id, input.provider)
+            if (input.promptIds?.length) await deps.aiPromptService.resolveOwned(session.user.id, input.promptIds)
             const created = await deps.aiSessionService.create(session.user.id, input, row.id)
             return c.json(successResponse(toSessionResponse(created)))
         }),

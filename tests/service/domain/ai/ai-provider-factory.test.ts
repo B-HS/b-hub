@@ -187,3 +187,58 @@ describe('createAiProviderFactory.create (codex refresh)', () => {
         expect(markReauthRequired.mock.calls[0][1]).toBe('refresh boom')
     })
 })
+
+describe('createAiProviderFactory.create (codex refresh 엣지케이스)', () => {
+    const codexRow = (crypto: ReturnType<typeof createCredentialCrypto>, accessToken: string, refreshToken = 'rt-old') =>
+        buildRow({
+            provider: 'codex',
+            credentials: crypto.encrypt(
+                JSON.stringify({
+                    idToken: buildJwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1' } }),
+                    accessToken,
+                    refreshToken,
+                    accountId: 'acct-1',
+                }),
+            ),
+        })
+
+    test('동시 요청이 같은 만료 토큰으로 refresh하면 refreshCodexToken은 1번만 호출된다(single-flight)', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const refreshCodexToken = mock(
+            () =>
+                new Promise<CodexRefreshResult>((resolve) =>
+                    setTimeout(() => resolve({ accessToken: buildJwt({ exp: nowSec() + 3600 }), refreshToken: 'rt-new', idToken: null }), 10),
+                ),
+        )
+        const factory = buildFactory({ crypto, refreshCodexToken })
+        const client = factory.create(codexRow(crypto, buildJwt({ exp: nowSec() + 60 })))
+        await Promise.all([client.listModels(), client.listModels()])
+        expect(refreshCodexToken).toHaveBeenCalledTimes(1)
+    })
+
+    test('회전 토큰 저장(persist) 실패 시 markReauthRequired를 호출하되 이번 호출은 성공한다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const persistCodexCredentials = mock(() => Promise.reject(new Error('db down')))
+        const refreshCodexToken = mock(() =>
+            Promise.resolve<CodexRefreshResult>({ accessToken: buildJwt({ exp: nowSec() + 3600 }), refreshToken: 'rt-new', idToken: null }),
+        )
+        const factory = buildFactory({ crypto, markReauthRequired, persistCodexCredentials, refreshCodexToken })
+        const client = factory.create(codexRow(crypto, buildJwt({ exp: nowSec() + 60 })))
+        const models = await client.listModels()
+        expect(models.length).toBeGreaterThan(0)
+        expect(markReauthRequired).toHaveBeenCalledTimes(1)
+        expect(markReauthRequired.mock.calls[0][1]).toContain('persist failed')
+    })
+
+    test('access_token의 exp를 못 읽으면 만료로 간주해 refresh를 시도한다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const refreshCodexToken = mock(() =>
+            Promise.resolve<CodexRefreshResult>({ accessToken: buildJwt({ exp: nowSec() + 3600 }), refreshToken: null, idToken: null }),
+        )
+        const factory = buildFactory({ crypto, refreshCodexToken })
+        const client = factory.create(codexRow(crypto, buildJwt({ sub: 'no-exp' })))
+        await client.listModels()
+        expect(refreshCodexToken).toHaveBeenCalledTimes(1)
+    })
+})

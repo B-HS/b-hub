@@ -38,11 +38,11 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
             const res = await fetchFn(url, { headers: authHeaders })
             if (!res.ok) throw createAppError('AI_MODEL_FETCH_FAILED', { status: res.status })
             const data = (await res.json()) as {
-                data: { id: string; display_name?: string; created_at?: string }[]
+                data?: { id: string; display_name?: string; created_at?: string }[]
                 has_more?: boolean
                 last_id?: string
             }
-            for (const m of data.data) {
+            for (const m of data.data ?? []) {
                 models.push({ modelId: m.id, displayName: m.display_name ?? null, metadata: m.created_at ? { createdAt: m.created_at } : null })
             }
             if (!data.has_more || !data.last_id) break
@@ -65,7 +65,7 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
             messages,
         }
         if (system) body.system = system
-        if (request.temperature !== undefined) body.temperature = request.temperature
+        if (request.temperature !== undefined) body.temperature = Math.min(1, Math.max(0, request.temperature))
 
         const res = await fetchFn(`${ANTHROPIC_BASE}/v1/messages`, {
             method: 'POST',
@@ -77,11 +77,11 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
             throw createAppError('AI_COMPLETION_FAILED', { status: res.status, detail: maskProviderError(errBody).slice(0, 500) })
         }
         const data = (await res.json()) as {
-            content: { type: string; text?: string }[]
+            content?: { type: string; text?: string }[]
             model?: string
             usage?: { input_tokens?: number; output_tokens?: number }
         }
-        const content = data.content
+        const content = (data.content ?? [])
             .filter((b) => b.type === 'text')
             .map((b) => b.text ?? '')
             .join('')

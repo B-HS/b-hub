@@ -32,10 +32,12 @@ const createDeps = () => ({
         insert: mock(async (_data: AiAttachmentInsert) => ({ id: 1 })),
         getById: mock(async (id: number) => buildAttachment({ id })),
         getByIds: mock(async (ids: number[]) => ids.map((id) => buildAttachment({ id }))),
+        getTotalSizeByUser: mock(async (_userId: string) => 0),
         attachToMessage: mock(async (_ids: number[], _messageId: number) => {}),
         deleteById: mock(async (_id: number) => {}),
     },
     generateId: () => 'uuid-1',
+    getUserQuotaBytes: mock(async (_userId: string) => 10 * 1024 * 1024),
 })
 
 describe('createAiAttachmentService', () => {
@@ -162,6 +164,30 @@ describe('createAiAttachmentService', () => {
 
             await expect(service.remove('user-1', 1)).rejects.toMatchObject({ code: 'AI_ATTACHMENT_NOT_FOUND' })
             expect(deps.storage.delete).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('quota', () => {
+        test('사용자 쿼터를 초과하면 AI_ATTACHMENT_TOO_LARGE를 던지고 업로드하지 않는다', async () => {
+            const deps = createDeps()
+            deps.getUserQuotaBytes = mock(async (_userId: string) => 1024)
+            deps.db.getTotalSizeByUser = mock(async (_userId: string) => 1024)
+            const service = createAiAttachmentService(deps)
+
+            await expect(service.upload(pngFile('a.png', 'image/png', 512), 'user-1')).rejects.toMatchObject({ code: 'AI_ATTACHMENT_TOO_LARGE' })
+            expect(deps.storage.upload).not.toHaveBeenCalled()
+            expect(deps.db.insert).not.toHaveBeenCalled()
+        })
+
+        test('누적 사용량이 쿼터 이내면 업로드한다', async () => {
+            const deps = createDeps()
+            deps.getUserQuotaBytes = mock(async (_userId: string) => 10 * 1024 * 1024)
+            deps.db.getTotalSizeByUser = mock(async (_userId: string) => 1024)
+            const service = createAiAttachmentService(deps)
+
+            const result = await service.upload(pngFile('a.png', 'image/png', 512), 'user-1')
+            expect(result.id).toBe(1)
+            expect(deps.storage.upload).toHaveBeenCalled()
         })
     })
 })

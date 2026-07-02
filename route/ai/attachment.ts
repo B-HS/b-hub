@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { withErrorHandling } from '../../lib/with-error-handling'
+import { withAuth } from '../../lib/with-auth'
+import { withRateLimit } from '../../lib/with-rate-limit'
 import { createAppError } from '../../lib/error'
 import { successResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
@@ -8,11 +11,20 @@ import type { AiAttachmentService } from '../../service/domain/ai/ai-attachment'
 
 type AiAttachmentRouteDeps = {
     aiAttachmentService: AiAttachmentService
-    getSession: (c: { req: { raw: { headers: Headers } } }) => Promise<{ user: { id: string; role: string | null } } | null>
+    getSession: Parameters<typeof withAuth>[0]['getSession']
+    checkLimit?: Parameters<typeof withRateLimit>[0]['checkLimit']
 }
 
 export const createAiAttachmentRoute = (deps: AiAttachmentRouteDeps) => {
     const route = new Hono()
+
+    const uploadHandler = async (c: Context, user: { id: string }) => {
+        const formData = await c.req.formData()
+        const file = formData.get('file') as File | null
+        if (!file) throw createAppError('VALIDATION_ERROR')
+        const result = await deps.aiAttachmentService.upload(file, user.id)
+        return c.json(successResponse(result))
+    }
 
     route.post(
         '/',
@@ -21,18 +33,14 @@ export const createAiAttachmentRoute = (deps: AiAttachmentRouteDeps) => {
             summary: 'AI 첨부 이미지 업로드(vision 입력, R2 영구화)',
             responses: {
                 200: { description: '업로드 결과' },
-                ...errorResponses(['UNAUTHORIZED', 'AI_ATTACHMENT_TOO_LARGE', 'AI_ATTACHMENT_INVALID_TYPE']),
+                ...errorResponses(['UNAUTHORIZED', 'RATE_LIMIT_EXCEEDED', 'AI_ATTACHMENT_TOO_LARGE', 'AI_ATTACHMENT_INVALID_TYPE']),
             },
         }),
-        withErrorHandling(async (c) => {
-            const session = await deps.getSession(c)
-            if (!session) throw createAppError('UNAUTHORIZED')
-            const formData = await c.req.formData()
-            const file = formData.get('file') as File | null
-            if (!file) throw createAppError('VALIDATION_ERROR')
-            const result = await deps.aiAttachmentService.upload(file, session.user.id)
-            return c.json(successResponse(result))
-        }),
+        withErrorHandling(
+            withAuth({ getSession: deps.getSession })(
+                deps.checkLimit ? withRateLimit({ checkLimit: deps.checkLimit, pathKey: 'ai:attachment:upload' })(uploadHandler) : uploadHandler,
+            ),
+        ),
     )
 
     route.delete(

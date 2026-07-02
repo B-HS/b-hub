@@ -105,6 +105,14 @@ describe('createAiPromptService', () => {
         await expect(service.resolveOwned('user-1', [1, 2])).rejects.toMatchObject({ code: 'AI_PROMPT_NOT_FOUND' })
     })
 
+    test('resolveOwned는 존재하지 않는 id가 있으면(길이 불일치) throw한다', async () => {
+        const db = createMockDb()
+        db.getByIds = mock(async (_ids: number[]) => [buildPrompt({ id: 1, userId: 'user-1' })])
+        const service = createAiPromptService({ db: db as never })
+
+        await expect(service.resolveOwned('user-1', [1, 2])).rejects.toMatchObject({ code: 'AI_PROMPT_NOT_FOUND' })
+    })
+
     test('update는 소유 검증 후 db.update를 호출한다', async () => {
         const db = createMockDb()
         const service = createAiPromptService({ db: db as never })
