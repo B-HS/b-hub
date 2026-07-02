@@ -58,6 +58,7 @@
 | [domains/resume.md](./domains/resume.md) | 이력서 — resume-data 구조, CRUD |
 | [domains/badge.md](./domains/badge.md) | 동적 배지 이미지 — satori+resvg 파이프라인, 아이콘·폰트 |
 | [domains/logs.md](./domains/logs.md) | 로그 도메인 파일 맵·엔드포인트(상세는 logging.md) |
+| [domains/ai.md](./domains/ai.md) | AI 프로바이더 — codex OAuth/anthropic·ollama API key, 프로바이더 추상화, 모델 캐시, 채팅 세션·프롬프트·첨부, 자격증명 암호화, 사용기록 |
 
 ### reference/ — 전수 레퍼런스
 

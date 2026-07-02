@@ -59,6 +59,14 @@ export const NAV: readonly NavGroup[] = [
         ],
     },
     {
+        title: 'AI',
+        items: [
+            { href: '/admin/ai/providers', label: 'Providers' },
+            { href: '/admin/ai/sessions', label: 'Sessions' },
+            { href: '/admin/ai/prompts', label: 'Prompts' },
+        ],
+    },
+    {
         title: 'Observability',
         items: [{ href: '/admin/logs', label: 'Log Events' }],
     },

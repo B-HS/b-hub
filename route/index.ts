@@ -36,6 +36,12 @@ import { createDriveFolderRoute } from './drive/folder'
 import { createDriveLifecycleRoute } from './drive/lifecycle'
 import { createLogEventRoute } from './logs/log-event'
 import { createDeviceKeyRoute } from './logs/device-key'
+import { createAiConnectionRoute } from './ai/connection'
+import { createAiModelRoute } from './ai/model'
+import { createAiPromptRoute } from './ai/prompt'
+import { createAiSessionRoute } from './ai/session'
+import { createAiChatRoute } from './ai/chat'
+import { createAiAttachmentRoute } from './ai/attachment'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
 
@@ -327,6 +333,51 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createLogEventRoute({
             logEventService: stub(deps.logEventService),
             deviceKeyService: stub(deps.deviceKeyService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+
+    router.route(
+        '/ai/providers',
+        createAiConnectionRoute({
+            aiConnectionService: stub(deps.aiConnectionService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/ai/prompts',
+        createAiPromptRoute({
+            aiPromptService: stub(deps.aiPromptService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/ai/attachments',
+        createAiAttachmentRoute({
+            aiAttachmentService: stub(deps.aiAttachmentService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/ai/sessions',
+        createAiSessionRoute({
+            aiSessionService: stub(deps.aiSessionService),
+            aiConnectionService: stub(deps.aiConnectionService),
+            getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+    router.route(
+        '/ai',
+        createAiChatRoute({
+            aiChatService: stub(deps.aiChatService),
+            getSession: stubFn(deps.getSession) as never,
+            checkLimit: deps.aiCheckLimit,
+        }),
+    )
+    router.route(
+        '/ai',
+        createAiModelRoute({
+            aiModelService: stub(deps.aiModelService),
             getSession: stubFn(deps.getSession) as never,
         }),
     )

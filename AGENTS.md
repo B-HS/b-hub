@@ -4,7 +4,7 @@
 
 ## 무엇인가
 
-Bun + Hono 로 만든 개인 허브 백엔드 단일 서비스. 도메인: blog(블로그 API) · mail(멀티계정 메일) · calendar(일정+CalDAV) · drive(개인 클라우드) · spotify · weather(KMA+ESP32) · resume · badge(동적 이미지) · logs(중앙 로깅) + Hono JSX SSR 어드민. MySQL(Drizzle) · better-auth · Vercel 단일 함수 배포 + `deploy/` 하위 Docker 서비스 2개.
+Bun + Hono 로 만든 개인 허브 백엔드 단일 서비스. 도메인: blog(블로그 API) · mail(멀티계정 메일) · calendar(일정+CalDAV) · drive(개인 클라우드) · spotify · weather(KMA+ESP32) · resume · badge(동적 이미지) · logs(중앙 로깅) · ai(멀티 프로바이더 AI — codex/anthropic/ollama) + Hono JSX SSR 어드민. MySQL(Drizzle) · better-auth · Vercel 단일 함수 배포 + `deploy/` 하위 Docker 서비스 2개.
 
 ## 명령어
 

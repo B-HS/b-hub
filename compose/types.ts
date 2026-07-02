@@ -3,6 +3,7 @@ import type { getEnv } from '../lib/env'
 import type { StorageService } from '../service/shared/storage'
 import type { ImageProcessor } from '../service/shared/image-processor'
 import type { GdriveStorageService } from '../service/shared/gdrive-storage'
+import type { LogEventService } from '../service/domain/logs/log-event'
 
 export type Db = ReturnType<typeof getDb>
 export type Env = ReturnType<typeof getEnv>
@@ -34,4 +35,9 @@ export type ComposeDriveArgs = ComposeCoreArgs & {
     imageProcessor: ImageProcessor
     gdriveStorageService: GdriveStorageService | null
     initGdriveStorage: () => Promise<GdriveStorageService | null>
+}
+
+export type ComposeAiArgs = ComposeCoreArgs & {
+    storageService: StorageService
+    logEventService: LogEventService
 }

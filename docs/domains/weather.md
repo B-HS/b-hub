@@ -185,5 +185,3 @@
 - DB 스키마 전수: [../reference/db-schema.md](../reference/db-schema.md)
 - 환경변수 전수: [../reference/env.md](../reference/env.md)
 - 어드민 기능(날씨 캐시 테이블 조회/삭제 등): [../admin-features.md](../admin-features.md)
-</content>
-</invoke>

@@ -4,7 +4,7 @@
 
 ## 개요
 
-- 스키마는 단일 파일 `db/schema.ts`(905줄, `drizzle-orm/mysql-core`)에 정의된다. 물리 테이블 **총 43개**.
+- 스키마는 단일 파일 `db/schema.ts`(`drizzle-orm/mysql-core`)에 정의된다. 물리 테이블 **총 49개**.
 - 클라이언트는 `db/index.ts` 의 `getDb()` 싱글톤 — `mysql2` 풀(`connectionLimit: 20`, `queueLimit: 0`, `uri: DATABASE_URL`) 위에 `drizzle(pool, { schema, mode: 'default' })`. `Database = ReturnType<typeof getDb>`, `closeDb()` 로 풀 종료.
 - Drizzle 쿼리는 계층 규칙상 `compose/*`(ServiceDb 인라인 구현)에 둔다. 예외적으로 직접 접근하는 파일: `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, 그리고 어드민 읽기 계층 `page/admin/db.ts`. `user`/`session`/`account`/`verification` 은 better-auth(`service/shared/auth-provider.ts` 의 `drizzleAdapter` + `admin` 플러그인)가 관리한다.
 - 이 문서는 테이블 인벤토리(물리명·export·컬럼수·인덱스·관계·사용처)만 다룬다. 도메인 로직/엔드포인트는 [../domains/](../domains/), 아키텍처·명령은 [../architecture.md](../architecture.md), 불변 규칙은 [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md) 참조.
@@ -52,7 +52,8 @@
 | [calendar](#calendar-4) | 4 | `calendar_group`, `calendar_event`, `deleted_calendar_event`, `calendar_subscription` |
 | [drive](#drive-3) | 3 | `drive_folders`, `cloud_assets`, `storage_lifecycle_logs` |
 | [logs](#logs-2) | 2 | `log_events`, `device_key` |
-| **합계** | **43** | |
+| [ai](#ai-6) | 6 | `ai_providers`, `ai_models`, `ai_prompts`, `ai_sessions`, `ai_messages`, `ai_attachments` |
+| **합계** | **49** | |
 
 각 인벤토리 표의 컬럼: 물리 테이블 / TS export / 핵심 컬럼(총 컬럼 수) / 인덱스·유니크 / FK·관계(onDelete) / Drizzle 소유·사용 파일.
 
@@ -151,6 +152,19 @@
 |------|------|------|------|------|------|
 | `log_events` | `logEvents` | `id`(PK bigint), `service`, `error_code`, `severity`(smallint 기본 20), `category`, `device_id`, `firmware_version`, `source`, `correlation_id`, `session_id`, `occurred_at`/`resolved_at`(datetime fsp3), `details`(json), `ingest_ip` (17) | 인덱스 4개(`service_created`, `device_created`, `code_resolved`, `severity_created`) | 없음(user FK 없음) | `compose/logs.ts`; rate-limit 카운트 읽기: `service/domain/logs/device-key.ts` |
 | `device_key` | `deviceKey` | `id`(PK), `token`(64), `device_id`, `label`, `daily_limit`(기본 2000), `last_used_at`, `revoked_at` (8) | `token` unique; `idx_device_key_device`(device_id) | 없음 | `service/domain/logs/device-key.ts` |
+
+## ai (6)
+
+> 데이터 모델·흐름·함정은 [../domains/ai.md](../domains/ai.md). 자격증명은 `ai_providers.credentials` 한 컬럼에 AES-256-GCM 암호화 JSON 으로만 저장(평문·해시 별도 컬럼 없음).
+
+| 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
+|------|------|------|------|------|------|
+| `ai_providers` | `aiProviders` | `id`(PK int), `user_id`, `provider`, `auth_type`, `credentials`(암호화 text), `status`(기본 active), `status_detail`, `display_name`, `last_used_at`, `last_refreshed_at`, `models_fetched_at` (13) | uq(`user_id`,`provider`); `idx_ai_providers_user` | `user_id → user.id` (cascade) | `compose/ai.ts` |
+| `ai_models` | `aiModels` | `id`(PK int), `provider_id`, `model_id`, `display_name`, `metadata`(json), `fetched_at` (7) | uq(`provider_id`,`model_id`); `idx_ai_models_provider` | `provider_id → ai_providers.id` (cascade) | `compose/ai.ts` |
+| `ai_prompts` | `aiPrompts` | `id`(PK int), `user_id`, `name`, `description`, `stage`(기본 system), `content`(text), `feature_key`, `sort_order`, `is_active` (11) | `idx_ai_prompts_user`, `idx_ai_prompts_user_feature`(user_id,feature_key) | `user_id → user.id` (cascade) | `compose/ai.ts` |
+| `ai_sessions` | `aiSessions` | `id`(PK varchar36), `user_id`, `provider_id`(소프트 set null), `provider`, `model_id`, `title`, `feature_key`, `prompt_ids`(json), `last_message_at` (12) | `idx_ai_sessions_user`, `idx_ai_sessions_user_last`(user_id,last_message_at) | `user_id → user.id` (cascade), `provider_id → ai_providers.id` (set null) | `compose/ai.ts` |
+| `ai_messages` | `aiMessages` | `id`(PK bigint), `session_id`, `role`, `content`(longtext), `model_id`, `input_tokens`, `output_tokens`, `duration_ms` (9) | `idx_ai_messages_session_created`(session_id,created_at) | `session_id → ai_sessions.id` (cascade) | `compose/ai.ts` |
+| `ai_attachments` | `aiAttachments` | `id`(PK int), `user_id`, `message_id`(bigint 소프트), `filename`, `mime_type`, `size_bytes`, `r2_key` (8) | `r2_key` unique; `idx_ai_attachments_user`, `idx_ai_attachments_message` | `user_id → user.id` (cascade) | `compose/ai.ts` |
 
 ## 정의됐으나 런타임 쓰기/CRUD 경로 없는 테이블
 

@@ -17,6 +17,7 @@ import { createSpotifyRoute } from './pages/spotify'
 import { createResumesRoute } from './pages/resumes'
 import { createCalendarRoute } from './pages/calendar'
 import { createDriveRoute } from './pages/drive'
+import { createAiProvidersRoute, createAiSessionsRoute, createAiPromptsRoute } from './pages/ai'
 import type { Database } from '../../db'
 
 export type AdminRouteDeps = {
@@ -51,6 +52,9 @@ export const createAdminRoute = (deps: AdminRouteDeps) => {
     app.route('/resumes', createResumesRoute(baseDeps))
     app.route('/calendar', createCalendarRoute(baseDeps))
     app.route('/drive', createDriveRoute(baseDeps))
+    app.route('/ai/providers', createAiProvidersRoute(baseDeps))
+    app.route('/ai/sessions', createAiSessionsRoute(baseDeps))
+    app.route('/ai/prompts', createAiPromptsRoute(baseDeps))
 
     return app
 }

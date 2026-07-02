@@ -5,7 +5,7 @@
 ## 개요
 
 - 허브 앱의 환경변수 스키마 단일 출처는 `lib/env.ts` 의 `envSchema`(zod). 값 접근은 `getEnv()` 싱글톤으로만 한다.
-- 스키마에 28개 키가 선언되어 있고, **필수는 `DATABASE_URL` 하나**다. 나머지는 전부 `.optional()`(단 `NODE_ENV` 는 `default('development')`).
+- 스키마에 29개 키가 선언되어 있고, **필수는 `DATABASE_URL` 하나**다. 나머지는 전부 `.optional()`(단 `NODE_ENV` 는 `default('development')`).
 - 검증된 `env` 객체는 `compose/index.ts` 에서 한 번 만들어(`getEnv()`) `core = { db, env }` 로 각 `compose/<domain>.ts` 에 주입된다. 대부분의 키는 compose 계층에서만 소비된다.
 - 예외적으로 부트스트랩·모듈 싱글톤·서버 엔트리 몇 곳은 `process.env` 를 직접 읽는다(아래 [getEnv 규칙](#getenv-규칙)).
 - getEnv 규칙 정본은 [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md), 부트스트랩·DI 흐름은 [../architecture.md](../architecture.md) 참조.
@@ -70,6 +70,7 @@
 | `BETTER_AUTH_SECRET` | 선택 (min1) | — | better-auth secret + mail/spotify OAuth connect 서명(`secret`) | `compose/shared.ts:30`, `compose/mail.ts:110`, `compose/spotify.ts:76` |
 | `TRUSTED_ORIGINS` | 선택 | — | better-auth `trustedOrigins`(CSV → `split(',')`, 미설정 시 `[]`) | `compose/shared.ts:31` |
 | `MAIL_ENCRYPTION_KEY` | 선택 (min32) | — | 메일 자격증명 암호화 키. **`compose/mail.ts` 가 미설정 시 throw**(아래 함정) | `compose/mail.ts:15`·`18` |
+| `AI_ENCRYPTION_KEY` | 선택 (min32) | — | AI 프로바이더 자격증명 암호화 키(mail 과 분리). **미설정 시 `compose/ai.ts` 가 `{}` 반환 → AI 라우트만 `SERVICE_NOT_CONFIGURED`(503), 앱은 정상 부팅** | `compose/ai.ts` |
 | `GDRIVE_ROOT_FOLDER_ID` | 선택 (min1) | — | Google Drive 루트 폴더 ID(미설정 시 `''`) | `compose/index.ts:39` |
 | `UPLOAD_SERVER_SECRET` | 선택 (min1) | — | upload-server 토큰 서명 시크릿(blog·drive, 미설정 시 `''`) | `compose/blog.ts:493`, `compose/drive.ts:244`·`297` |
 | `UPLOAD_SERVER_URL` | 선택 (url) | — | upload-server base URL(blog, 미설정 시 `''`) | `compose/blog.ts:494` |
@@ -84,13 +85,14 @@
 
 `.env.example` 에는 21개 키가 있고 모두 `lib/env.ts` 스키마에 존재한다. 즉 **`.env.example` 에만 있는 키는 없음.**
 
-**스키마에 있으나 `.env.example` 에 없는 키 (7개):**
+**스키마에 있으나 `.env.example` 에 없는 키 (8개):**
 
 | 변수 | 성격 |
 |------|------|
 | `SPOTIFY_CLIENT_ID` | spotify 도메인 env — 예시 파일 누락 |
 | `SPOTIFY_CLIENT_SECRET` | spotify 도메인 env — 예시 파일 누락 |
 | `UPLOAD_SERVER_URL` | blog 업로드 서버 URL — 예시 파일 누락(`UPLOAD_SERVER_SECRET` 은 있음) |
+| `AI_ENCRYPTION_KEY` | AI 도메인 env — **신규(feat/ai-provider), `.env.example` 갱신 권장** |
 | `R2_CUSTOME_DOMAIN` | `R2_CUSTOM_DOMAIN` 오타 별칭 — 정상 키만 예시에 있음 |
 | `VERCEL` | 플랫폼(Vercel) 주입 변수 — 로컬 설정 대상 아님 |
 | `PORT` | 호스트 주입 변수 |

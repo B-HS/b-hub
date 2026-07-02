@@ -9,6 +9,7 @@ import { composeSpotify } from './spotify'
 import { composeResume } from './resume'
 import { composeCalendar } from './calendar'
 import { composeDrive } from './drive'
+import { composeAi } from './ai'
 
 export const compose = () => {
     const env = getEnv()
@@ -23,7 +24,14 @@ export const compose = () => {
     const spotify = composeSpotify(core)
     const resume = composeResume(core)
     const calendar = composeCalendar(core)
-    const drive = composeDrive({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor, gdriveStorageService: null, initGdriveStorage: shared.initGdriveStorage })
+    const drive = composeDrive({
+        ...core,
+        storageService: shared.storageService,
+        imageProcessor: shared.imageProcessor,
+        gdriveStorageService: null,
+        initGdriveStorage: shared.initGdriveStorage,
+    })
+    const ai = composeAi({ ...core, storageService: shared.storageService, logEventService: logs.logEventService })
 
     return {
         ...shared,
@@ -35,6 +43,7 @@ export const compose = () => {
         ...resume,
         ...calendar,
         ...drive,
+        ...ai,
         baseUrl: env.BASE_URL ?? '',
         gdriveRootFolderId: env.GDRIVE_ROOT_FOLDER_ID ?? '',
     }

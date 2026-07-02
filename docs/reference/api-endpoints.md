@@ -317,6 +317,36 @@
 
 ---
 
+## ai
+
+마운트: `/ai/providers`(connection), `/ai/prompts`(prompt), `/ai/attachments`(attachment), `/ai/sessions`(session), `/ai`(chat), `/ai`(model). 전 경로 `세션`. chat 2개는 rate limit.
+
+| Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
+|--------|-----------|------|------|-------------|
+| GET | `/api/ai/providers` | 세션 | AI 프로바이더 연결 목록(자격증명 제외) | `route/ai/connection.ts` |
+| POST | `/api/ai/providers` | 세션 | 연결(등록·재인증) — 저장 전 verify | `route/ai/connection.ts` |
+| PATCH | `/api/ai/providers/:providerId` | 세션 | 연결 수정(displayName/status) | `route/ai/connection.ts` |
+| DELETE | `/api/ai/providers/:providerId` | 세션 | 연결 삭제 | `route/ai/connection.ts` |
+| GET | `/api/ai/:provider/models` | 세션 | 캐시된 모델 목록 | `route/ai/model.ts` |
+| POST | `/api/ai/:provider/models/refresh` | 세션 | 모델 fetch 후 캐시 교체 | `route/ai/model.ts` |
+| GET | `/api/ai/prompts` | 세션 | 프롬프트 템플릿 목록 | `route/ai/prompt.ts` |
+| POST | `/api/ai/prompts` | 세션 | 프롬프트 생성 | `route/ai/prompt.ts` |
+| PATCH | `/api/ai/prompts/:promptId` | 세션 | 프롬프트 수정 | `route/ai/prompt.ts` |
+| DELETE | `/api/ai/prompts/:promptId` | 세션 | 프롬프트 삭제 | `route/ai/prompt.ts` |
+| GET | `/api/ai/sessions` | 세션 | 채팅 세션 목록 | `route/ai/session.ts` |
+| POST | `/api/ai/sessions` | 세션 | 세션 생성(연결 검증) | `route/ai/session.ts` |
+| PATCH | `/api/ai/sessions/:sessionId` | 세션 | 세션 수정 | `route/ai/session.ts` |
+| DELETE | `/api/ai/sessions/:sessionId` | 세션 | 세션 삭제 | `route/ai/session.ts` |
+| GET | `/api/ai/sessions/:sessionId/messages` | 세션 | 세션 메시지 목록 | `route/ai/session.ts` |
+| POST | `/api/ai/sessions/:sessionId/messages` | 세션 + rate limit | 메시지 전송·응답 생성 | `route/ai/chat.ts` |
+| POST | `/api/ai/completions` | 세션 + rate limit | 세션 없는 단발 completion(도메인 융합) | `route/ai/chat.ts` |
+| POST | `/api/ai/attachments` | 세션 | 이미지 업로드(vision, R2) | `route/ai/attachment.ts` |
+| DELETE | `/api/ai/attachments/:attachmentId` | 세션 | 이미지 삭제 | `route/ai/attachment.ts` |
+
+파일 카운트: `connection.ts` = 4, `model.ts` = 2, `prompt.ts` = 4, `session.ts` = 5, `chat.ts` = 2, `attachment.ts` = 2. 상세: [../domains/ai.md](../domains/ai.md).
+
+---
+
 ## 페이지 / well-known (최상위 마운트, `/api` 밖)
 
 `app.route('', createPage(...))`. `home`·`policy`·`well-known` 은 공개. `securityExcludeExactPaths` 에 `/`·`/policy`, `securityExcludePaths` 에 `/.well-known/caldav` 포함.
@@ -380,6 +410,9 @@
 | `route/blog/admin.ts` | 8 | `route/calendar/caldav.ts` | 24 |
 | `route/drive/asset.ts` | 11 | `route/logs/log-event.ts` | 5 |
 | `route/drive/folder.ts` | 5 | `route/logs/device-key.ts` | 3 |
-| `route/drive/lifecycle.ts` | 3 | | |
+| `route/drive/lifecycle.ts` | 3 | `route/ai/connection.ts` | 4 |
+| `route/ai/model.ts` | 2 | `route/ai/prompt.ts` | 4 |
+| `route/ai/session.ts` | 5 | `route/ai/chat.ts` | 2 |
+| `route/ai/attachment.ts` | 2 | | |
 
-- API(`/api/*`) 라우트 등록 합계 = **148**. CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **167**(기존 148 + ai 19). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

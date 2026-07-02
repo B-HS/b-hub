@@ -7,7 +7,7 @@
 - 스키마 전수: [reference/db-schema.md](./reference/db-schema.md) · API 엔드포인트 전수: [reference/api-endpoints.md](./reference/api-endpoints.md) (중복 서술하지 않고 이 문서는 어드민 UI 만 다룬다).
 - 참고 수치(2026-07-02): `service/domain/` 서비스 팩토리 26개 + KMA mock 1개(9개 도메인), `route/` 라우트 팩토리 36개 / 라우트 파일 38개.
 
-사이드바 그룹(`nav.ts` `NAV`): Overview · Identity · Blog · Social · Weather · Mail · Spotify · Observability · Other.
+사이드바 그룹(`nav.ts` `NAV`): Overview · Identity · Blog · Social · Weather · Mail · Spotify · AI · Observability · Other.
 
 ---
 
@@ -185,6 +185,16 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 
 ---
 
+## 13.5. AI (`/admin/ai`) — `aiProviders`, `aiSessions`, `aiPrompts`
+
+`page/admin/pages/ai.tsx`. **자격증명(`credentials`)은 select 에서 제외돼 노출되지 않는다.**
+
+- **Providers (`/admin/ai/providers`)**: User(email→id) / Provider(badge) / Auth(oauth·apikey) / Status(badge: active=success·reauth_required=destructive·disabled=muted) / Detail(`statusDetail`) / Name / Last used / Models fetched + 활성·비활성 토글 · 삭제. Filter `q`(email)·`provider`·`status`·`size`. Actions `/ai/providers/:id/status`(hidden `status`)·`/ai/providers/:id/delete`.
+- **Sessions (`/admin/ai/sessions`)**: User / Provider / Model / Title / Feature(`featureKey`) / Last message / Created. Filter `q`·`provider`·`size`. (읽기 전용)
+- **Prompts (`/admin/ai/prompts`)**: User / Name / Stage(badge) / Feature / Order(`sortOrder`) / Active / Created. Filter `q`(email·name)·`stage`·`size`. (읽기 전용)
+
+---
+
 ## 14. 인증 · 정적 라우트
 
 - **Guard**: `page/admin/guard.ts` `requireAdminPage(getSession)`. 각 도메인 라우트가 `app.use('*', requireAdminPage(...))` 로 게이팅. 미인증 → `/admin/login?next=...`(303), `role !== 'admin'` → 403 HTML(`renderForbidden`). `getSession` 은 compose 의 `composed.getSession`(better-auth 세션 정규화).
@@ -300,6 +310,7 @@ GET  /admin                                → dashboard
 | `pages/resumes.tsx` | Resumes list/detail + visibility/delete. |
 | `pages/calendar.tsx` | Groups·Events·Subscriptions(revoke)·Deleted. |
 | `pages/drive.tsx` | Assets(delete)·Folders·Lifecycle Logs. |
+| `pages/ai.tsx` | AI Providers(status 토글·delete)·Sessions·Prompts. `createAiProvidersRoute`/`createAiSessionsRoute`/`createAiPromptsRoute`. |
 
 ### 어드민 페이지가 없는 테이블
 `verification`(better-auth), `postTags`(`tagId` 필터 조인만), `images`(레거시), `mailFolders`(`folderId` 필터만), `mailAttachments`(`hasAttachments` 플래그만), `deviceKey`(API `/api/logs/device-keys` 로 관리) — 전용 뷰 없음.

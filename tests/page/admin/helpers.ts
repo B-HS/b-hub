@@ -106,6 +106,11 @@ export const stubAdminDb = (overrides: Partial<AdminDb> = {}): AdminDb => {
         deleteDriveAsset: () => ok(),
         listDriveFolders: () => emptyList(),
         listLifecycleLogs: () => emptyList(),
+        listAiProviders: () => emptyList(),
+        setAiProviderStatus: () => ok(),
+        deleteAiProvider: () => ok(),
+        listAiSessions: () => emptyList(),
+        listAiPrompts: () => emptyList(),
     } as unknown as AdminDb
     return { ...base, ...overrides }
 }

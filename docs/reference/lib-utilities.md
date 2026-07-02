@@ -2,7 +2,7 @@
 
 > 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
-`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 30개, 대응 테스트는 `tests/lib/` 25개.
+`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 32개, 대응 테스트는 `tests/lib/` 27개.
 
 이 문서는 **"무엇이 이미 있는지"의 인벤토리**만 소유한다. 사용 패턴(에러 throw·응답 봉투·HOF 합성 규칙)은 [../architecture.md](../architecture.md) 와 [../hono-reference.md](../hono-reference.md) 가 소유하므로 여기서 재서술하지 않고 링크한다. 환경변수 전수 목록은 [env.md](./env.md), 공유 서비스는 [shared-services.md](./shared-services.md), 엔드포인트는 [api-endpoints.md](./api-endpoints.md) 가 소유한다.
 
@@ -42,6 +42,8 @@
 | `lib/log-service-name.ts` | `serviceNameFromPath`, `severityFromStatus`, `errorCodeFromStatus` | 요청 경로/상태 → 로그 서비스명·심각도·코드 | `middleware/log-capture.ts` | `log-service-name.test.ts` |
 | `lib/hmac-state.ts` | `createOAuthState`, `verifyOAuthState`, `parseStatePayload`, `hmacSign/Verify`, `base64url*` | HMAC 서명 OAuth state + base64url | `service/domain/{mail,spotify}/*-oauth-connect.ts` | `hmac-state.test.ts` |
 | `lib/token-utils.ts` | `generateToken`, `hashToken` | 32바이트 랜덤 토큰 생성 + SHA-256 해시 | `service/domain/{logs,spotify,weather}/*`, `service/shared/api-token.ts` | `token-utils.test.ts` |
+| `lib/credential-crypto.ts` | `createCredentialCrypto` | AES-256-GCM(v2 scrypt) 자격증명 암복호화(공용) | `service/domain/mail/mail-crypto.ts`(위임), `compose/ai.ts` | `credential-crypto.test.ts` |
+| `lib/jwt-decode.ts` | `decodeJwtPayloadUnverified`, `getJwtExpiryMs` | **서명 미검증** JWT payload 디코드 + exp 추출(codex 토큰 만료·account_id 판단) | `service/domain/ai/ai-provider-factory.ts` | `jwt-decode.test.ts` |
 | `lib/url-validator.ts` | `isPublicUrl`, `isAllowedRedirect` | SSRF 가드(https·사설IP 차단) + 오픈리다이렉트 가드 | `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts` | `url-validator.test.ts` |
 | `lib/rate-limit.ts` | `createRateLimiter` | 인메모리 Map 고정 윈도우 리미터 | `compose/mail.ts` | `rate-limit.test.ts` |
 | `lib/sql-utils.ts` | `escapeLikePattern` | `LIKE` 와일드카드(`% _ \`) 이스케이프 | `compose/blog.ts`, `compose/mail.ts` | `sql-utils.test.ts` |
@@ -64,8 +66,8 @@
 
 에러는 세 파일로 분리 관리한다. 새 에러는 **세 파일 모두**에 추가한다(코드·메시지·상태). `throw createAppError('CODE')` 만 쓰고 `new Error` 직접 throw 는 금지(전역 계약 → [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md)).
 
-- `lib/error-code.ts` — `ERROR_CODE` 상수 객체(**86종**) + `ErrorCode = (typeof ERROR_CODE)[keyof …]` union.
-- `lib/error-message.ts` — `ERROR_MESSAGE: Record<ErrorCode, string>`(한국어). 타입이 `Record<ErrorCode,…>` 라 코드 86종과 **1:1 강제**(86개 확인).
+- `lib/error-code.ts` — `ERROR_CODE` 상수 객체(**101종**) + `ErrorCode = (typeof ERROR_CODE)[keyof …]` union.
+- `lib/error-message.ts` — `ERROR_MESSAGE: Record<ErrorCode, string>`(한국어). 타입이 `Record<ErrorCode,…>` 라 코드 101종과 **1:1 강제**(101개 확인).
 - `lib/error.ts` — `AppError` 타입, `STATUS_MAP`(코드→HTTP), `getStatusCode`, `createAppError`, `isAppError`.
   - `createAppError(code, details?)` = `{ code, message: ERROR_MESSAGE[code], statusCode: getStatusCode(code), details }`.
   - `isAppError` = `code`·`message`·`statusCode` 프로퍼티 유무로 판별(덕 타이핑).
@@ -86,9 +88,10 @@
 | `CALENDAR_` | 캘린더/CalDAV | 8 | `CALENDAR_CALDAV_AUTH_FAILED`(401), `CALENDAR_GROUP_HAS_EVENTS`(409) |
 | `DRIVE_` | 드라이브 | 14 | `DRIVE_QUOTA_EXCEEDED`(413), `DRIVE_L2_UPLOAD_FAILED`, `DRIVE_ALL_TIERS_FAILED` |
 | `LOG_` | 로그 수집 | 5 | `LOG_BATCH_TOO_LARGE`(413), `LOG_DEVICE_KEY_RATE_LIMIT`(429) |
+| `AI_` | AI 프로바이더 | 15 | `AI_REAUTH_REQUIRED`(401), `AI_CREDENTIALS_INVALID`(401), `AI_COMPLETION_FAILED`(502), `AI_ATTACHMENT_TOO_LARGE`(413) |
 
 - 도메인 코드는 **도메인 접두사**로 네이밍. 새 도메인 에러는 그 도메인 prefix 를 붙인다.
-- **STATUS_MAP 누락 3종**: `MAIL_UPLOAD_BLOCKED_EXTENSION`·`MAIL_BLOCKED_HOST`·`MAIL_OAUTH_ACCOUNT_MISMATCH` 는 `ERROR_CODE`/`ERROR_MESSAGE`(86)에는 있으나 `STATUS_MAP`(83)에는 없어 `getStatusCode` 의 `?? 500` fallback 으로 **500** 이 된다. `STATUS_MAP` 은 `Record<string, number>`(≠`Record<ErrorCode,…>`)라 컴파일러가 누락을 못 잡는다. 새 코드 추가 시 세 파일 정합을 수동 확인한다.
+- **STATUS_MAP 누락 3종**: `MAIL_UPLOAD_BLOCKED_EXTENSION`·`MAIL_BLOCKED_HOST`·`MAIL_OAUTH_ACCOUNT_MISMATCH` 는 `ERROR_CODE`/`ERROR_MESSAGE`(101)에는 있으나 `STATUS_MAP`(98)에는 없어 `getStatusCode` 의 `?? 500` fallback 으로 **500** 이 된다. `STATUS_MAP` 은 `Record<string, number>`(≠`Record<ErrorCode,…>`)라 컴파일러가 누락을 못 잡는다. 새 코드 추가 시 세 파일 정합을 수동 확인한다.
 
 ---
 

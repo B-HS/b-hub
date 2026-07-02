@@ -903,3 +903,138 @@ export type LogEvent = typeof logEvents.$inferSelect
 export type NewLogEvent = typeof logEvents.$inferInsert
 export type DeviceKey = typeof deviceKey.$inferSelect
 export type NewDeviceKey = typeof deviceKey.$inferInsert
+
+export const aiProviders = mysqlTable(
+    'ai_providers',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        provider: varchar('provider', { length: 20 }).notNull(),
+        authType: varchar('auth_type', { length: 10 }).notNull(),
+        credentials: text('credentials').notNull(),
+        status: varchar('status', { length: 20 }).default('active').notNull(),
+        statusDetail: varchar('status_detail', { length: 255 }),
+        displayName: varchar('display_name', { length: 100 }),
+        lastUsedAt: timestamp('last_used_at', { fsp: 3 }),
+        lastRefreshedAt: timestamp('last_refreshed_at', { fsp: 3 }),
+        modelsFetchedAt: timestamp('models_fetched_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_ai_providers_user').on(table.userId), unique('uq_ai_providers_user_provider').on(table.userId, table.provider)],
+)
+
+export const aiModels = mysqlTable(
+    'ai_models',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        providerId: int('provider_id')
+            .notNull()
+            .references(() => aiProviders.id, { onDelete: 'cascade' }),
+        modelId: varchar('model_id', { length: 100 }).notNull(),
+        displayName: varchar('display_name', { length: 255 }),
+        metadata: json('metadata').$type<Record<string, unknown>>(),
+        fetchedAt: timestamp('fetched_at', { fsp: 3 }).defaultNow().notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_ai_models_provider').on(table.providerId), unique('uq_ai_models_provider_model').on(table.providerId, table.modelId)],
+)
+
+export const aiPrompts = mysqlTable(
+    'ai_prompts',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        name: varchar('name', { length: 100 }).notNull(),
+        description: varchar('description', { length: 255 }),
+        stage: varchar('stage', { length: 20 }).default('system').notNull(),
+        content: text('content').notNull(),
+        featureKey: varchar('feature_key', { length: 50 }),
+        sortOrder: int('sort_order').default(0).notNull(),
+        isActive: boolean('is_active').default(true).notNull(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_ai_prompts_user').on(table.userId), index('idx_ai_prompts_user_feature').on(table.userId, table.featureKey)],
+)
+
+export const aiSessions = mysqlTable(
+    'ai_sessions',
+    {
+        id: varchar('id', { length: 36 }).primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        providerId: int('provider_id').references(() => aiProviders.id, { onDelete: 'set null' }),
+        provider: varchar('provider', { length: 20 }).notNull(),
+        modelId: varchar('model_id', { length: 100 }).notNull(),
+        title: varchar('title', { length: 255 }),
+        featureKey: varchar('feature_key', { length: 50 }),
+        promptIds: json('prompt_ids').$type<number[]>(),
+        lastMessageAt: timestamp('last_message_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+        updatedAt: timestamp('updated_at', { fsp: 3 })
+            .defaultNow()
+            .$onUpdate(() => new Date())
+            .notNull(),
+    },
+    (table) => [index('idx_ai_sessions_user').on(table.userId), index('idx_ai_sessions_user_last').on(table.userId, table.lastMessageAt)],
+)
+
+export const aiMessages = mysqlTable(
+    'ai_messages',
+    {
+        id: bigint('id', { mode: 'number' }).autoincrement().primaryKey(),
+        sessionId: varchar('session_id', { length: 36 })
+            .notNull()
+            .references(() => aiSessions.id, { onDelete: 'cascade' }),
+        role: varchar('role', { length: 20 }).notNull(),
+        content: longtext('content').notNull(),
+        modelId: varchar('model_id', { length: 100 }),
+        inputTokens: int('input_tokens'),
+        outputTokens: int('output_tokens'),
+        durationMs: int('duration_ms'),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_ai_messages_session_created').on(table.sessionId, table.createdAt)],
+)
+
+export const aiAttachments = mysqlTable(
+    'ai_attachments',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        userId: varchar('user_id', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        messageId: bigint('message_id', { mode: 'number' }),
+        filename: varchar('filename', { length: 255 }).notNull(),
+        mimeType: varchar('mime_type', { length: 100 }).notNull(),
+        sizeBytes: int('size_bytes').notNull(),
+        r2Key: varchar('r2_key', { length: 255 }).notNull().unique(),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_ai_attachments_user').on(table.userId), index('idx_ai_attachments_message').on(table.messageId)],
+)
+
+export type AiProvider = typeof aiProviders.$inferSelect
+export type NewAiProvider = typeof aiProviders.$inferInsert
+export type AiModel = typeof aiModels.$inferSelect
+export type NewAiModel = typeof aiModels.$inferInsert
+export type AiPrompt = typeof aiPrompts.$inferSelect
+export type NewAiPrompt = typeof aiPrompts.$inferInsert
+export type AiSession = typeof aiSessions.$inferSelect
+export type NewAiSession = typeof aiSessions.$inferInsert
+export type AiMessage = typeof aiMessages.$inferSelect
+export type NewAiMessage = typeof aiMessages.$inferInsert
+export type AiAttachment = typeof aiAttachments.$inferSelect
+export type NewAiAttachment = typeof aiAttachments.$inferInsert
