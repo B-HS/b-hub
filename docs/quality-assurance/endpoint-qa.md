@@ -1,6 +1,6 @@
 # 엔드포인트 QA 체크리스트 (신규/변경 라우트)
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/health.ts`, `route/badge.ts`, `route/mail/sync.ts`, `route/mail/message.ts`, `lib/with-error-handling.ts`, `lib/with-auth.ts`, `lib/with-rate-limit.ts`, `lib/rate-limit.ts`, `lib/api-response.ts`, `lib/error.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/log-service-name.ts`, `dto/error-response.ts`, `middleware/index.ts`, `middleware/log-capture.ts`, `middleware/error-handler.ts`, `middleware/require-device-key.ts`, `tests/route/health.test.ts`, `package.json`, `index.ts`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/health.ts`, `route/badge.ts`, `route/mail/sync.ts`, `route/mail/message.ts`, `lib/with-error-handling.ts`, `lib/with-auth.ts`, `lib/with-rate-limit.ts`, `lib/rate-limit.ts`, `lib/api-response.ts`, `lib/error.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/log-service-name.ts`, `dto/error-response.ts`, `middleware/index.ts`, `middleware/log-capture.ts`, `middleware/error-handler.ts`, `middleware/require-device-key.ts`, `tests/route/health.test.ts`, `package.json`, `index.ts`
 
 ## 범위
 
@@ -18,7 +18,7 @@
 | 4 | 응답 봉투 | JSON 성공 응답은 `successResponse`/`paginatedResponse` 로만. `c.json` 에 임의 구조 금지(바이너리·리다이렉트·헬스는 예외) | `lib/api-response.ts` |
 | 5 | OpenAPI 선언 | `describeRoute({ tags, summary, responses })` + 발생 가능한 에러를 `...errorResponses([...])` 로 선언 | `route/logs/log-event.ts`, `dto/error-response.ts` |
 | 6 | 에러코드 3파일 등록 | 새 `createAppError('X')` 코드는 `error-code.ts`·`error-message.ts`·`error.ts`(STATUS_MAP) 3곳 모두 등록 | `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts` |
-| 7 | rate limit 필요성 | 비용 큰/외부호출/발송성 엔드포인트면 `withRateLimit` 검토. 현재 적용처는 mail send·sync 2개뿐 | `lib/with-rate-limit.ts`, `route/mail/message.ts`, `route/mail/sync.ts` |
+| 7 | rate limit 필요성 | 비용 큰/외부호출/발송성 엔드포인트면 `withRateLimit` 검토. 현재 적용처는 mail 2개(send·sync) + ai 3개(chat send·completion·attachment upload) | `lib/with-rate-limit.ts`, `route/mail/*`, `route/ai/{chat,attachment}.ts` |
 | 8 | 4xx·5xx log-capture 기록 | 에러 시 `throw createAppError(...)` 로 반환해 `errorCode` 컨텍스트 변수가 설정되는가. `/api/logs/*` 는 캡처 제외 | `middleware/log-capture.ts`, `lib/with-error-handling.ts` |
 | 9 | 테스트 존재(route+service) | `tests/route/<도메인>/*.test.ts`(HTTP)·`tests/service/domain/<도메인>/*.test.ts`(로직) 미러 추가 | `tests/route/health.test.ts` |
 | 10 | 인벤토리 반영 | `docs/reference/api-endpoints.md` 표·파일 카운트·합계 갱신 | [../reference/api-endpoints.md](../reference/api-endpoints.md) |
@@ -80,7 +80,7 @@
 ### 7. rate limit 필요성
 
 - 레이트리밋은 `createRateLimiter({windowMs,maxRequests})`(`lib/rate-limit.ts`, 인메모리 `Map`) + `withRateLimit({checkLimit})`(`lib/with-rate-limit.ts`) 로 건다. 초과 시 `X-RateLimit-*` 헤더와 함께 `RATE_LIMIT_EXCEEDED`(429).
-- 현재 실제 연결처는 **mail 2개뿐**: `POST /api/mail/messages/send`, `POST /api/mail/sync`. `compose/mail.ts` 가 `windowMs:60_000, maxRequests:20`, 키 `mail:{userId}:{path}` 로 주입한다. 라우트는 `deps.checkLimit` 유무로 분기(미주입 시 무제한).
+- 현재 실제 연결처는 **5개**: mail 2개(`POST /api/mail/messages/send`·`POST /api/mail/sync`, 키 `mail:{userId}:{path}`) + ai 3개(`POST /api/ai/sessions/:id/messages`·`POST /api/ai/completions`·`POST /api/ai/attachments`, `compose/ai.ts` 가 사용자당 고정 키 `ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload` 로 주입). `compose/mail.ts`·`compose/ai.ts` 둘 다 `windowMs:60_000, maxRequests:20`(mail)·`30`(ai). 라우트는 `deps.checkLimit` 유무로 분기(미주입 시 무제한).
 - 판단 기준: 외부 API 호출·발송·업로드처럼 남용 시 비용/차단 위험이 있으면 검토. **저장소가 인메모리라 인스턴스 간 공유되지 않는다** — 서버리스 다중 인스턴스에선 인스턴스 국소 제한임을 감안한다.
 
 ### 8. 4xx·5xx log-capture 기록

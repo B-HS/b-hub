@@ -1,6 +1,6 @@
 # API 엔드포인트 전수 인벤토리
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `vercel.json`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `vercel.json`
 
 ## 범위
 
@@ -319,7 +319,7 @@
 
 ## ai
 
-마운트: `/ai/providers`(connection), `/ai/prompts`(prompt), `/ai/attachments`(attachment), `/ai/sessions`(session), `/ai`(chat), `/ai`(model). 전 경로 `세션`. chat 2개는 rate limit.
+마운트: `/ai/providers`(connection), `/ai/prompts`(prompt), `/ai/attachments`(attachment), `/ai/sessions`(session), `/ai`(chat), `/ai`(model). 전 경로 `세션`. chat send·completion·attachment 업로드는 사용자당 rate limit.
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
@@ -340,7 +340,7 @@
 | GET | `/api/ai/sessions/:sessionId/messages` | 세션 | 세션 메시지 목록 | `route/ai/session.ts` |
 | POST | `/api/ai/sessions/:sessionId/messages` | 세션 + rate limit | 메시지 전송·응답 생성 | `route/ai/chat.ts` |
 | POST | `/api/ai/completions` | 세션 + rate limit | 세션 없는 단발 completion(도메인 융합) | `route/ai/chat.ts` |
-| POST | `/api/ai/attachments` | 세션 | 이미지 업로드(vision, R2) | `route/ai/attachment.ts` |
+| POST | `/api/ai/attachments` | 세션 + rate limit | 이미지 업로드(vision, R2) | `route/ai/attachment.ts` |
 | DELETE | `/api/ai/attachments/:attachmentId` | 세션 | 이미지 삭제 | `route/ai/attachment.ts` |
 
 파일 카운트: `connection.ts` = 4, `model.ts` = 2, `prompt.ts` = 4, `session.ts` = 5, `chat.ts` = 2, `attachment.ts` = 2. 상세: [../domains/ai.md](../domains/ai.md).
@@ -366,14 +366,14 @@
 
 ### 어드민 SSR (`/admin/*`)
 
-`page/admin/index.ts` 가 `/admin` 하위로 로그인·대시보드 및 14개 도메인 페이지를 마운트한다. 각 서브앱은 `app.use('*', requireAdminPage(...))`(`page/admin/guard.ts`)로 `어드민` 게이팅, **SSR(JSX) + 폼 POST → 303** 패턴(CSR 없음). 개별 페이지·폼 POST 경로는 이 문서가 소유하지 않는다 — [../admin-features.md](../admin-features.md) 로 위임.
+`page/admin/index.ts` 가 `/admin` 하위로 로그인·대시보드 및 16개 도메인 페이지를 마운트한다(ai 는 providers·sessions·prompts 3개 마운트). 각 서브앱은 `app.use('*', requireAdminPage(...))`(`page/admin/guard.ts`)로 `어드민` 게이팅, **SSR(JSX) + 폼 POST → 303** 패턴(CSR 없음). 개별 페이지·폼 POST 경로는 이 문서가 소유하지 않는다 — [../admin-features.md](../admin-features.md) 로 위임.
 
 | 대표 경로(마운트 접두사) | 핸들러 |
 |--------------------------|--------|
 | `GET /admin/styles.css` | `page/admin/index.ts`(디자인토큰 CSS, 게이트 없음) |
 | `/admin/login` | `page/admin/login.tsx` |
 | `/admin`(대시보드) | `page/admin/dashboard.tsx` |
-| `/admin/{users,sessions,api/tokens,api/logs,logs,blog,messages,weather,mail,spotify,resumes,calendar,drive}` | `page/admin/pages/*` |
+| `/admin/{users,sessions,api/tokens,api/logs,logs,blog,messages,weather,mail,spotify,resumes,calendar,drive,ai/providers,ai/sessions,ai/prompts}` | `page/admin/pages/*` |
 
 ---
 

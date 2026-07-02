@@ -1,6 +1,6 @@
 # 환경변수 레퍼런스
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `lib/env.ts`, `.env.example`, `compose/index.ts`, `compose/shared.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/mail.ts`, `compose/spotify.ts`, `compose/weather.ts`, `compose/logs.ts`, `db/index.ts`, `drizzle.config.ts`, `index.ts`, `lib/sentry.ts`, `service/shared/redis-cache.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `lib/api-response.ts`, `lib/with-error-handling.ts`, `middleware/error-handler.ts`, `middleware/index.ts`, `service/shared/auth-provider.ts`, `deploy/caldav-proxy/proxy.ts`, `deploy/upload-server/index.ts`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `lib/env.ts`, `.env.example`, `compose/index.ts`, `compose/shared.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/mail.ts`, `compose/spotify.ts`, `compose/weather.ts`, `compose/logs.ts`, `compose/ai.ts`, `db/index.ts`, `drizzle.config.ts`, `index.ts`, `lib/sentry.ts`, `service/shared/redis-cache.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `lib/api-response.ts`, `lib/with-error-handling.ts`, `middleware/error-handler.ts`, `middleware/index.ts`, `service/shared/auth-provider.ts`, `deploy/caldav-proxy/proxy.ts`, `deploy/upload-server/index.ts`
 
 ## 개요
 
@@ -83,16 +83,15 @@
 
 ## .env.example ↔ lib/env.ts 차집합
 
-`.env.example` 에는 21개 키가 있고 모두 `lib/env.ts` 스키마에 존재한다. 즉 **`.env.example` 에만 있는 키는 없음.**
+`.env.example` 에는 22개 키가 있고 모두 `lib/env.ts` 스키마에 존재한다. 즉 **`.env.example` 에만 있는 키는 없음.**
 
-**스키마에 있으나 `.env.example` 에 없는 키 (8개):**
+**스키마에 있으나 `.env.example` 에 없는 키 (7개):**
 
 | 변수 | 성격 |
 |------|------|
 | `SPOTIFY_CLIENT_ID` | spotify 도메인 env — 예시 파일 누락 |
 | `SPOTIFY_CLIENT_SECRET` | spotify 도메인 env — 예시 파일 누락 |
 | `UPLOAD_SERVER_URL` | blog 업로드 서버 URL — 예시 파일 누락(`UPLOAD_SERVER_SECRET` 은 있음) |
-| `AI_ENCRYPTION_KEY` | AI 도메인 env — **신규(feat/ai-provider), `.env.example` 갱신 권장** |
 | `R2_CUSTOME_DOMAIN` | `R2_CUSTOM_DOMAIN` 오타 별칭 — 정상 키만 예시에 있음 |
 | `VERCEL` | 플랫폼(Vercel) 주입 변수 — 로컬 설정 대상 아님 |
 | `PORT` | 호스트 주입 변수 |

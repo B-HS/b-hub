@@ -1,6 +1,6 @@
 # 테스트 (Testing)
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `bunfig.toml`, `package.json`, `tsconfig.json`, `tests/**`(dto·lib·middleware·page·route·service), `tests/page/admin/helpers.ts`, 대표 테스트 `tests/route/blog/post.test.ts`·`tests/page/admin/blog.test.ts`·`tests/service/domain/mail/mail-sync.test.ts`·`tests/dto/blog/post.test.ts`·`tests/middleware/require-auth.test.ts`·`tests/service/domain/weather/kma-api.test.ts`·`tests/lib/with-error-handling.test.ts`·`tests/service/domain/mail/providers/imap-provider.test.ts`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `bunfig.toml`, `package.json`, `tsconfig.json`, `tests/**`(dto·lib·middleware·page·route·service), `tests/page/admin/helpers.ts`, 대표 테스트 `tests/route/blog/post.test.ts`·`tests/page/admin/blog.test.ts`·`tests/service/domain/mail/mail-sync.test.ts`·`tests/dto/blog/post.test.ts`·`tests/middleware/require-auth.test.ts`·`tests/service/domain/weather/kma-api.test.ts`·`tests/lib/with-error-handling.test.ts`·`tests/service/domain/mail/providers/imap-provider.test.ts`
 
 ## 개요
 

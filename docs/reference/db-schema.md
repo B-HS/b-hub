@@ -1,6 +1,6 @@
 # DB 스키마 전수 레퍼런스
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
 
 ## 개요
 
@@ -162,7 +162,7 @@
 | `ai_providers` | `aiProviders` | `id`(PK int), `user_id`, `provider`, `auth_type`, `credentials`(암호화 text), `status`(기본 active), `status_detail`, `display_name`, `last_used_at`, `last_refreshed_at`, `models_fetched_at` (13) | uq(`user_id`,`provider`); `idx_ai_providers_user` | `user_id → user.id` (cascade) | `compose/ai.ts` |
 | `ai_models` | `aiModels` | `id`(PK int), `provider_id`, `model_id`, `display_name`, `metadata`(json), `fetched_at` (7) | uq(`provider_id`,`model_id`); `idx_ai_models_provider` | `provider_id → ai_providers.id` (cascade) | `compose/ai.ts` |
 | `ai_prompts` | `aiPrompts` | `id`(PK int), `user_id`, `name`, `description`, `stage`(기본 system), `content`(text), `feature_key`, `sort_order`, `is_active` (11) | `idx_ai_prompts_user`, `idx_ai_prompts_user_feature`(user_id,feature_key) | `user_id → user.id` (cascade) | `compose/ai.ts` |
-| `ai_sessions` | `aiSessions` | `id`(PK varchar36), `user_id`, `provider_id`(소프트 set null), `provider`, `model_id`, `title`, `feature_key`, `prompt_ids`(json), `last_message_at` (11) | `idx_ai_sessions_user`, `idx_ai_sessions_user_last`(user_id,last_message_at) | `user_id → user.id` (cascade), `provider_id → ai_providers.id` (set null) | `compose/ai.ts` |
+| `ai_sessions` | `aiSessions` | `id`(PK varchar36), `user_id`, `provider_id`(소프트 set null), `provider`, `model_id`, `title`, `feature_key`, `prompt_ids`(json), `provider_id`, `last_message_at` (11) | `idx_ai_sessions_user`, `idx_ai_sessions_user_last`(user_id,last_message_at) | `user_id → user.id` (cascade); `provider_id → ai_providers.id` (set null) | `compose/ai.ts` |
 | `ai_messages` | `aiMessages` | `id`(PK bigint), `session_id`, `role`, `content`(longtext), `model_id`, `input_tokens`, `output_tokens`, `duration_ms` (9) | `idx_ai_messages_session_created`(session_id,created_at) | `session_id → ai_sessions.id` (cascade) | `compose/ai.ts` |
 | `ai_attachments` | `aiAttachments` | `id`(PK int), `user_id`, `message_id`(bigint 소프트), `filename`, `mime_type`, `size_bytes`, `r2_key` (8) | `r2_key` unique; `idx_ai_attachments_user`, `idx_ai_attachments_message` | `user_id → user.id` (cascade) | `compose/ai.ts` |
 

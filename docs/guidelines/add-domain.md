@@ -1,6 +1,6 @@
 # 신규 도메인 추가 지침
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `db/schema.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `dto/logs/log-event.ts`·`dto/logs/device-key.ts`, `service/domain/logs/log-event.ts`·`service/domain/logs/device-key.ts`, `compose/logs.ts`·`compose/types.ts`·`compose/index.ts`, `route/logs/log-event.ts`·`route/logs/device-key.ts`·`route/index.ts`, `middleware/require-device-key.ts`, `tests/dto/logs/log-event.test.ts`·`tests/service/domain/logs/log-event.test.ts`, `index.ts`, `drizzle.config.ts`, `package.json`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `db/schema.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `dto/logs/log-event.ts`·`dto/logs/device-key.ts`, `service/domain/logs/log-event.ts`·`service/domain/logs/device-key.ts`, `compose/logs.ts`·`compose/types.ts`·`compose/index.ts`, `route/logs/log-event.ts`·`route/logs/device-key.ts`·`route/index.ts`, `middleware/require-device-key.ts`, `tests/dto/logs/log-event.test.ts`·`tests/service/domain/logs/log-event.test.ts`, `index.ts`, `drizzle.config.ts`, `package.json`
 
 ## 목적 / 적용 시점
 
@@ -120,9 +120,9 @@
 
   | 문서 | 갱신 내용 | 조건 |
   |------|------|------|
-  | [reference/db-schema.md](../reference/db-schema.md) | "도메인별 그룹" 표 합계(현재 **43**) + 새 `## <domain>` 인벤토리 섹션 + 개요의 "물리 테이블 총 43개" 수치 | 테이블 추가 시 필수 |
-  | [reference/api-endpoints.md](../reference/api-endpoints.md) | 새 `## <domain>` 라우트 섹션 + "파일별 라우트 카운트(자기검증)" 표 행 + API 합계(현재 **148**) | 라우트 추가 시 필수 |
-  | [reference/lib-utilities.md](../reference/lib-utilities.md) | 에러코드 "**86종**"/`STATUS_MAP`"83" 카운트 + "도메인별 에러코드 prefix 규칙" 에 새 prefix | 에러코드 추가 시 필수 |
+  | [reference/db-schema.md](../reference/db-schema.md) | "도메인별 그룹" 표 합계(현재 **49**) + 새 `## <domain>` 인벤토리 섹션 + 개요의 "물리 테이블 총 49개" 수치 | 테이블 추가 시 필수 |
+  | [reference/api-endpoints.md](../reference/api-endpoints.md) | 새 `## <domain>` 라우트 섹션 + "파일별 라우트 카운트(자기검증)" 표 행 + API 합계(현재 **167**) | 라우트 추가 시 필수 |
+  | [reference/lib-utilities.md](../reference/lib-utilities.md) | 에러코드 "**101종**"/`STATUS_MAP`"98" 카운트 + "도메인별 에러코드 prefix 규칙" 에 새 prefix | 에러코드 추가 시 필수 |
   | [reference/env.md](../reference/env.md) | "변수 인벤토리" 표 + ".env.example ↔ lib/env.ts 차집합" | 새 환경변수 시 |
   | [reference/shared-services.md](../reference/shared-services.md) | "인벤토리" + "조립·주입 관계" | 새 공용 서비스(`service/shared/*`) 추가 시 |
 

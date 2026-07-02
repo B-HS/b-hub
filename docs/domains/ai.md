@@ -1,6 +1,6 @@
 # ai 도메인
 
-> 기준: 2026-07-02, 브랜치 `feat/ai-provider` **작업 진행 중** — 이 문서는 사전 조사(외부 API 계약)와 확정 설계만 담는다. 구현 완료 시 표준 템플릿(파일 맵/데이터 모델/엔드포인트/흐름/함정)으로 완성한다. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 상태: [../PROCESS.md](../PROCESS.md)
+> 기준: 2026-07-02 (feat/ai-provider @ `f6c65f3`) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
 
 ## 외부 프로바이더 API 계약 (2026-07 조사 확정)
 
@@ -99,10 +99,10 @@
 | GET | `/api/ai/sessions/:sessionId/messages` | 세션 | 세션 메시지 목록 |
 | POST | `/api/ai/sessions/:sessionId/messages` | 세션 + rate limit | 메시지 전송·응답 생성 |
 | POST | `/api/ai/completions` | 세션 + rate limit | 세션 없는 단발 completion(도메인 융합) |
-| POST | `/api/ai/attachments` | 세션 | 이미지 업로드(vision, R2) |
+| POST | `/api/ai/attachments` | 세션 + rate limit | 이미지 업로드(vision, R2) |
 | DELETE | `/api/ai/attachments/:attachmentId` | 세션 | 이미지 삭제 |
 
-- rate limit: `compose/ai.ts` `createRateLimiter({ windowMs: 60_000, maxRequests: 30 })`, 키 `ai:{userId}:{path}`. chat send·completion 에만 적용.
+- rate limit: `compose/ai.ts` `createRateLimiter({ windowMs: 60_000, maxRequests: 30 })`. **사용자당** 고정 키(`ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload`)로 chat send·completion·attachment 업로드에 적용(세션당 우회 방지).
 
 ## 핵심 흐름
 
@@ -135,7 +135,7 @@
 
 ## 에러 코드
 
-`lib/error-code.ts`·`error-message.ts`·`error.ts` 의 `AI_*` 15종: `AI_PROVIDER_NOT_FOUND`(404)·`AI_PROVIDER_ALREADY_EXISTS`(409)·`AI_CREDENTIALS_INVALID`(401)·`AI_REAUTH_REQUIRED`(401)·`AI_TOKEN_REFRESH_FAILED`(502)·`AI_PROVIDER_ERROR`(502)·`AI_MODEL_FETCH_FAILED`(502)·`AI_MODEL_NOT_FOUND`(404)·`AI_SESSION_NOT_FOUND`(404)·`AI_MESSAGE_NOT_FOUND`(404)·`AI_PROMPT_NOT_FOUND`(404)·`AI_ATTACHMENT_NOT_FOUND`(404)·`AI_ATTACHMENT_TOO_LARGE`(413)·`AI_ATTACHMENT_INVALID_TYPE`(422)·`AI_COMPLETION_FAILED`(502).
+`lib/error-code.ts`·`error-message.ts`·`error.ts` 의 AI 프로바이더 도메인 에러 15종(별개로 `AI_SUMMARIZE_FAILED`(502)는 미배선 shared 코드로 이 목록과 무관): `AI_PROVIDER_NOT_FOUND`(404)·`AI_PROVIDER_ALREADY_EXISTS`(409)·`AI_CREDENTIALS_INVALID`(401)·`AI_REAUTH_REQUIRED`(401)·`AI_TOKEN_REFRESH_FAILED`(502)·`AI_PROVIDER_ERROR`(502)·`AI_MODEL_FETCH_FAILED`(502)·`AI_MODEL_NOT_FOUND`(404)·`AI_SESSION_NOT_FOUND`(404)·`AI_MESSAGE_NOT_FOUND`(404)·`AI_PROMPT_NOT_FOUND`(404)·`AI_ATTACHMENT_NOT_FOUND`(404)·`AI_ATTACHMENT_TOO_LARGE`(413)·`AI_ATTACHMENT_INVALID_TYPE`(422)·`AI_COMPLETION_FAILED`(502).
 
 ## 주의사항 / 함정
 

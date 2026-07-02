@@ -1,6 +1,6 @@
 # 공유 서비스(service/shared) 레퍼런스
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
 
 ## 개요
 
@@ -203,6 +203,6 @@
 ### ai.ts
 
 - 역할: LLM 텍스트 처리. `summarize`(시스템 프롬프트 + 사용자 콘텐츠), `translate`(기본 `ko`), `generateTags`(3-5개, JSON 배열 파싱). `wrapUserContent` 로 사용자 콘텐츠를 `<content>` 로 감싸 **프롬프트 인젝션 방지** 지시문을 덧붙인다.
-- 외부 의존: 주입된 `model.generateContent` 인터페이스에만 의존해 **프로바이더 비종속**. `@google/genai`(^1.40.0)가 `package.json` 의존성이며 `vercel-build` 에서 `--external` 로 번들 제외되지만, 이 모델을 실제로 인스턴스화해 `createAiService` 에 주입하는 소스는 현재 없음(compose 미배선). `lib/env.ts` 에 AI/Gemini 관련 키도 없음.
+- 외부 의존: 주입된 `model.generateContent` 인터페이스에만 의존해 **프로바이더 비종속**. `@google/genai`(^1.40.0)가 `package.json` 의존성이며 `vercel-build` 에서 `--external` 로 번들 제외되지만, 이 모델을 실제로 인스턴스화해 `createAiService` 에 주입하는 소스는 현재 없음(compose 미배선). `lib/env.ts` 에 Gemini/LLM 모델 관련 키는 없다(AI 프로바이더 도메인의 `AI_ENCRYPTION_KEY` 는 자격증명 암호화용으로 별개다 → [../domains/ai.md](../domains/ai.md)).
 - 팩토리 시그니처: `createAiService({ model })`. `model: { generateContent: (prompt) => Promise<{ response: { text: () => string } }> }`.
 - 테스트: `tests/service/shared/ai.test.ts`.

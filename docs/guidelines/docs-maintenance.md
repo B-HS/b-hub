@@ -1,6 +1,6 @@
 # 문서 유지보수 계약 (docs maintenance)
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `docs/**`, `docs/PROCESS.md`, `AGENTS.md`, `CLAUDE.md`, `~/.claude/convention/ai-process.md`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `docs/**`, `docs/PROCESS.md`, `AGENTS.md`, `CLAUDE.md`, `~/.claude/convention/ai-process.md`
 
 ## 소유 범위
 
@@ -33,7 +33,7 @@
 |------|-----------|-----------|
 | [domains/](../domains/) | 도메인별 문서(파일 맵·데이터 모델·엔드포인트·흐름·함정). 현재 11종: ai·auth·badge·blog·calendar·drive·logs·mail·resume·spotify·weather | `<domain>.md` 1도메인 1파일 |
 | [reference/](../reference/) | 전수 인벤토리 — `db-schema.md`(테이블·컬럼)·`api-endpoints.md`(전 라우트)·`env.md`(환경변수)·`lib-utilities.md`(lib/ 전수)·`shared-services.md`(service/shared 전수) | 주제별 1파일, 카운트·표 중심 |
-| [guidelines/](./) | 작업 유형별 절차 지침서(체크리스트). 이 문서 포함. 현재: 엔드포인트 추가([add-endpoint.md](./add-endpoint.md))·DB 변경([db-schema-change.md](./db-schema-change.md))·어드민 페이지([admin-page.md](./admin-page.md))·폴더별 지침([folder-guide.md](./folder-guide.md))·문서 유지보수(이 문서) | `<주제>.md` |
+| [guidelines/](./) | 작업 유형별 절차 지침서(체크리스트). 이 문서 포함. 현재 8종: 신규 도메인 추가([add-domain.md](./add-domain.md))·엔드포인트 추가([add-endpoint.md](./add-endpoint.md))·DB 변경([db-schema-change.md](./db-schema-change.md))·어드민 페이지([admin-page.md](./admin-page.md))·외부 API 연동([external-api-integration.md](./external-api-integration.md))·에러/로깅([error-handling-and-logging.md](./error-handling-and-logging.md))·폴더별 지침([folder-guide.md](./folder-guide.md))·문서 유지보수(이 문서) | `<주제>.md` |
 | [quality-assurance/](../quality-assurance/) | 검증 체크리스트 — 머지 전 통과 기준([pre-merge-checklist.md](../quality-assurance/pre-merge-checklist.md))·엔드포인트 QA | `<주제>.md`, 체크박스 진행 추적 |
 | [memory/](../memory/) | 장기 기억 — 세션·에이전트가 바뀌어도 불변인 전제([stack-and-invariants.md](../memory/stack-and-invariants.md)) | 주제별 1파일 |
 | [history/](../history/) | 완료 작업 이력. PROCESS.md 완료분 이관처 | `YYYY-MM-<요약>.md` + [index.md](../history/index.md) 목록 |
@@ -60,7 +60,7 @@
 | 에러 코드 추가 (`lib/error-code.ts`·`error-message.ts`·`error.ts`) | [reference/lib-utilities.md](../reference/lib-utilities.md) + [domains/`<d>`.md](../domains/) | 코드 수·`STATUS_MAP` 정합 확인 + 도메인 에러 목록 |
 | 공유 서비스 추가 (`service/shared/*.ts`, `compose/shared.ts`) | [reference/shared-services.md](../reference/shared-services.md) (+ 주입 배선 변화면 [architecture.md](../architecture.md)) | 서비스 팩토리 인벤토리·주입 관계 |
 | 도메인 서비스 로직 변경 (`service/domain/<d>/*`, `compose/<d>.ts`, `dto/<d>/*`) | [domains/`<d>`.md](../domains/) | 파일 맵·데이터 흐름·함정 |
-| 신규 도메인 전체 | [domains/`<new>`.md](../domains/)(신규) + [reference/api-endpoints.md](../reference/api-endpoints.md) + [reference/db-schema.md](../reference/db-schema.md)(테이블 시) + [architecture.md](../architecture.md)(compose 배선) + [AGENTS.md](../../AGENTS.md)(도메인 목록) | 신규 도메인 문서 + 인벤토리 반영 + 배선 |
+| 신규 도메인 전체 | [domains/`<new>`.md](../domains/)(신규) + [reference/api-endpoints.md](../reference/api-endpoints.md) + [reference/db-schema.md](../reference/db-schema.md)(테이블 시) + [architecture.md](../architecture.md)(compose 배선) + [AGENTS.md](../../AGENTS.md)·[index.md](../index.md)(도메인 목록·지도) + [guidelines/folder-guide.md](./folder-guide.md)·이 문서 §1(도메인 폴더·테이블·에러코드 카운트) + [guidelines/add-endpoint.md](./add-endpoint.md)(기존 도메인 목록) | 신규 도메인 문서 + 인벤토리 반영 + 배선 + 각 카운트 |
 | 미들웨어 변경 (`middleware/*`) | [architecture.md](../architecture.md) (+ 인증이면 [reference/api-endpoints.md](../reference/api-endpoints.md) 인증 표기, 로그캡처면 [logging.md](../logging.md)) | 전역 파이프라인·인증 범례 |
 | 로깅·수집 (`middleware/log-capture.ts`, `route/logs/*`, `dto/logs/*`, `service/domain/logs/*`) | [logging.md](../logging.md) (+ 디바이스 수집 계약이면 [firmware-logging-contract.md](../firmware-logging-contract.md)) | 캡처 경로·수집 스키마·계약 |
 | 배포·빌드 (`vercel.json`, `package.json` scripts, `bunfig.toml`, `deploy/**`) | [deploy.md](../deploy.md) | 빌드·배포 대상·cron |

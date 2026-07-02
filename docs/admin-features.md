@@ -1,6 +1,6 @@
 # Admin Features — 어드민 페이지 기능 맵
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `db/schema.ts`
+> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `db/schema.ts`
 
 `db/schema.ts` 테이블 49개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다.
 
@@ -189,7 +189,7 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 
 `page/admin/pages/ai.tsx`. **자격증명(`credentials`)은 select 에서 제외돼 노출되지 않는다.**
 
-- **Providers (`/admin/ai/providers`)**: User(email→id) / Provider(badge) / Auth(oauth·apikey) / Status(badge: active=success·reauth_required=destructive·disabled=muted) / Detail(`statusDetail`) / Name / Last used / Models fetched + 활성·비활성 토글 · 삭제. Filter `q`(email)·`provider`·`status`·`size`. Actions `/ai/providers/:id/status`(hidden `status`)·`/ai/providers/:id/delete`.
+- **Providers (`/admin/ai/providers`)**: User(email→id) / Provider(mono) / Auth(oauth·apikey) / Status(badge: active=success·reauth_required=destructive·disabled=muted) / Detail(`statusDetail`) / Name / Last used / Models fetched + 활성·비활성 토글 · 삭제. Filter `q`(email)·`provider`·`status`·`size`. Actions `/ai/providers/:id/status`(hidden `status`)·`/ai/providers/:id/delete`.
 - **Sessions (`/admin/ai/sessions`)**: User / Provider / Model / Title / Feature(`featureKey`) / Last message / Created. Filter `q`·`provider`·`size`. (읽기 전용)
 - **Prompts (`/admin/ai/prompts`)**: User / Name / Stage(badge) / Feature / Order(`sortOrder`) / Active / Created. Filter `q`(email·name)·`stage`·`size`. (읽기 전용)
 
@@ -256,6 +256,9 @@ GET  /admin                                → dashboard
      /admin/drive/assets                   → list ( /:id/delete POST )
      /admin/drive/folders                  → list
      /admin/drive/lifecycle-logs           → list
+     /admin/ai/providers                   → list ( /:id/status|delete POST )
+     /admin/ai/sessions                    → list
+     /admin/ai/prompts                     → list
 ```
 
 - 페이지 사이즈: `size` 쿼리(기본 20 또는 30, 도메인별 5~100/5~200 클램프). 페이지네이션은 `page` 쿼리.
@@ -313,4 +316,4 @@ GET  /admin                                → dashboard
 | `pages/ai.tsx` | AI Providers(status 토글·delete)·Sessions·Prompts. `createAiProvidersRoute`/`createAiSessionsRoute`/`createAiPromptsRoute`. |
 
 ### 어드민 페이지가 없는 테이블
-`verification`(better-auth), `postTags`(`tagId` 필터 조인만), `images`(레거시), `mailFolders`(`folderId` 필터만), `mailAttachments`(`hasAttachments` 플래그만), `deviceKey`(API `/api/logs/device-keys` 로 관리) — 전용 뷰 없음.
+`verification`(better-auth), `postTags`(`tagId` 필터 조인만), `images`(레거시), `mailFolders`(`folderId` 필터만), `mailAttachments`(`hasAttachments` 플래그만), `deviceKey`(API `/api/logs/device-keys` 로 관리), `aiModels`·`aiMessages`·`aiAttachments`(AI 자식 테이블 — provider/session 뷰에만 간접 노출, 전용 뷰 없음) — 전용 뷰 없음.
