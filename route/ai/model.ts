@@ -41,7 +41,7 @@ export const createAiModelRoute = (deps: AiModelRouteDeps) => {
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
-            const provider = parseProvider(c.req.param('provider'))
+            const provider = parseProvider(c.req.param('provider')!)
             const rows = await deps.aiModelService.listCached(session.user.id, provider)
             return c.json(successResponse(rows.map(toResponse)))
         }),
@@ -60,7 +60,7 @@ export const createAiModelRoute = (deps: AiModelRouteDeps) => {
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
-            const provider = parseProvider(c.req.param('provider'))
+            const provider = parseProvider(c.req.param('provider')!)
             const rows = await deps.aiModelService.refresh(session.user.id, provider)
             return c.json(successResponse(rows.map(toResponse)))
         }),

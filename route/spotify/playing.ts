@@ -38,7 +38,7 @@ export const createSpotifyPlayingRoute = (deps: SpotifyPlayingRouteDeps) => {
     route.get(
         '/:token',
         withErrorHandling(async (c) => {
-            const token = c.req.param('token')
+            const token = c.req.param('token')!
             const { spotifyAccountId } = await deps.spotifyWidgetTokenService.validate(token)
             const theme = parseTheme(c)
             const svg = await deps.spotifyWidgetService.generateSvg(spotifyAccountId, theme)
@@ -51,7 +51,7 @@ export const createSpotifyPlayingRoute = (deps: SpotifyPlayingRouteDeps) => {
     route.get(
         '/:token/widget',
         withErrorHandling(async (c) => {
-            const token = c.req.param('token')
+            const token = c.req.param('token')!
             await deps.spotifyWidgetTokenService.validate(token)
             const theme = parseTheme(c)
             const html = deps.spotifyWidgetService.generateHtmlWidget(token, deps.baseUrl, theme)
@@ -64,7 +64,7 @@ export const createSpotifyPlayingRoute = (deps: SpotifyPlayingRouteDeps) => {
     route.get(
         '/:token/data',
         withErrorHandling(async (c) => {
-            const token = c.req.param('token')
+            const token = c.req.param('token')!
             const { spotifyAccountId } = await deps.spotifyWidgetTokenService.validate(token)
             const data = await deps.spotifyWidgetService.getNowPlayingData(spotifyAccountId)
             c.header('Cache-Control', 'no-cache, max-age=0')

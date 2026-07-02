@@ -89,7 +89,7 @@ export const createWeatherKeyRoute = (deps: WeatherKeyRouteDeps) => {
         }),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
-                const keyId = parseInt(c.req.param('id'), 10)
+                const keyId = parseInt(c.req.param('id')!, 10)
                 if (isNaN(keyId)) throw createAppError('VALIDATION_ERROR')
                 await deps.weatherApiKeyService.revoke(user.id, keyId)
                 return c.json(successResponse({ deleted: true }))
@@ -110,7 +110,7 @@ export const createWeatherKeyRoute = (deps: WeatherKeyRouteDeps) => {
         validator('json', updateWeatherKeyLimitBodySchema),
         withErrorHandling(
             withAdmin({ getSession: deps.getSession })(async (c) => {
-                const keyId = parseInt(c.req.param('id'), 10)
+                const keyId = parseInt(c.req.param('id')!, 10)
                 if (isNaN(keyId)) throw createAppError('VALIDATION_ERROR')
                 const body = c.req.valid('json' as never) as z.infer<typeof updateWeatherKeyLimitBodySchema>
                 await deps.weatherApiKeyService.updateDailyLimit(keyId, body.dailyLimit)

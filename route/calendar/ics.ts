@@ -14,7 +14,7 @@ export const createCalendarIcsRoute = (deps: CalendarIcsRouteDeps) => {
     route.get(
         '/:icsToken',
         withErrorHandling(async (c) => {
-            const token = c.req.param('icsToken').replace('.ics', '')
+            const token = c.req.param('icsToken')!.replace('.ics', '')
 
             const subscription = await deps.calendarService.getSubscriptionByIcsToken(token)
             if (!subscription) throw createAppError('CALENDAR_SUBSCRIPTION_NOT_FOUND')

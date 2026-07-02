@@ -96,7 +96,7 @@ export const createAdminRoute = (deps: AdminRouteDeps) => {
         }),
         withErrorHandling(async (c) => {
             await requireAdmin(c)
-            const userId = c.req.param('id')
+            const userId = c.req.param('id')!
             const result = await deps.db.deleteUser(userId)
             return c.json(successResponse(result))
         }),

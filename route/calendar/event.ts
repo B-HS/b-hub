@@ -95,7 +95,7 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const uid = c.req.param('uid')
+            const uid = c.req.param('uid')!
             const event = await deps.calendarService.getEventByUid(session.user.id, uid)
             if (!event) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
 
@@ -163,7 +163,7 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const uid = c.req.param('uid')
+            const uid = c.req.param('uid')!
             const existing = await deps.calendarService.getEventByUid(session.user.id, uid)
             if (!existing) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
 
@@ -171,8 +171,8 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const event = await deps.calendarService.updateEvent(session.user.id, {
                 uid: existing.uid,
                 summary: data.summary ?? existing.summary,
-                description: data.description !== undefined ? data.description ?? undefined : existing.description,
-                location: data.location !== undefined ? data.location ?? undefined : existing.location,
+                description: data.description !== undefined ? (data.description ?? undefined) : existing.description,
+                location: data.location !== undefined ? (data.location ?? undefined) : existing.location,
                 dtstart: data.dtstart ?? existing.dtstart,
                 dtend: data.dtend ?? existing.dtend,
                 isAllDay: data.isAllDay ?? existing.isAllDay,
@@ -190,12 +190,12 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
                               }
                             : undefined
                         : existing.rrule,
-                exdate: data.exdate !== undefined ? data.exdate ?? undefined : existing.exdate,
-                status: data.status !== undefined ? data.status ?? undefined : existing.status,
-                transp: data.transp !== undefined ? data.transp ?? undefined : existing.transp,
-                priority: data.priority !== undefined ? data.priority ?? undefined : existing.priority,
-                categories: data.categories !== undefined ? data.categories ?? undefined : existing.categories,
-                color: data.color !== undefined ? data.color ?? undefined : existing.color,
+                exdate: data.exdate !== undefined ? (data.exdate ?? undefined) : existing.exdate,
+                status: data.status !== undefined ? (data.status ?? undefined) : existing.status,
+                transp: data.transp !== undefined ? (data.transp ?? undefined) : existing.transp,
+                priority: data.priority !== undefined ? (data.priority ?? undefined) : existing.priority,
+                categories: data.categories !== undefined ? (data.categories ?? undefined) : existing.categories,
+                color: data.color !== undefined ? (data.color ?? undefined) : existing.color,
                 groupId: data.groupId !== undefined ? data.groupId : existing.groupId,
                 sequence: existing.sequence,
             })
@@ -211,7 +211,7 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const uid = c.req.param('uid')
+            const uid = c.req.param('uid')!
             const existing = await deps.calendarService.getEventByUid(session.user.id, uid)
             if (!existing) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
 
@@ -229,7 +229,7 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const uid = c.req.param('uid')
+            const uid = c.req.param('uid')!
             await deps.calendarService.deleteEvent(session.user.id, uid)
             return c.body(null, 204)
         }),

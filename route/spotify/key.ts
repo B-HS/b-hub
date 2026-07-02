@@ -94,7 +94,7 @@ export const createSpotifyKeyRoute = (deps: SpotifyKeyRouteDeps) => {
         }),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(async (c, user) => {
-                const keyId = parseInt(c.req.param('id'), 10)
+                const keyId = parseInt(c.req.param('id')!, 10)
                 if (isNaN(keyId)) throw createAppError('VALIDATION_ERROR')
                 await deps.spotifyApiKeyService.revoke(user.id, keyId)
                 return c.json(successResponse({ deleted: true }))

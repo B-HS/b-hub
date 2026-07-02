@@ -27,7 +27,9 @@ export const createDeviceKeyRoute = (deps: DeviceKeyRouteDeps) => {
             responses: {
                 200: {
                     description: '키 목록',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(deviceKeyResponseSchema) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(deviceKeyResponseSchema) })) },
+                    },
                 },
                 ...errorResponses(['UNAUTHORIZED', 'FORBIDDEN']),
             },
@@ -57,7 +59,9 @@ export const createDeviceKeyRoute = (deps: DeviceKeyRouteDeps) => {
             responses: {
                 200: {
                     description: '발급된 키',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.object({ key: z.string() }) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.object({ key: z.string() }) })) },
+                    },
                 },
                 ...errorResponses(['UNAUTHORIZED', 'FORBIDDEN']),
             },
@@ -84,7 +88,7 @@ export const createDeviceKeyRoute = (deps: DeviceKeyRouteDeps) => {
         }),
         withErrorHandling(
             withAdmin({ getSession: deps.getSession })(async (c) => {
-                const id = parseInt(c.req.param('id'), 10)
+                const id = parseInt(c.req.param('id')!, 10)
                 if (isNaN(id)) throw createAppError('VALIDATION_ERROR')
                 await deps.deviceKeyService.revoke(id)
                 return c.json(successResponse({ revoked: true }))

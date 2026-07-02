@@ -72,7 +72,7 @@ export const createImageRoute = (deps: ImageRouteDeps) => {
             if (!session) throw createAppError('UNAUTHORIZED')
             if (session.user.role !== 'admin') throw createAppError('FORBIDDEN')
 
-            const id = c.req.param('id')
+            const id = c.req.param('id')!
             await deps.blogImageService.delete(id)
             return c.json(successResponse({ id }))
         }),

@@ -131,7 +131,7 @@ export const createLocationRoute = (deps: LocationRouteDeps) => {
             },
         }),
         withErrorHandling(async (c) => {
-            const keyword = c.req.param('keyword')
+            const keyword = c.req.param('keyword')!
             if (keyword.length > 100) throw createAppError('VALIDATION_ERROR')
             const results = deps.locationService.search(keyword)
             return c.json(successResponse(results))

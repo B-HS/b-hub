@@ -53,7 +53,7 @@ export const createMailUploadRoute = (deps: UploadRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const uploadId = parseInt(c.req.param('uploadId'), 10)
+            const uploadId = parseInt(c.req.param('uploadId')!, 10)
             if (isNaN(uploadId)) throw createAppError('VALIDATION_ERROR')
 
             await deps.mailUploadService.deleteUpload(uploadId, session.user.id)

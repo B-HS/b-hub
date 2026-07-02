@@ -94,7 +94,7 @@ export const createAiSessionRoute = (deps: AiSessionRouteDeps) => {
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
-            const sessionId = c.req.param('sessionId')
+            const sessionId = c.req.param('sessionId')!
             const input = c.req.valid('json' as never) as z.infer<typeof aiSessionUpdateSchema>
             const updated = await deps.aiSessionService.update(session.user.id, sessionId, input)
             return c.json(successResponse(toSessionResponse(updated)))
@@ -111,7 +111,7 @@ export const createAiSessionRoute = (deps: AiSessionRouteDeps) => {
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
-            const sessionId = c.req.param('sessionId')
+            const sessionId = c.req.param('sessionId')!
             await deps.aiSessionService.remove(session.user.id, sessionId)
             return c.json(successResponse({ deleted: true }))
         }),
@@ -128,7 +128,7 @@ export const createAiSessionRoute = (deps: AiSessionRouteDeps) => {
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
-            const sessionId = c.req.param('sessionId')
+            const sessionId = c.req.param('sessionId')!
             const query = c.req.valid('query' as never) as z.infer<typeof aiMessageListQuerySchema>
             const { rows, total } = await deps.aiSessionService.listMessages(session.user.id, sessionId, query)
             return c.json(paginatedResponse(rows.map(toMessageResponse), { page: query.page, limit: query.limit, total }))

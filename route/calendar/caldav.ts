@@ -35,7 +35,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
     })
 
     const resolveToken = async (c: Context): Promise<{ subscription: CalendarSubscription; userId: string }> => {
-        const token = c.req.param('token')
+        const token = c.req.param('token')!
         const subscription = await deps.calendarService.getSubscriptionByToken(token)
         if (!subscription) throw createAppError('CALENDAR_SUBSCRIPTION_NOT_FOUND')
         return { subscription, userId: subscription.userId }
@@ -343,7 +343,7 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
 
     const getEventHandler = async (c: Context) => {
         const { userId } = await resolveToken(c)
-        const uid = c.req.param('uid').replace('.ics', '').split('@')[0]
+        const uid = c.req.param('uid')!.replace('.ics', '').split('@')[0]
 
         const event = await deps.calendarService.getEventByUid(userId, uid)
         if (!event) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
@@ -395,7 +395,7 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
 
     const deleteEventHandler = async (c: Context) => {
         const { userId } = await resolveToken(c)
-        const uid = c.req.param('uid').replace('.ics', '').split('@')[0]
+        const uid = c.req.param('uid')!.replace('.ics', '').split('@')[0]
         await deps.calendarService.deleteEvent(userId, uid)
         return c.body(null, 204)
     }

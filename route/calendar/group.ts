@@ -47,7 +47,7 @@ export const createCalendarGroupRoute = (deps: CalendarGroupRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const id = c.req.param('id')
+            const id = c.req.param('id')!
             const data = c.req.valid('json' as never) as z.infer<typeof updateGroupSchema>
             await deps.calendarService.updateGroup(session.user.id, id, data)
 
@@ -62,7 +62,7 @@ export const createCalendarGroupRoute = (deps: CalendarGroupRouteDeps) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const id = c.req.param('id')
+            const id = c.req.param('id')!
             await deps.calendarService.deleteGroup(session.user.id, id)
 
             return c.body(null, 204)

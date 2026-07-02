@@ -44,7 +44,7 @@ export const createAiChatRoute = (deps: AiChatRouteDeps) => {
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(
                 rateLimited(async (c, user) => {
-                    const sessionId = c.req.param('sessionId')
+                    const sessionId = c.req.param('sessionId')!
                     const input = c.req.valid('json' as never) as z.infer<typeof aiChatSendSchema>
                     const result = await deps.aiChatService.send(user.id, sessionId, input)
                     return c.json(successResponse(result))

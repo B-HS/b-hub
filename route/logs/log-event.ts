@@ -8,7 +8,13 @@ import { successResponse, paginatedResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
 import { createAppError } from '../../lib/error'
 import { requireDeviceKey } from '../../middleware/require-device-key'
-import { logEventIngestSchema, logEventBatchSchema, logEventResolveSchema, logEventListQuerySchema, logEventResponseSchema } from '../../dto/logs/log-event'
+import {
+    logEventIngestSchema,
+    logEventBatchSchema,
+    logEventResolveSchema,
+    logEventListQuerySchema,
+    logEventResponseSchema,
+} from '../../dto/logs/log-event'
 import type { LogEventService } from '../../service/domain/logs/log-event'
 import type { DeviceKeyService } from '../../service/domain/logs/device-key'
 import type { AuthContext } from '../../lib/hono-types'
@@ -53,7 +59,9 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
             responses: {
                 200: {
                     description: '수집 완료',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.object({ count: z.number() }) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.object({ count: z.number() }) })) },
+                    },
                 },
                 ...errorResponses(['LOG_DEVICE_KEY_INVALID', 'LOG_DEVICE_KEY_RATE_LIMIT', 'LOG_BATCH_TOO_LARGE', 'VALIDATION_ERROR']),
             },
@@ -77,7 +85,9 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
             responses: {
                 200: {
                     description: '목록',
-                    content: { 'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(logEventResponseSchema) })) } },
+                    content: {
+                        'application/json': { schema: resolver(z.object({ success: z.literal(true), data: z.array(logEventResponseSchema) })) },
+                    },
                 },
                 ...errorResponses(['UNAUTHORIZED', 'FORBIDDEN']),
             },
@@ -142,7 +152,7 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
         validator('json', logEventResolveSchema),
         withErrorHandling(
             withAdmin({ getSession: deps.getSession })(async (c) => {
-                const id = parseInt(c.req.param('id'), 10)
+                const id = parseInt(c.req.param('id')!, 10)
                 if (isNaN(id)) throw createAppError('VALIDATION_ERROR')
                 const body = c.req.valid('json' as never) as z.infer<typeof logEventResolveSchema>
                 const existing = await deps.logEventService.getById(id)

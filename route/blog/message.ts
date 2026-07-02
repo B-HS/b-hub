@@ -26,7 +26,7 @@ export const createMessageRoute = (deps: MessageRouteDeps) => {
         }),
         validator('query', messageListQuerySchema.pick({ page: true, size: true })),
         withErrorHandling(async (c) => {
-            const userId = c.req.param('userId')
+            const userId = c.req.param('userId')!
             const { page, size } = c.req.valid('query' as never) as { page: number; size: number }
             const result = await deps.messageService.list(userId, page, size)
             return c.json(successResponse(result))
@@ -44,7 +44,7 @@ export const createMessageRoute = (deps: MessageRouteDeps) => {
             },
         }),
         withErrorHandling(async (c) => {
-            const userId = c.req.param('userId')
+            const userId = c.req.param('userId')!
             const profile = await deps.messageService.getUserProfile(userId)
             if (!profile) throw createAppError('NOT_FOUND')
             return c.json(successResponse(profile))
@@ -88,7 +88,7 @@ export const createMessageRoute = (deps: MessageRouteDeps) => {
             if (!session) throw createAppError('UNAUTHORIZED')
             if (session.user.role !== 'admin') throw createAppError('FORBIDDEN')
 
-            const messageId = c.req.param('id')
+            const messageId = c.req.param('id')!
             const result = await deps.messageService.delete(messageId, session.user.id)
             if (!result.success) throw createAppError('NOT_FOUND')
 
