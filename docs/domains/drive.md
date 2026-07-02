@@ -1,6 +1,6 @@
 # 드라이브(Drive) 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
 
 ## 개요
 
@@ -111,8 +111,8 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 
 1. 세션 확인 → `formData`에서 `file`(+선택 `folderId`) 추출.
 2. 크기 검증: `file.size > 100MB`이면 `DRIVE_FILE_TOO_LARGE`.
-3. `sanitizeFilename`(`lib/mail-utils`) → `validateMimeAndExtension`(MIME 정규식/차단 MIME/차단 확장자). 이미지면 버퍼 로드 후 `validateMagicBytes`(jpeg/png/gif/webp 시그니처).
-4. `folderId` 지정 시 소유자 검증(`DRIVE_FOLDER_NOT_FOUND`).
+3. `sanitizeFilename`(`lib/mail-utils`) → `validateMimeAndExtension`(MIME 정규식/차단 MIME/차단 확장자).
+4. `folderId` 지정 시 소유자 검증(`DRIVE_FOLDER_NOT_FOUND`). 이어서 버퍼 로드 + 크기 재검증(`buffer.length > 100MB`이면 `DRIVE_FILE_TOO_LARGE`), 이미지면 `validateMagicBytes`(jpeg/png/gif/webp 시그니처).
 5. SHA-256 해시 계산 → `getByUserAndHash`로 사용자 내 중복이면 `DRIVE_DUPLICATE_FILE`.
 6. 쿼터 확인: `getTotalSizeByUser + file.size > getUserQuotaBytes`이면 `DRIVE_QUOTA_EXCEEDED`.
 7. 이미지면 `imageProcessor.resize(100,100)`→`toWebp(60)`로 썸네일(실패 시 null).

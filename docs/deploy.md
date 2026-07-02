@@ -1,6 +1,6 @@
 # 배포·운영(Deploy & Ops)
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `vercel.json`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `vercel.json`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
 
 ## 개요
 
@@ -154,6 +154,7 @@
 | Spotify | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` |
 | R2 스토리지 | `R2_END_POINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_CUSTOM_DOMAIN`, `R2_CUSTOME_DOMAIN` |
 | 메일 | `MAIL_ENCRYPTION_KEY`(min 32) |
+| AI | `AI_ENCRYPTION_KEY`(min 32) |
 | 드라이브/upload-server 연동 | `GDRIVE_ROOT_FOLDER_ID`, `UPLOAD_SERVER_URL`, `UPLOAD_SERVER_SECRET` |
 | 날씨 | `KMA_API_KEY` |
 | 캐시 | `REDIS_URL` |

@@ -1,6 +1,6 @@
 # 에러 처리·로깅 작업 지침
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/with-error-handling.ts`, `lib/with-auth.ts`, `lib/api-response.ts`, `lib/sensitive-filter.ts`, `lib/discord.ts`, `lib/sentry.ts`, `lib/hono-types.ts`, `lib/log-service-name.ts`, `dto/error-response.ts`, `dto/logs/log-event.ts`, `middleware/error-handler.ts`, `middleware/log-capture.ts`, `middleware/index.ts`, `service/domain/logs/log-event.ts`, `compose/logs.ts`.
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/with-error-handling.ts`, `lib/with-auth.ts`, `lib/api-response.ts`, `lib/sensitive-filter.ts`, `lib/discord.ts`, `lib/sentry.ts`, `lib/hono-types.ts`, `lib/log-service-name.ts`, `dto/error-response.ts`, `dto/logs/log-event.ts`, `middleware/error-handler.ts`, `middleware/log-capture.ts`, `middleware/index.ts`, `service/domain/logs/log-event.ts`, `compose/logs.ts`.
 
 > "에러를 어떻게 던지고, 그 에러가 응답·로그·알림으로 어떻게 흐르는가"의 **작업 규칙**만 다룬다.
 > `log_events` 데이터 모델·수집 API·리텐션·어드민은 [../logging.md](../logging.md), 계층·부트스트랩 개요는 [../architecture.md](../architecture.md) 가 소유한다 — 중복 없이 링크한다.

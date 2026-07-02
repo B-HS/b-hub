@@ -9,4 +9,4 @@
 | [2026-07-ai-provider-system.md](./2026-07-ai-provider-system.md) | 2026-07-02 | AI Provider 시스템 — codex/anthropic/ollama 멀티 프로바이더, 프로바이더 추상화·OAuth 자동갱신, 채팅 세션·프롬프트·이미지, 자격증명 암호화, log_events 사용기록. db:push·커밋 완료, 2260 tests |
 | [2026-06-logging-system.md](./2026-06-logging-system.md) | 2026-06 | `log_events` 중앙 로깅/에러-이벤트 시스템 — 서버 전 엔드포인트 4xx·5xx 캡처 + 디바이스 수집 + 어드민 + Discord 알림 + 리텐션. dev 배포 완료 |
 | [2026-07-docs-overhaul.md](./2026-07-docs-overhaul.md) | 2026-07-02 | docs/ 전면 고도화 — 아키텍처·도메인·레퍼런스·지침서·QA 체크리스트 신설, §9 분류 폴더 실체화 |
-| [2026-07-deps-upgrade.md](./2026-07-deps-upgrade.md) | 2026-07-02 | 의존성 최신화 — 안전분+nodemailer 9 보안, breaking major 3종(better-auth 1.6 · hono 4.12 · zod 4+hono-openapi 1, 미사용 zod-openapi·zod-validator 제거). 단계별 tsc 0·2268 pass·독립 커밋 4개 |
+| [2026-07-deps-upgrade.md](./2026-07-deps-upgrade.md) | 2026-07-02 | 의존성 최신화 — 안전분+nodemailer 9 보안, breaking major 3종(better-auth 1.6 · hono 4.12 · zod 4+hono-openapi 1, 미사용 zod-openapi·zod-validator 제거). 단계별 tsc 0·2268 pass·독립 커밋 5개(패치 후속 포함) |

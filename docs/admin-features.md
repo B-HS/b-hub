@@ -1,6 +1,6 @@
 # Admin Features — 어드민 페이지 기능 맵
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `db/schema.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
 
 `db/schema.ts` 테이블 49개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다.
 
@@ -282,7 +282,7 @@ GET  /admin                                → dashboard
 | `DataTable<T>` | 도메인 무관 list(`columns`·`rows`·`rowKey`·`empty`). |
 | `Pagination` | `page`·`pageSize`·`total`·`baseQuery`·`basePath` — query 보존 이전/다음. |
 | `FilterBar` | `action`·`fields`(text/select/number/date)·`hidden` — query string ↔ GET 폼. |
-| `Badge` | 상태 표시. kind: `default`/`secondary`/`outline`/`success`/`muted`/`destructive`(→ [DESIGN.md](./DESIGN.md) 토큰). |
+| `Badge` | 상태 표시. kind: `default`/`secondary`/`outline`/`success`/`muted`/`destructive`(어드민 전용 컴포넌트 — 토큰은 `page/admin/styles.ts` 의 `.badge.*`, [hono-reference.md](./hono-reference.md) 어드민 CSS 소유. 소비자 프론트 [DESIGN.md](./DESIGN.md) 의 shadcn Badge 4종과 별개). |
 | `RowAction` | 단건 POST 폼(`action`·`label`·`variant`·`confirmText`·`hidden`·`returnTo`). |
 | `Stat` | 대시보드 카드(`label`·`value`·`delta`). |
 

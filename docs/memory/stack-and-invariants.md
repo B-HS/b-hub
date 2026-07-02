@@ -1,6 +1,6 @@
 # 스택·불변 사실 (장기 기억)
 
-> 기준: 2026-07-02. 이 파일은 세션·에이전트가 바뀌어도 변하지 않는 이 레포의 전제를 모은다. 어길 수 없는 규칙은 굵게.
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 이 파일은 세션·에이전트가 바뀌어도 변하지 않는 이 레포의 전제를 모은다. 어길 수 없는 규칙은 굵게.
 
 ## 스택
 
@@ -18,7 +18,7 @@
 ## 불변 규칙
 
 - **DB 마이그레이션 파일 없음.** 스키마 변경은 `db/schema.ts` 수정 → `bun run db:push` 로 실 DB 반영. `drizzle/` 산출물은 gitignored (DDL 검증용 `drizzle-kit generate` 는 로컬 확인용으로만). → [guidelines/db-schema-change.md](../guidelines/db-schema-change.md)
-- **계층 경계**: Drizzle 쿼리는 `compose/` 에서만(ServiceDb 인라인 구현). `service/` 는 HTTP·Drizzle 를 모른다. Route 만 HTTP 경계(검증·인증·에러 throw).
+- **계층 경계**: Drizzle 쿼리는 `compose/` 에서만(ServiceDb 인라인 구현) — 소수 키/토큰 서비스(`service/shared/api-token.ts`·`service/domain/logs/device-key.ts`·`service/domain/weather/weather-api-key.ts`)만 기존 예외로 직접 접근한다([reference/db-schema.md](../reference/db-schema.md) 가 전수 나열). `service/` 는 원칙상 HTTP·Drizzle 를 모른다. Route 만 HTTP 경계(검증·인증·에러 throw).
 - **에러는 3파일 체계**(`lib/error-code.ts` · `lib/error-message.ts` · `lib/error.ts`)로만. `throw createAppError('CODE')`, `new Error` 직접 throw 금지.
 - **응답은 헬퍼로만**: `successResponse` / `paginatedResponse` / `errorResponse` (`lib/api-response.ts`).
 - **모든 4xx·5xx 는 `log_events` 로 자동 캡처**된다(`middleware/log-capture.ts`). → [logging.md](../logging.md)

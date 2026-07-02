@@ -1,6 +1,6 @@
 # 머지 전 체크리스트 (Pre-merge Checklist)
 
-> 현행 코드 기준. 다루는 코드: `package.json`, `prettier.config.cjs`, `node_modules/feconfig-bhs/prettier.config.js`, `tsconfig.json`, `drizzle.config.ts`, `.gitignore`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `lib/api-response.ts`, `lib/env.ts`, `compose/blog.ts`, `index.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `package.json`, `prettier.config.cjs`, `node_modules/feconfig-bhs/prettier.config.js`, `tsconfig.json`, `drizzle.config.ts`, `.gitignore`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `lib/api-response.ts`, `lib/env.ts`, `compose/blog.ts`, `service/domain/spotify/spotify-widget.ts`, `index.ts`
 
 ## 개요
 

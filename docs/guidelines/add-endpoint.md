@@ -1,6 +1,6 @@
 # 엔드포인트 추가 (add-endpoint)
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `dto/blog/post.ts`, `service/domain/blog/post.ts`, `compose/blog.ts`, `route/blog/post.ts`, `route/logs/log-event.ts`, `route/index.ts`, `lib/with-auth.ts`, `lib/error.ts`·`lib/error-code.ts`·`lib/error-message.ts`, `dto/error-response.ts`, `lib/sql-utils.ts`, `tests/route/blog/post.test.ts`, `tests/service/domain/blog/post.test.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/blog/post.ts`, `dto/logs/log-event.ts`, `service/domain/blog/post.ts`, `compose/blog.ts`, `route/blog/post.ts`, `route/logs/log-event.ts`, `route/index.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/api-response.ts`, `lib/error.ts`·`lib/error-code.ts`·`lib/error-message.ts`, `dto/error-response.ts`, `lib/sql-utils.ts`, `tests/route/blog/post.test.ts`, `tests/service/domain/blog/post.test.ts`
 
 **기존 도메인**(ai·blog·mail·calendar·drive·spotify·weather·resume·badge·logs·auth)에 HTTP 엔드포인트 하나를 추가하는 절차를 소유한다. 신규 도메인(폴더 4곳 신설·`compose()` 배선) 추가는 이 문서 범위 밖이다. 계층 골격·부트스트랩·응답 봉투·HOF 합성 순서의 정본은 [../architecture.md](../architecture.md), 인증 수단 총람은 [../domains/auth.md](../domains/auth.md), 전 라우트 인벤토리는 [../reference/api-endpoints.md](../reference/api-endpoints.md) 다 — 여기서는 중복하지 않고 링크한다.
 
@@ -55,7 +55,7 @@ Zod 스키마만 둔다(별도 validator 클래스 없음). 입력 타입은 손
 - **쿼리 파라미터는 `z.coerce` + `.default(...)`** 로 문자열을 안전하게 강제 변환한다: `page: z.coerce.number().int().positive().default(1)`, `limit: ...min(1).max(100).default(20)` (`dto/blog/post.ts:4-5`).
 - 쿼리의 boolean 은 `z.enum(['true','false']).transform((v) => v === 'true').optional()` 패턴(`dto/blog/post.ts:9-12`). 바디의 boolean 은 `z.boolean()`(`:32`).
 - 타입은 파일 하단에 `export type X = z.infer<typeof xSchema>` 로만 선언한다(`dto/blog/post.ts:62-64`). 손으로 union 을 다시 적지 않는다.
-- 응답 스키마를 `describeRoute` 의 `resolver(...)` 로 노출하려면 `hono-openapi` 의 `resolver` 를 쓴다(`validator` 도 같은 모듈 — `hono-openapi/zod` 서브패스는 v1 에서 제거됨. `route/logs/log-event.ts` 가 `resolver(z.array(logEventResponseSchema))` 로 감싼다. 스키마 정의는 `dto/logs/log-event.ts` 의 `logEventResponseSchema`. 인라인 응답이면 `resolver(z.object({...}))` 도 가능).
+- 응답 스키마를 `describeRoute` 의 `resolver(...)` 로 노출하려면 `hono-openapi` 의 `resolver` 를 쓴다(`describeRoute`·`validator` 도 같은 모듈 — `hono-openapi/zod` 서브패스는 v1 에서 제거됨. `route/logs/log-event.ts:88` 이 `resolver(z.object({ success: z.literal(true), data: z.array(logEventResponseSchema) }))` 로 성공 봉투째 감싼다. 배열 원소 스키마 정의는 `dto/logs/log-event.ts:51` 의 `logEventResponseSchema`. named 스키마 없이 `resolver(z.object({...}))` 로 전부 인라인해도 된다).
 
 ---
 
@@ -120,8 +120,8 @@ HTTP 경계. `describeRoute`(문서) + `validator`(검증) + 인증(§7) + `with
 
 전체 Path = 마운트 접두사 + 팩토리 내부 경로. 기존 팩토리에 메서드만 추가했으면 배선은 그대로다. 새 팩토리를 추가했으면 `createRouter` 에 마운트한다.
 
-- 의존성은 미구성 방어를 위해 `stub()`/`stubFn()` 로 감싼다: `createPostRoute({ postService: stub(deps.postService), getSession: stubFn(deps.getSession) as never })`(`route/index.ts:113-119`). `stub`/`stubFn` 은 미주입 시 호출하면 `SERVICE_NOT_CONFIGURED`(503) 를 던지는 Proxy/함수다(`route/index.ts:44-59`).
-- logs 배선 예: `router.route('/logs', createLogEventRoute({ logEventService: stub(deps.logEventService), deviceKeyService: stub(deps.deviceKeyService), getSession: stubFn(deps.getSession) as never }))`(`route/index.ts:325-331` 부근).
+- 의존성은 미구성 방어를 위해 `stub()`/`stubFn()` 로 감싼다: `createPostRoute({ postService: stub(deps.postService), getSession: stubFn(deps.getSession) as never })`(`route/index.ts:119-125`). `stub`/`stubFn` 은 미주입 시 호출하면 `SERVICE_NOT_CONFIGURED`(503) 를 던지는 Proxy/함수다(`route/index.ts:50-65`).
+- logs 배선 예: `router.route('/logs', createLogEventRoute({ logEventService: stub(deps.logEventService), deviceKeyService: stub(deps.deviceKeyService), getSession: stubFn(deps.getSession) as never }))`(`route/index.ts:331-338`).
 - 서비스가 compose 반환 객체에 새로 생겼으면 그 키가 `deps.<service>` 로 들어온다(§5 의 평탄 병합).
 
 ---
@@ -154,9 +154,9 @@ HTTP 경계. `describeRoute`(문서) + `validator`(검증) + 인증(§7) + `with
 |------|-----------|
 | `lib/error-code.ts` | `ERROR_CODE` 객체에 `DOMAIN_REASON: 'DOMAIN_REASON'`(도메인 접두: `BLOG_*`·`MAIL_*`·`LOG_*` 등) |
 | `lib/error-message.ts` | `ERROR_MESSAGE` 에 같은 키의 한국어 메시지 |
-| `lib/error.ts` | `STATUS_MAP` 에 코드→HTTP 상태(미매핑 시 `getStatusCode` 가 500 폴백, `lib/error.ts:107`) |
+| `lib/error.ts` | `STATUS_MAP` 에 코드→HTTP 상태(미매핑 시 `getStatusCode` 가 500 폴백, `lib/error.ts:123`) |
 
-- 던지기: `throw createAppError('DOMAIN_REASON'[, details])`(`lib/error.ts:109`). `new Error()` 직접 throw 금지.
+- 던지기: `throw createAppError('DOMAIN_REASON'[, details])`(`lib/error.ts:125`). `new Error()` 직접 throw 금지.
 - 라우트 `describeRoute.responses` 에 `...errorResponses(['DOMAIN_REASON', ...])` 로 선언하면 OpenAPI 에 상태·메시지가 자동 반영된다(`dto/error-response.ts:16` — 코드를 상태별로 묶어 `ERROR_MESSAGE` 를 description 으로).
 - 에러 흐름·자동 로그 캡처 상세는 [../architecture.md](../architecture.md) §5, 인증 관련 코드 목록은 [../domains/auth.md](../domains/auth.md) §12.
 

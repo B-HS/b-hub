@@ -1,6 +1,6 @@
 # weather 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
 
 ## 개요
 
@@ -144,7 +144,7 @@
 | `WEATHER_KEY_INVALID` | 401 | 날씨 API 키가 유효하지 않습니다 |
 | `WEATHER_KEY_RATE_LIMIT` | 429 | 날씨 API 일일 요청 한도를 초과했습니다 |
 
-- 키 라우트는 공통 `VALIDATION_ERROR`(400)·`UNAUTHORIZED`(401)·`FORBIDDEN`(403)도 사용.
+- 공통 `VALIDATION_ERROR`(400)도 사용: 키 라우트(`/keys/:id`·`/keys/:id/limit` 의 `id` 파싱 실패)와 `/locations/:keyword`(keyword 100자 초과). 키 라우트는 `UNAUTHORIZED`(401)·`FORBIDDEN`(403)도 사용.
 
 ## 테스트
 

@@ -1,6 +1,6 @@
 # Spotify 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/spotify/*`, `route/spotify/*`, `service/domain/spotify/*`, `compose/spotify.ts`, `lib/with-spotify-auth.ts`, `lib/hmac-state.ts`, `lib/token-utils.ts`, `service/shared/cache.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `middleware/security-headers.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/spotify/*`, `route/spotify/*`, `service/domain/spotify/*`, `compose/spotify.ts`, `lib/with-spotify-auth.ts`, `lib/hmac-state.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/shared/cache.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `middleware/security-headers.ts`
 
 ## 개요
 
@@ -83,7 +83,7 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
   - `createOAuthState({ userId, redirect }, BETTER_AUTH_SECRET, 10분)` 로 HMAC 서명 state 생성(`lib/hmac-state.ts`).
   - scope `user-read-currently-playing user-read-playback-state playlist-read-private user-read-recently-played`, `redirect_uri = ${baseUrl}/api/spotify/accounts/connect/callback` 로 authorize URL 구성 → 302.
 - `GET /accounts/connect/callback` → 에러/`code`·`state` 누락 시 허용 redirect(또는 baseUrl)로 `?error=oauth_denied`. 정상 시 `handleCallback(code, state, sessionUserId, baseUrl)`:
-  1. `verifyOAuthState` — HMAC 검증 + exp 만료 + `state.userId === sessionUserId` 확인. 실패 → `SPOTIFY_OAUTH_STATE_INVALID`.
+  1. `handleCallback` 이 `verifyOAuthState`(HMAC 서명·exp 만료 검증)를 실행하고, 이어서 `state.userId === sessionUserId` 를 직접 확인. 어느 하나라도 실패 → `SPOTIFY_OAUTH_STATE_INVALID`. (userId 대조는 `verifyOAuthState` 가 아니라 `handleCallback` 이 수행)
   2. `POST accounts.spotify.com/api/token`(Basic 인증 `clientId:clientSecret`, `grant_type=authorization_code`). 실패 → `SPOTIFY_OAUTH_EXCHANGE_FAILED`.
   3. `GET api.spotify.com/v1/me` 프로필 조회. 실패/`id` 없음 → `SPOTIFY_OAUTH_EXCHANGE_FAILED`.
   4. better-auth `account` 테이블 upsert(access/refresh/`accessTokenExpiresAt`/scope, `providerId='spotify'`, id=기존 또는 `crypto.randomUUID()`).
@@ -152,11 +152,11 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
 - **키 노출은 1회뿐**: API 키/위젯 토큰은 발급 응답에서만 평문(`{ key }` / `{ token }`)을 돌려주고 DB 엔 SHA-256 해시만 저장. 목록 조회에는 토큰이 포함되지 않는다.
 - **API 키 만료 미설정**: `spotify-api-key.ts` `create` 는 `expiresAt` 를 설정하지 않아(insert 페이로드에 미포함, 컬럼 기본 `null`) 항상 `null` 이다. `validate` 는 `expiresAt` 만료를 검사하지만, 발급 경로가 값을 채우지 않으므로 기본적으로 만료되지 않는다.
 - **위젯 토큰 vs API 키**: 위젯 토큰은 URL 경로 기반 공개 인증(위젯 임베드용, `isActive` 토글로 비활성화 가능), API 키는 `X-Spotify-Key` 헤더 기반(프로그램의 now-playing/playlists 접근용). 발급 시 위젯 토큰은 16바이트(32 hex), API 키는 32바이트(64 hex) 평문.
-- **공개 위젯은 보안 헤더 제외**: `index.ts` 의 `securityExcludePaths: ['/api/spotify/playing', ...]` 로 인해 이 경로만 `X-Frame-Options: DENY` 와 `Content-Security-Policy`(둘 다 `frame-ancestors 'none'`)가 붙지 않는다(`middleware/security-headers.ts`) — 외부 사이트 iframe/img 임베드 허용 목적.
+- **공개 위젯은 보안 헤더 제외**: `index.ts` 의 `securityExcludePaths: ['/api/spotify/playing', ...]` 로 인해 이 경로만 `X-Frame-Options: DENY` 와 `Content-Security-Policy`(둘 다 iframe 임베드를 막음 — CSP 에 `frame-ancestors 'none'`)가 붙지 않는다(`middleware/security-headers.ts`) — 외부 사이트 iframe/img 임베드 허용 목적.
 - **응답 캐시 없음, 앨범아트만 서버 캐시**: 위젯/데이터 응답은 모두 `Cache-Control: no-cache`(SVG 는 `no-store` 포함). 유일한 캐시는 `compose/spotify.ts` 의 앨범아트 base64 캐시(`createCache`, `maxSize=200`, TTL 5분, 앨범아트 URL 키)로 SVG 생성에만 쓰인다. provider 의 access token 은 인스턴스 메모리에만 있고 요청 처리 후 `disconnect()` 로 비워진다.
 - **라우트 순서 의존**: `route/spotify/account.ts` 는 `/connect`·`/connect/callback` 를 `/:accountId` 보다 먼저 등록한다(뒤에 두면 `connect` 가 `:accountId` 로 매칭됨).
 - **now-playing 은 재생 없을 때 recently-played fallback**: `isPlaying:false` 여도 최근 곡을 반환할 수 있으므로 "재생 중"과 "최근 재생"을 소비 측에서 `isPlaying`/`lastPlayedAt` 로 구분해야 한다.
-- **`parseStatePayload` 는 서명 미검증**: 콜백 에러 경로에서 redirect 대상을 뽑을 때만 쓰는 best-effort 파서로, 신뢰 판단에 쓰지 않는다(신뢰 검증은 `verifyOAuthState`).
+- **`parseStatePayload` 는 서명 미검증**: 콜백 에러 경로에서 redirect 대상을 뽑을 때만 쓰는 best-effort 파서(서비스 `parseRedirectFromState` 가 이를 래핑해 라우트가 호출)로, 신뢰 판단에 쓰지 않는다(신뢰 검증은 `verifyOAuthState`).
 
 ## 관련 문서
 

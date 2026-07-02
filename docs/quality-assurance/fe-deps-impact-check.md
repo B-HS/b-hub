@@ -1,6 +1,6 @@
 # FE 소비자 영향 검수 매뉴얼 — 2026-07 deps 업그레이드 (zod 4 · hono-openapi 1)
 
-> 기준: 2026-07-02, 브랜치 `chore/deps-update`(커밋 `c3adc1f`·`b04e93f`·`5887a60`). 서버 변경 상세는 [../history/2026-07-deps-upgrade.md](../history/2026-07-deps-upgrade.md).
+> 기준: 2026-07-02, 브랜치 `chore/deps-update`(커밋 `c3adc1f`·`b04e93f`·`5887a60`·`ed87433`). 서버 변경 상세는 [../history/2026-07-deps-upgrade.md](../history/2026-07-deps-upgrade.md).
 > **대상**: b-hub API(`api.gumyo.net`)를 호출하는 모든 FE 프로젝트. 프로젝트마다 아래 체크리스트를 1회씩 수행한다.
 
 ## 요약 — 무엇이 바뀌었나

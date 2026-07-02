@@ -1,9 +1,9 @@
 # 중앙 로깅 / 에러-이벤트 시스템 (`log_events`)
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error.ts`.
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `compose/ai.ts`(`logUsage` — AI 사용기록 직접 적재).
 
 > b-hub 전 도메인과 외부 디바이스(ESP32 등)가 공통으로 쓰는 **단일 에러·이벤트 저장소**.
-> 두 가지 입력 경로 — ① 디바이스가 직접 올리는 이벤트, ② 기존 모든 API 엔드포인트의 서버 측 4xx·5xx 자동 캡처 — 가 같은 `log_events` 테이블로 모인다.
+> 세 가지 입력 경로 — ① 디바이스가 직접 올리는 이벤트, ② 기존 모든 API 엔드포인트의 서버 측 4xx·5xx 자동 캡처, ③ 서버 측 도메인이 `logEventService.ingest` 로 직접 남기는 사용·이벤트 기록(에러가 아닌 성공 INFO 포함 — 현재 AI 도메인) — 가 같은 `log_events` 테이블로 모인다.
 
 ---
 
@@ -66,6 +66,10 @@
 - **재귀 없음**: 적재는 직접 DB write(앱을 다시 거치지 않음). 실패는 `.catch(captureException)` 에서 종료.
 - **자기참조 차단**: `/api/logs` 경로는 캡처를 skip(디바이스 수집 엔드포인트의 자기 에러 노이즈 방지).
 - **응답 비차단**: 미들웨어 전체가 try/catch 로 감싸여 절대 throw 하지 않음.
+
+### 도메인 직접 적재 (사용·이벤트 기록)
+
+위 자동 캡처(②)와 별개로, 서버 측 도메인은 HTTP 를 거치지 않고 `logEventService.ingest(...)` 를 직접 호출해 `log_events` 에 남길 수 있다 — 에러뿐 아니라 **성공 INFO(severity 20)** 도 적재하므로 이 테이블은 순수 에러 저장소가 아니다. 현재 사용처는 **AI 도메인**(`compose/ai.ts` 의 `logUsage`): `service='b-hub-ai'`·`category='ai'`·`source='server'` 로 완료(`AI_*_COMPLETED`, 20)·실패(`AI_*_FAILED`, 40)를 남긴다. 그 결과 성공 기록은 §5 상 7일 보관·Discord 없음, 실패 기록은 180일 보관 + Discord 알림(§4). 실패는 도메인이 재-throw 하므로 **같은 요청이 usage 행과 자동 캡처 HTTP 에러 행 2건**으로 남는다(두 행의 `service` 가 다르다 — usage 행은 `b-hub-ai`, 자동 캡처 행은 `serviceNameFromPath` 에 `/api/ai` 분기가 없어 폴백 `b-hub-api`). 적재 스키마·상세는 [domains/ai.md](./domains/ai.md) §사용기록 이 소유.
 
 > 접근 로그(`apiRequestLog`)·weather 레이트리밋 로그(`weatherApiLog`)는 별개 관심사로 **변경하지 않음**. 어드민 에러 위젯은 `log_events` 기준으로 추가됨.
 

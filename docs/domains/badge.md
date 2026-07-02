@@ -1,6 +1,6 @@
 # 배지(badge) 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `compose/shared.ts`, `route/index.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `compose/shared.ts`, `route/index.ts`
 
 ## 개요
 
@@ -64,6 +64,7 @@
 ### `GET /api/badge/fonts` 응답 (`badgeFontsResponseSchema`)
 
 - `{ local: [{ name, weights }], googleFontsSupported: boolean }`. 현재 `local` = `[{ name: 'Inter', weights: [400, 700] }, { name: 'Noto Sans KR', weights: [400, 700] }]`, `googleFontsSupported: true`(`font-loader.ts` 의 `getAvailableFonts`·`LOCAL_FONTS`).
+- 두 엔드포인트 모두 표준 `{ success, data }` 봉투를 쓰지 않는다: `/fonts` 는 `c.json(fonts)` 로 위 객체를 그대로, `/image` 는 PNG 바이트를 `Response` 로 직접 반환한다. 봉투 규약은 [hono-reference.md](../hono-reference.md) 참조.
 
 ## 핵심 흐름
 

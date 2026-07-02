@@ -1,6 +1,6 @@
 # calendar 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`, `lib/error-code.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
 
 ## 개요
 
@@ -52,7 +52,7 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | `user.timezone` | `varchar(64)`, 기본 `Asia/Seoul` | 이벤트/CalDAV ICS 의 TZID 근거 |
 
 - `rrule` 은 `RRuleType`(`freq`/`interval`/`count`/`until`(string)/`byDay`/`byMonth`/`byMonthDay`) JSON. DB 저장 시 `until` 은 ISO 문자열, 도메인 타입에서는 `Date` 로 변환된다.
-- 구독은 사용자당 1개다(`user_id` 기준, `createSubscription`/`insertSubscription` 이 기존 존재 시 재사용). `token`(CalDAV)·`ics_token`(ICS 피드)은 별개 토큰이다.
+- 구독은 사용자당 1개다(`user_id` 기준, `createSubscription`/`insertSubscription` 이 기존 존재 시 재사용). `token`(CalDAV)·`ics_token`(ICS 피드)은 별개 토큰이다. `name` 미지정 시 저장 기본값은 `'Schedule'`(`createSubscription`, 커밋 `15a29a6` 에서 `'My Calendar'`→`'Schedule'`). `name` 이 null 일 때의 표시 폴백은 ICS 피드가 `'My Calendar'`, CalDAV `displayname` 이 `'B-Calendar'` 로 서로 다르다.
 
 ## API 엔드포인트
 
@@ -74,7 +74,7 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | POST | `/api/calendar/groups` | 세션 | 그룹 생성. 201 |
 | PATCH | `/api/calendar/groups/:id` | 세션 | 그룹 수정 |
 | DELETE | `/api/calendar/groups/:id` | 세션 | 그룹 삭제(이벤트 있으면 거부). 204 |
-| GET | `/api/calendar/subscription` | 세션 | 구독 조회 → `token`/`icsToken`/`caldavUrl`/`icsUrl` |
+| GET | `/api/calendar/subscription` | 세션 | 구독 조회 → `token`/`icsToken`/`name`/`caldavUrl`/`icsUrl` |
 | POST | `/api/calendar/subscription` | 세션 | 구독 생성(있으면 기존 반환) |
 | POST | `/api/calendar/subscription/regenerate` | 세션 | CalDAV `token` 재발급 |
 | POST | `/api/calendar/subscription/regenerate-ics` | 세션 | `icsToken` 재발급 |
@@ -82,7 +82,7 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 
 ### CalDAV (`/caldav` mount, 구독 토큰 인증)
 
-`index.ts` 에서 `/api` 와 별개로 `/caldav` 최상위 마운트. 인증은 세션이 아니라 URL 경로의 구독 `token`(→ `resolveToken` 이 subscription 조회로 `userId` 해석). `securityExcludePaths` 에 `/caldav/`·`/.well-known/caldav` 가 포함돼 보안 미들웨어에서 제외된다.
+`index.ts` 에서 `/api` 와 별개로 `/caldav` 최상위 마운트. 인증은 세션이 아니라 URL 경로의 구독 `token`(→ `resolveToken` 이 subscription 조회로 `userId` 해석). `securityExcludePaths` 에 `/caldav/`·`/.well-known/caldav` 가 포함돼 보안 미들웨어에서 제외된다. `route/calendar/caldav.ts` 는 공용 에러 캐치 `route.use('*')` 외에 아래 method×path 조합 **24개 라우트**를 등록한다(트레일링 슬래시·`/default` 변형 포함).
 
 | Method | 전체 Path | 인증 | 설명 |
 |--------|-----------|------|------|
@@ -168,6 +168,7 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 - **all-day 는 UTC 자정 고정.** `combineDatetime`·`formatDateTimeICS` 가 `getUTC*` 로 처리 — 시간대 오프셋을 적용하지 않는다.
 - **ctag/sync-token 은 base36 타임스탬프.** `incrementCtag` = `Date.now().toString(36)`. 삭제 tombstone 의 `sync_token` 비교는 문자열 `gte` 다.
 - **PROPPATCH·MKCALENDAR 는 no-op.** 실제 프로퍼티 변경·컬렉션 생성 없이 성공 응답만 반환한다.
+- **free-busy 는 `OPAQUE` 이벤트만 집계.** compose `getFreeBusyEvents` 가 `transp = 'OPAQUE'` + 기간 겹침(`dtend >= start AND dtstart <= end`)으로 필터한다 → `TRANSPARENT` 이벤트는 바쁨에 안 잡힌다. `status = TENTATIVE` 는 `BUSY-TENTATIVE`, 그 외는 `BUSY` 로 표기(`getFreeBusy`).
 - **CalDAV 는 세션 미들웨어 밖.** 토큰이 곧 자격증명이므로 토큰 유출 = 캘린더 노출. `/caldav/`·`/.well-known/caldav` 는 `securityExcludePaths` 로 제외된다.
 
 ## 관련 문서

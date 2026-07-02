@@ -1,6 +1,6 @@
 # Hono SSR Admin Page — 핵심 레퍼런스
 
-> 기준: 2026-07-02 (chore/deps-update @ `5887a60`) 코드 검증. 다루는 코드: `tsconfig.json`, `page/index.ts`, `page/admin/index.ts`, `page/admin/components.tsx`, `page/admin/styles.ts`, `page/admin/guard.ts`, `page/admin/login.tsx`, `page/admin/dashboard.tsx`, `page/admin/format.ts`, `page/admin/pages/logs.tsx`, `page/home.tsx`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `tsconfig.json`, `page/index.ts`, `page/admin/index.ts`, `page/admin/components.tsx`, `page/admin/styles.ts`, `page/admin/guard.ts`, `page/admin/login.tsx`, `page/admin/dashboard.tsx`, `page/admin/format.ts`, `page/admin/pages/logs.tsx`, `page/home.tsx`, `page/policy.tsx`
 
 hyun-hub 어드민 페이지(`page/admin/`) 작성용 Hono 기능 요약. 어드민 페이지는 **CSR 없음, SSR JSX 전용**. 이 문서는 Hono 렌더링·폼·가드 패턴만 소유한다 — 어드민 기능 인벤토리는 [admin-features.md](./admin-features.md), 부트스트랩·계층·미들웨어 구성은 [architecture.md](./architecture.md), 불변 규칙은 [memory/stack-and-invariants.md](./memory/stack-and-invariants.md) 참조.
 
@@ -109,7 +109,7 @@ app.post('/:id/resolve', async (c) => {
 ## 7. 라우터 합치기 / basePath
 
 - (일반 Hono) `app.route('/admin', adminPages)`로 prefix 부여, `app.get(...).post(...)` 체이닝 가능.
-- 이 프로젝트 조립 체인: `createPage`(`page/index.ts`)가 `/admin`에 `createAdminRoute`를 mount → `createAdminRoute`(`page/admin/index.ts`)가 `/styles.css` · `/login` · 도메인별 `create*Route(baseDeps)`를 각각 `app.route(...)`로 mount. 각 도메인 `create*Route`는 `new Hono<AdminContext>()`를 반환한다(가드가 걸리는 14개 라우트). 최상위 `createAdminRoute`와 가드 없는 `createLoginRoute`는 타입 없는 `new Hono()`다.
+- 이 프로젝트 조립 체인: `createPage`(`page/index.ts`)가 `/admin`에 `createAdminRoute`를 mount → `createAdminRoute`(`page/admin/index.ts`)가 `/styles.css`는 `app.get` 직접 핸들러로, `/login` · 도메인별 `create*Route(baseDeps)`는 각각 `app.route(...)`로 mount. 각 도메인 `create*Route`는 `new Hono<AdminContext>()`를 반환한다(가드가 걸리는 17개 라우트 팩토리 — `pages/api.tsx`·`pages/ai.tsx`가 각 2·3개를 export하고 나머지 12파일은 1개씩; AI 프로바이더 라우트 `ai/providers`·`ai/sessions`·`ai/prompts` 포함). 최상위 `createAdminRoute`와 가드 없는 `createLoginRoute`는 타입 없는 `new Hono()`다.
 
 ## 8. 가드 미들웨어 — `requireAdminPage`
 
@@ -175,7 +175,7 @@ app.get('/styles.css', (c) => c.body(ADMIN_DESIGN_TOKENS_CSS, { headers: ADMIN_D
 | 공통 레이아웃 · 공용 UI 컴포넌트 | `page/admin/components.tsx` (`AdminShell`, `DataTable`, `Badge`, `Pagination`, `FilterBar`, `RowAction`, `Stat`) |
 | 정적 스타일(토큰 · 리셋 · 유틸 클래스) | `page/admin/styles.ts` (`ADMIN_DESIGN_TOKENS_CSS`, `ADMIN_DESIGN_TOKENS_CACHE_HEADERS`) |
 | 가드 · 컨텍스트 타입 | `page/admin/guard.ts` (`requireAdminPage`, `AdminContext`, `AdminSessionUser`) |
-| 쿼리/포맷 헬퍼 | `page/admin/format.ts` (`parseIntOr`, `parseDateStart`, `parseDateEnd`, `formatDate`, `truncate`, `formatBytes`, `clampPage`) |
+| 쿼리/포맷 헬퍼 | `page/admin/format.ts` (`parseIntOr`, `parseDateStart`, `parseDateEnd`, `formatDate`, `formatDateShort`, `truncate`, `formatBytes`, `maskToken`, `ynLabel`, `clampPage`) |
 | 페이지 라우트 | `page/admin/dashboard.tsx` · `page/admin/login.tsx` · `page/admin/pages/*.tsx` |
 | 어드민 라우트 합류 | `page/admin/index.ts` (`createAdminRoute`) |
 | 페이지 전체 합류 | `page/index.ts` (`createPage`) → root `index.ts`의 `createPage({ admin: { getSession, db, auth, triggerMailSync } })` |

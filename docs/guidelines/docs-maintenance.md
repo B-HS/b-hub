@@ -1,6 +1,6 @@
 # 문서 유지보수 계약 (docs maintenance)
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `docs/**`, `docs/PROCESS.md`, `AGENTS.md`, `CLAUDE.md`, `~/.claude/convention/ai-process.md`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `docs/**`, `docs/PROCESS.md`, `AGENTS.md`, `CLAUDE.md`, `~/.claude/convention/ai-process.md`
 
 ## 소유 범위
 
@@ -34,7 +34,7 @@
 | [domains/](../domains/) | 도메인별 문서(파일 맵·데이터 모델·엔드포인트·흐름·함정). 현재 11종: ai·auth·badge·blog·calendar·drive·logs·mail·resume·spotify·weather | `<domain>.md` 1도메인 1파일 |
 | [reference/](../reference/) | 전수 인벤토리 — `db-schema.md`(테이블·컬럼)·`api-endpoints.md`(전 라우트)·`env.md`(환경변수)·`lib-utilities.md`(lib/ 전수)·`shared-services.md`(service/shared 전수) | 주제별 1파일, 카운트·표 중심 |
 | [guidelines/](./) | 작업 유형별 절차 지침서(체크리스트). 이 문서 포함. 현재 8종: 신규 도메인 추가([add-domain.md](./add-domain.md))·엔드포인트 추가([add-endpoint.md](./add-endpoint.md))·DB 변경([db-schema-change.md](./db-schema-change.md))·어드민 페이지([admin-page.md](./admin-page.md))·외부 API 연동([external-api-integration.md](./external-api-integration.md))·에러/로깅([error-handling-and-logging.md](./error-handling-and-logging.md))·폴더별 지침([folder-guide.md](./folder-guide.md))·문서 유지보수(이 문서) | `<주제>.md` |
-| [quality-assurance/](../quality-assurance/) | 검증 체크리스트 — 머지 전 통과 기준([pre-merge-checklist.md](../quality-assurance/pre-merge-checklist.md))·엔드포인트 QA | `<주제>.md`, 체크박스 진행 추적 |
+| [quality-assurance/](../quality-assurance/) | 검증 체크리스트 — 머지 전 통과 기준([pre-merge-checklist.md](../quality-assurance/pre-merge-checklist.md))·엔드포인트 QA([endpoint-qa.md](../quality-assurance/endpoint-qa.md))·의존성 업그레이드 FE 소비자 영향 검수([fe-deps-impact-check.md](../quality-assurance/fe-deps-impact-check.md)) | `<주제>.md`, 체크박스 진행 추적 |
 | [memory/](../memory/) | 장기 기억 — 세션·에이전트가 바뀌어도 불변인 전제([stack-and-invariants.md](../memory/stack-and-invariants.md)) | 주제별 1파일 |
 | [history/](../history/) | 완료 작업 이력. PROCESS.md 완료분 이관처 | `YYYY-MM-<요약>.md` + [index.md](../history/index.md) 목록 |
 | [bug/](../bug/) | 버그 기록(증상·원인·해결) | `<요약>.md` + [index.md](../bug/index.md) 목록 — §7.1 |
@@ -64,6 +64,7 @@
 | 미들웨어 변경 (`middleware/*`) | [architecture.md](../architecture.md) (+ 인증이면 [reference/api-endpoints.md](../reference/api-endpoints.md) 인증 표기, 로그캡처면 [logging.md](../logging.md)) | 전역 파이프라인·인증 범례 |
 | 로깅·수집 (`middleware/log-capture.ts`, `route/logs/*`, `dto/logs/*`, `service/domain/logs/*`) | [logging.md](../logging.md) (+ 디바이스 수집 계약이면 [firmware-logging-contract.md](../firmware-logging-contract.md)) | 캡처 경로·수집 스키마·계약 |
 | 배포·빌드 (`vercel.json`, `package.json` scripts, `bunfig.toml`, `deploy/**`) | [deploy.md](../deploy.md) | 빌드·배포 대상·cron |
+| 의존성 major 업그레이드 (`package.json` dependencies, `bun.lock`) | [history/](../history/)(업그레이드 이력) (+ 외부 계약·검증 응답이 바뀌면 [quality-assurance/](../quality-assurance/) FE 소비자 영향 검수 — 표본 [fe-deps-impact-check.md](../quality-assurance/fe-deps-impact-check.md), 영향받는 [reference/](../reference/)·[domains/](../domains/)) | 버전·breaking 대응·소비자 영향 |
 | 테스트 러너·구조 (`bunfig.toml`, `tests/**` 구조) | [testing.md](../testing.md) | 러너·위치·작성 규약 |
 | 계층·스택·커밋 등 불변 규칙 변화 | [memory/stack-and-invariants.md](../memory/stack-and-invariants.md) + [AGENTS.md](../../AGENTS.md) | 전제·절대 규칙 |
 | 블로그 프론트 디자인 시스템 | [DESIGN.md](../DESIGN.md) | (이 집필 워크플로에선 수정 금지 — 소유만 명시) |
@@ -75,7 +76,7 @@
 ## 3. 문서 스타일 규칙
 
 - **언어·톤**: 한국어 문서체(개조식). 미사여구·자축·과장 금지. "완벽/잘 됨" 단정 금지. 코드로 확인한 사실만 기술한다.
-- **기준 인용 블록**: 문서 첫 줄 제목 바로 아래에 `> 기준: <커밋/날짜> 코드 검증. 다루는 코드: <경로 목록>` 1줄. 커밋 형식은 `dev @ <short-sha>`, 날짜 형식은 `YYYY-MM-DD`. "다루는 코드" 에는 그 문서가 사실을 뽑은 파일 경로를 전부 적는다.
+- **기준 인용 블록**: 문서 첫 줄 제목 바로 아래에 `> 기준: <커밋/날짜> 코드 검증. 다루는 코드: <경로 목록>` 1줄. 커밋 형식은 `<브랜치> @ <short-sha>`(주 검증 대상은 `dev`, 작업 브랜치면 그 브랜치명), 날짜 형식은 `YYYY-MM-DD`. "다루는 코드" 에는 그 문서가 사실을 뽑은 파일 경로를 전부 적는다.
 - **경로 표기**: 파일·디렉터리 경로는 레포 루트 상대경로를 인라인 코드(`route/blog/post.ts`)로. 인벤토리·매핑은 markdown 표로.
 - **중복 금지**: 다른 문서가 소유한 내용을 재서술하지 않고 상대경로 링크한다. 각 문서는 자기 소유 범위만 서술한다(소유 경계는 §1 지도).
 - **수치·고유명**: 카운트(테이블 수·에러코드 수·env 키 수 등)·엔드포인트 method/path·테이블·컬럼·함수·env·에러코드는 반드시 코드 Read 로 확인 후 기재. 확인 못 한 것은 쓰지 않는다.

@@ -1,6 +1,6 @@
 # mail 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/mail/*`, `route/mail/*`, `service/domain/mail/**`, `compose/mail.ts`, `lib/mail-utils.ts`, `lib/mail-thread.ts`, `scripts/backfill-thread-id.ts`, `db/schema.ts`(mail_* 테이블)
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/mail/*`, `route/mail/*`, `service/domain/mail/**`, `compose/mail.ts`, `lib/mail-utils.ts`, `lib/mail-thread.ts`, `lib/credential-crypto.ts`(자격증명 암복호화 공용 구현), `scripts/backfill-thread-id.ts`, `db/schema.ts`(mail_* 테이블)
 
 ## 개요
 
@@ -29,13 +29,14 @@
 | `service/domain/mail/providers/imap-provider.ts` | IMAP/SMTP 구현(UID 커서, References 헤더 fetch, mailbox lock) |
 | `service/domain/mail/mail-account.ts` | 계정 소유권 검증·CRUD·provider 획득·동기화 상태 갱신 |
 | `service/domain/mail/mail-oauth-connect.ts` | Gmail OAuth authURL 생성·콜백 처리(토큰 교환·userinfo·better-auth account upsert·mail 계정 연결) |
-| `service/domain/mail/mail-crypto.ts` | 자격증명 암호화(AES-256-GCM, v2=scrypt / v1=legacy) |
+| `service/domain/mail/mail-crypto.ts` | 공용 `lib/credential-crypto.ts` 를 감싸는 얇은 래퍼(`createMailCrypto = createCredentialCrypto`). 실제 암복호화 구현은 아래 lib 파일 |
 | `service/domain/mail/mail-sync.ts` | incremental/historical 동기화 오케스트레이션, sync log/session 관리 |
 | `service/domain/mail/mail-message.ts` | 조회·검색·스레드·플래그(별표 thread 전파)·이동·삭제·첨부 다운로드·발송/답장/전달 |
 | `service/domain/mail/mail-upload.ts` | 업로드 검증(MIME·magic bytes·확장자·크기)·저장·발송용 resolve |
 | `compose/mail.ts` | ServiceDb(Drizzle) 구현·의존성 조립. provider factory, OAuth 토큰 getter/refresher, rate limiter, storage adapter |
 | `lib/mail-utils.ts` | 헤더 sanitize, MIME encoded-word, 주소 포맷, `isBlockedHost`, `maskProviderError`, `extractMessageIdTokens`, `deriveThreadId`, `sanitizeFilename` |
 | `lib/mail-thread.ts` | `computeThreadIds`(union-find 스레드 그룹핑, 백필용) |
+| `lib/credential-crypto.ts` | 자격증명 암복호화 구현(AES-256-GCM, v2=scrypt / v1=legacy). mail·ai 도메인이 공유(mail=`MAIL_ENCRYPTION_KEY`, ai=`AI_ENCRYPTION_KEY`) |
 | `scripts/backfill-thread-id.ts` | 기존 메일 `thread_id` 일괄 백필 CLI |
 | `tests/…/mail*` | dto·route·service·provider·lib 테스트(하단 테스트 섹션) |
 
@@ -135,9 +136,10 @@
 - **업로드(`mail-upload.ts`)**: MIME 정규식 검증. inline 은 이미지 MIME 화이트리스트 + magic bytes + 10MB 제한, 일반 첨부는 위험 MIME/확장자 차단 + 25MB 제한. `mail/uploads/{userId}/{uuid}/{filename}` 로 저장하고 `mail_uploads` 기록. `resolveForSend(ids, userId)` 가 발송 시 스토리지에서 내용을 내려받아 `ComposeAttachment[]` 로 만든다.
 - **발송(`send`/`reply`/`forward`)**: `attachmentIds` 가 있으면 `resolveForSend` 로 첨부 해석 후 `provider.sendMessage`. Gmail 은 raw MIME(멀티파트, base64url)을 `/messages/send` 로, IMAP 은 nodemailer SMTP 로 전송. `reply` 는 원본 `messageIdHeader`→In-Reply-To, `referencesHeader`+`messageIdHeader`→References 를 세팅하고 제목 `Re:`. `forward` 는 원문 인용 + 제목 `Fwd:`.
 
-### 자격증명 암호화 (`mail-crypto.ts`)
+### 자격증명 암호화 (`lib/credential-crypto.ts`)
 
-- `encrypt` 는 항상 v2: 랜덤 salt(16)로 `scrypt`(N=16384) 키 파생 → AES-256-GCM(iv 12, tag 16) → `v2:` + base64(salt|iv|tag|ct).
+- 실제 구현은 공용 `lib/credential-crypto.ts` 의 `createCredentialCrypto` 에 있고, `mail-crypto.ts` 의 `createMailCrypto` 는 이를 그대로 감싼다(ai 도메인도 `AI_ENCRYPTION_KEY` 로 같은 구현을 재사용).
+- `encrypt` 는 항상 v2: 랜덤 salt(16)로 `scrypt`(N=16384, r=8, p=1) 키 파생 → AES-256-GCM(iv 12, tag 16) → `v2:` + base64(salt|iv|tag|ct).
 - `decrypt` 는 `v2:` 접두면 위 역순, 없으면 v1 legacy(키=encryptionKey 를 32바이트로 pad/truncate, base64 iv|tag|ct)로 복호화 → 구버전 데이터 호환.
 
 ### thread_id 백필 (`scripts/backfill-thread-id.ts`)

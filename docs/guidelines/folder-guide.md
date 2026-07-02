@@ -1,6 +1,6 @@
 # 폴더별 작업 지침 (Folder Guide)
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `index.ts`, `package.json`, `tsconfig.json`, `vercel.json`, `bunfig.toml`, `drizzle.config.ts`, `prettier.config.cjs`, `.gitignore`, `route/index.ts`·`route/health.ts`·`route/resume/resume.ts`, `dto/resume/resume.ts`·`dto/common.ts`·`dto/error-response.ts`, `service/domain/resume/resume.ts`·`service/shared/api-token.ts`, `compose/index.ts`·`compose/types.ts`·`compose/resume.ts`·`compose/shared.ts`, `db/index.ts`·`db/schema.ts`, `middleware/index.ts`, `page/index.ts`·`page/admin/db.ts`, `masterdata/locations.json`, `scripts/backfill-thread-id.ts`, `deploy/**`, `tests/**`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `index.ts`, `package.json`, `tsconfig.json`, `vercel.json`, `bunfig.toml`, `drizzle.config.ts`, `prettier.config.cjs`, `.gitignore`, `route/index.ts`·`route/health.ts`·`route/resume/resume.ts`, `dto/resume/resume.ts`·`dto/common.ts`·`dto/error-response.ts`, `service/domain/resume/resume.ts`·`service/shared/api-token.ts`, `compose/index.ts`·`compose/types.ts`·`compose/resume.ts`·`compose/shared.ts`, `db/index.ts`·`db/schema.ts`, `middleware/index.ts`, `page/index.ts`·`page/admin/db.ts`, `masterdata/locations.json`, `scripts/backfill-thread-id.ts`, `deploy/**`, `tests/**`
 
 이 문서는 **최상위 폴더·루트 설정 파일별 "여기에 무엇을 두고, 어떻게 쓰고, 바꿀 때 무엇을 함께 손대나"의 정본**이다. 각 폴더의 전수 인벤토리(테이블·엔드포인트·env·유틸 목록)와 도메인 로직은 [reference/](../reference/) 와 [domains/](../domains/) 가 소유하므로 여기서 재나열하지 않고 링크한다. 계층 경계·부트스트랩·불변 규칙은 [architecture.md](../architecture.md) 와 [memory/stack-and-invariants.md](../memory/stack-and-invariants.md) 가 정본이다.
 
@@ -106,7 +106,7 @@
 ## `route/`
 
 - **역할**: HTTP 경계. DTO 검증·인증(HOF/미들웨어)·`null → createAppError` 변환·응답 봉투 직렬화. Drizzle 를 모른다.
-- **배치 규칙**: 도메인별 하위 폴더(`auth`·`blog`·`calendar`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`) + 최상위 단일 라우트(`badge.ts`·`health.ts`) + 조립부(`index.ts`). 비즈니스 로직·DB 쿼리 금지 — 그건 `service/`·`compose/`. 검증 스키마는 여기 두지 않고 `dto/` 에서 import.
+- **배치 규칙**: 도메인별 하위 폴더(`ai`·`auth`·`blog`·`calendar`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`) + 최상위 단일 라우트(`badge.ts`·`health.ts`) + 조립부(`index.ts`). 비즈니스 로직·DB 쿼리 금지 — 그건 `service/`·`compose/`. 검증 스키마는 여기 두지 않고 `dto/` 에서 import.
 - **작성 컨벤션** (근거: `route/resume/resume.ts`, `route/index.ts`)
   - 팩토리 `createXxxRoute(deps) => new Hono()`. `deps` 는 서비스 + `getSession`(필요 시) 타입.
   - 각 핸들러 = `describeRoute({ tags, summary, responses: { 200, ...errorResponses([...ErrorCode]) } })` + `validator('query'|'json', zSchema)` + `withErrorHandling(async (c) => ...)`.
@@ -127,7 +127,7 @@
 ## `dto/`
 
 - **역할**: Zod 스키마 전용. 요청 검증(라우트 `validator`) + 타입(`z.infer`) + OpenAPI(`errorResponses`). 별도 validator 클래스 없음.
-- **배치 규칙**: 도메인별 하위 폴더(`blog`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`) + 최상위 공통·비폴더 도메인(`badge.ts`·`calendar-*.ts`·`common.ts`·`error-response.ts`). 공통 스키마(`idParamSchema`·`paginationQuerySchema`·`searchQuerySchema`·`timestampSchema`)는 `common.ts`. 스키마만 두고 로직(변환 이상의 가공)은 `service/` 로.
+- **배치 규칙**: 도메인별 하위 폴더(`ai`·`blog`·`drive`·`logs`·`mail`·`resume`·`spotify`·`weather`) + 최상위 공통·비폴더 도메인(`badge.ts`·`calendar-*.ts`·`common.ts`·`error-response.ts`). 공통 스키마(`idParamSchema`·`paginationQuerySchema`·`searchQuerySchema`·`timestampSchema`)는 `common.ts`. 스키마만 두고 로직(변환 이상의 가공)은 `service/` 로.
 - **작성 컨벤션** (근거: `dto/resume/resume.ts`, `dto/common.ts`, `dto/error-response.ts`)
   - 네이밍: `*CreateSchema`·`*UpdateSchema`·`*ListQuerySchema` + `z.infer` 타입(`*Input`·`*Query`). 타입은 손으로 적지 않고 `z.infer<typeof schema>` 로 유도.
   - 쿼리 파라미터는 `z.coerce.number()...default(...)` 로 문자열 강제변환. 목록 상한은 `.max(...)`.

@@ -1,6 +1,6 @@
 # 공유 서비스(service/shared) 레퍼런스
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
 
 ## 개요
 
@@ -18,14 +18,14 @@
 |------|--------|------|------------|--------|
 | `auth-provider.ts` | `createAuthProvider` | better-auth 인스턴스(OAuth·세션·admin) | `composeShared` → 전역(`auth`, `getSession`) | 없음 |
 | `api-token.ts` | `createApiTokenService`, `hashToken` | API 토큰 발급·검증·폐기 | `composeShared` → 전역(`apiTokenService`) | `api-token.test.ts` |
-| `storage.ts` | `createStorageService` | R2/S3 객체 저장(L1) | `composeShared` → blog·mail·drive, storage-lifecycle `l1` | `storage.test.ts` |
+| `storage.ts` | `createStorageService` | R2/S3 객체 저장(L1) | `composeShared` → blog·mail·drive·ai, storage-lifecycle `l1` | `storage.test.ts` |
 | `gdrive-storage.ts` | `createGdriveStorageService` | Google Drive 저장(L3) | `composeShared`(lazy `initGdriveStorage`) → drive | `gdrive-storage.test.ts` |
 | `storage-lifecycle.ts` | `createStorageLifecycleService` | L1↔L3 티어 이동(축출/승격) | `composeDrive` 만 | `storage-lifecycle.test.ts` |
 | `cache.ts` | `createCache<T>` | 인메모리 LRU+TTL 캐시(제네릭) | `composeShared`(badge), `composeSpotify`(album art) | `cache.test.ts` |
 | `redis-cache.ts` | `redisCache`(싱글톤) | Redis + 30초 인메모리 write-through | `service/domain/weather/kma-api.ts` 직접 import | `redis-cache.test.ts` |
 | `image-processor.ts` | `createImageProcessor` | sharp 기반 이미지 변환(webp/png/resize) | `composeShared` → blog·drive | `image-processor.test.ts` |
-| `image-generator.ts` | `createImageGenerator` | satori→resvg(WASM) PNG 생성 | `composeShared` → badgeService | `image-generator.test.ts` |
-| `font-loader.ts` | `createFontLoader` | 로컬(@fontsource)·Google 폰트 로드 | `composeShared` → badgeService | `font-loader.test.ts` |
+| `image-generator.ts` | `createImageGenerator` | satori→resvg(WASM) PNG 생성 | `composeShared` → badgeService · blog 썸네일 라우트(`route/index.ts` → `createThumbnailRoute`) | `image-generator.test.ts` |
+| `font-loader.ts` | `createFontLoader` | 로컬(@fontsource)·Google 폰트 로드 | `composeShared` → badgeService · blog 썸네일 라우트(`route/index.ts` → `createThumbnailRoute`) | `font-loader.test.ts` |
 | `icon-loader.ts` | `createIconLoader` | 로컬·원격 아이콘 로드(SSRF·SVG 새니타이즈) | `composeShared` → badgeService | `icon-loader.test.ts` |
 | `markdown.ts` | `createMarkdownService` | 마크다운→HTML + HTML 새니타이즈 | 미배선(테스트만) | `markdown.test.ts` |
 | `notification.ts` | `createNotificationService` | Discord/일반 웹훅 POST | 미배선(테스트만) | `notification.test.ts` |
@@ -35,9 +35,10 @@
 
 - `composeShared(core)` 가 생성해 반환하는 것: `auth`, `getSession`, `apiTokenService`, `storageService`, `imageProcessor`, `imageGenerator`, `fontLoader`, `badgeService`, `gdriveStorageService`(항상 `null` 플레이스홀더 — 실제 인스턴스는 `initGdriveStorage` 로 지연 생성), `initGdriveStorage`, `getGdriveAccessToken`. (`compose/shared.ts:133-145`)
 - `compose/index.ts` 의 도메인 주입(스프레드 병합 전):
-  - `composeBlog({ ...core, storageService, imageProcessor })` (`compose/index.ts:19`)
-  - `composeMail({ ...core, storageService })` (`compose/index.ts:22`, `ComposeMailArgs`)
-  - `composeDrive({ ...core, storageService, imageProcessor, gdriveStorageService: null, initGdriveStorage })` (`compose/index.ts:26`)
+  - `composeBlog({ ...core, storageService, imageProcessor })` (`compose/index.ts:20`)
+  - `composeMail({ ...core, storageService })` (`compose/index.ts:23`, `ComposeMailArgs`)
+  - `composeDrive({ ...core, storageService, imageProcessor, gdriveStorageService: null, initGdriveStorage })` (`compose/index.ts:27`)
+  - `composeAi({ ...core, storageService, logEventService })` (`compose/index.ts:34`, `ComposeAiArgs`) — `storageService` 를 `aiStorageAdapter`(첨부 업로드/삭제/URL/다운로드)로 래핑해 소비(`compose/ai.ts:217-224`). `AI_ENCRYPTION_KEY` 없으면 `{}` 반환(미조립). AI 도메인 상세 [../domains/ai.md](../domains/ai.md).
   - `composeWeather`·`composeLogs`·`composeSpotify`·`composeResume`·`composeCalendar` 는 `core`(`{db, env}`)만 받는다 — 공유 서비스 주입 없음.
 - `badgeService` 는 별도 도메인 compose 없이 `composeShared` 내부에서 `imageGenerator`·`fontLoader`·`iconLoader`·`badgeCache` 를 조합해 만든다(`compose/shared.ts:82-89`). 이미지/배지 서비스 4종은 사실상 badge 도메인 전용 소비자다.
 
@@ -85,7 +86,7 @@
 - 에러: `STORAGE_UPLOAD_FAILED`, `STORAGE_DELETE_FAILED`, `STORAGE_PRESIGN_FAILED`(모두 `lib/error-code.ts` 등록).
 - env(주입값, `composeShared` 경유): `R2_END_POINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`(기본 `'blog-cloud'`), `R2_CUSTOM_DOMAIN` 또는 `R2_CUSTOME_DOMAIN`(오탈자 키 폴백, 기본 `https://blogimg.gumyo.net`). S3Client 는 `region: 'auto'` 로 `composeShared` 에서 생성.
 - 팩토리 시그니처: `createStorageService({ s3, bucket, cdnDomain })`.
-- 주입: `composeShared` → `storageService` → blog·mail·drive; storage-lifecycle 의 `l1`.
+- 주입: `composeShared` → `storageService` → blog·mail·drive·ai(첨부); storage-lifecycle 의 `l1`.
 - 테스트: `tests/service/shared/storage.test.ts`.
 
 ### gdrive-storage.ts

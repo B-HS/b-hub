@@ -1,6 +1,6 @@
 # 테스트 (Testing)
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `bunfig.toml`, `package.json`, `tsconfig.json`, `tests/**`(dto·lib·middleware·page·route·service), `tests/page/admin/helpers.ts`, 대표 테스트 `tests/route/blog/post.test.ts`·`tests/page/admin/blog.test.ts`·`tests/service/domain/mail/mail-sync.test.ts`·`tests/dto/blog/post.test.ts`·`tests/middleware/require-auth.test.ts`·`tests/service/domain/weather/kma-api.test.ts`·`tests/lib/with-error-handling.test.ts`·`tests/service/domain/mail/providers/imap-provider.test.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `bunfig.toml`, `package.json`, `tsconfig.json`, `tests/**`(dto·lib·middleware·page·route·service), `tests/page/admin/helpers.ts`, 대표 테스트 `tests/route/blog/post.test.ts`·`tests/page/admin/blog.test.ts`·`tests/service/domain/mail/mail-sync.test.ts`·`tests/dto/blog/post.test.ts`·`tests/middleware/require-auth.test.ts`·`tests/service/domain/weather/kma-api.test.ts`·`tests/lib/with-error-handling.test.ts`·`tests/service/domain/mail/providers/imap-provider.test.ts`·`tests/service/domain/ai/providers/anthropic-provider.test.ts`
 
 ## 개요
 
@@ -38,7 +38,7 @@
 | `bun test --coverage` | 커버리지 포함(= `bun run test:coverage`) |
 | `bun run typecheck` | 타입체크(= `tsc --noEmit`). `bunx tsc --noEmit` 로도 실행 |
 
-- `tsconfig.json` 이 루트에 있어 `tsc --noEmit` 이 소스+테스트 전체를 타입체크한다.
+- `tsconfig.json` 의 `exclude` 에 `tests` 가 있어 `tsc --noEmit` 은 소스 트리만 타입체크한다(테스트 파일은 제외 — `bun test` 로만 실행된다).
 
 ---
 
@@ -128,7 +128,7 @@ expect(togglePostFlag).toHaveBeenCalledWith(1, 'isPublished')
 
 | 방식 | 언제 | 예시 |
 |------|------|------|
-| **의존성 주입** | 서비스 팩토리가 `fetchFn` 등 외부 호출을 주입받도록 설계된 경우(선호) | `tests/service/domain/weather/kma-api.test.ts` — `createKmaApiService({ apiKey, fetchFn })` 에 mock `fetchFn` 주입, 성공/HTTP오류/네트워크오류/타임아웃·URL 파라미터를 `fetchFn.mock.calls[0][0]` 로 검증 |
+| **의존성 주입** | 서비스 팩토리가 `fetchFn` 등 외부 호출을 주입받도록 설계된 경우(선호) | `tests/service/domain/weather/kma-api.test.ts` — `createKmaApiService({ apiKey, fetchFn })` 에 mock `fetchFn` 주입, 성공/HTTP오류/네트워크오류/타임아웃·URL 파라미터를 `fetchFn.mock.calls[0][0]` 로 검증. AI 프로바이더 3종(`createAnthropicProvider`·`createCodexProvider`·`createOllamaProvider`)도 동일하게 `fetchFn` 주입으로 검증(`tests/service/domain/ai/providers/*.test.ts`) |
 | **`mock.module`** | SUT 가 모듈을 직접 import 해 주입 불가한 경우(3개 파일) | `tests/service/domain/mail/providers/imap-provider.test.ts`(`imapflow`·`nodemailer`), `tests/service/domain/weather/kma-api.test.ts`(`redis-cache`), `tests/service/shared/redis-cache.test.ts`(`ioredis`) |
 
 - `mock.module(...)` 은 **SUT import 전에** 등록돼야 한다. `kma-api.test.ts` 는 최상위에서 `mock.module('.../redis-cache', ...)` 를 먼저 실행하고 `const { createKmaApiService } = await import('.../kma-api')` 로 동적 import 해 순서를 보장한다.

@@ -1,6 +1,6 @@
 # DB 스키마 전수 레퍼런스
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
 
 ## 개요
 
@@ -24,13 +24,13 @@
 ### 컬럼 타입·기본값 관례
 
 - **시각 컬럼**: 대부분 `timestamp(col, { fsp: 3 })` + `.defaultNow().notNull()`, `updatedAt` 은 추가로 `.$onUpdate(() => new Date())`. 레거시 블로그 계열과 `calendar_event.dtstart/dtend/dtstamp`·`calendar_subscription.last_accessed_at` 은 `datetime`(기본값 없음 — 앱이 값 설정). `weather_current`/`weather_ultra`/`weather_short`/`weather_api_log` 는 `timestamp`(fsp 없음), `log_events.occurred_at/resolved_at` 은 `datetime({ fsp: 3 })`.
-- **PK 타입**: better-auth 4테이블·`image_assets`·`messages`·calendar 4테이블·`drive_folders` 는 `varchar(36)`(UUID). 대부분의 도메인 테이블은 `int().autoincrement()`. `log_events` 는 `bigint({ mode: 'number' }).autoincrement()`. 순수 조인 테이블(`post_tags`, `message_images`, `message_likes`, `message_bookmarks`, `follows`)은 PK 없이 조합 unique 만 둔다.
-- **특수 타입**: `json().$type<...>()`(mail 주소 4컬럼, `calendar_event.rrule/exdate/categories`, `log_events.details`), 타입 미지정 plain `json()`(`resumes.data`), `mysqlEnum`(`calendar_event.status`/`transp`), `longtext`(`mail_messages.body_html/body_text`), `customType` 정의 `mediumblob`(`cloud_assets.thumbnail_blob`), `bigint({ mode: 'number' })`(`user.storage_quota_bytes`, `cloud_assets.size_bytes`, `log_events.id`), `tinyint`(`calendar_event.priority`/`sequence`), `smallint`(`log_events.severity`/`retry_count`).
+- **PK 타입**: better-auth 4테이블·`image_assets`·`messages`·calendar 4테이블·`drive_folders`·`ai_sessions` 는 `varchar(36)`(UUID). 대부분의 도메인 테이블은 `int().autoincrement()`. `log_events`·`ai_messages` 는 `bigint({ mode: 'number' }).autoincrement()`. 순수 조인 테이블(`post_tags`, `message_images`, `message_likes`, `message_bookmarks`, `follows`)은 PK 없이 조합 unique 만 둔다.
+- **특수 타입**: `json().$type<...>()`(mail 주소 4컬럼, `calendar_event.rrule/exdate/categories`, `log_events.details`, `ai_models.metadata`, `ai_sessions.prompt_ids`), 타입 미지정 plain `json()`(`resumes.data`), `mysqlEnum`(`calendar_event.status`/`transp`), `longtext`(`mail_messages.body_html/body_text`, `ai_messages.content`), `customType` 정의 `mediumblob`(`cloud_assets.thumbnail_blob`), `bigint({ mode: 'number' })`(`user.storage_quota_bytes`, `cloud_assets.size_bytes`, `log_events.id`, `ai_messages.id`, `ai_attachments.message_id`), `tinyint`(`calendar_event.priority`/`sequence`), `smallint`(`log_events.severity`/`retry_count`).
 
 ### 관계(FK) 관례
 
-- FK 는 `.references(() => X.y, { onDelete })` 로 선언. `onDelete` 는 사용자·소유 계층 자식이면 `cascade`(예: `*.user_id → user.id`, `mail_accounts→folders→messages→attachments`), nullable 참조/로그면 `set null`(`weather_api_log.key_id/user_id`, `image_assets.uploaded_by`, `calendar_event.group_id`).
-- **DB 제약 없는 소프트 참조**(컬럼만 존재, `.references` 없음): `messages.replyToId`/`retweetOfId`(self), `mail_folders.parentId`(self), `mail_sync_logs.folderId`, `mail_sync_sessions.folderId`, `drive_folders.parentId`(self), `cloud_assets.folderId`(→`drive_folders`), `mail_accounts.betterAuthAccountId`·`spotify_accounts.betterAuthAccountId`(→ better-auth `account.id`).
+- FK 는 `.references(() => X.y, { onDelete })` 로 선언. `onDelete` 는 사용자·소유 계층 자식이면 `cascade`(예: `*.user_id → user.id`, `mail_accounts→folders→messages→attachments`), nullable 참조/로그면 `set null`(`weather_api_log.key_id/user_id`, `image_assets.uploaded_by`, `calendar_event.group_id`, `ai_sessions.provider_id`).
+- **DB 제약 없는 소프트 참조**(컬럼만 존재, `.references` 없음): `messages.replyToId`/`retweetOfId`(self), `mail_folders.parentId`(self), `mail_sync_logs.folderId`, `mail_sync_sessions.folderId`, `drive_folders.parentId`(self), `cloud_assets.folderId`(→`drive_folders`), `mail_accounts.betterAuthAccountId`·`spotify_accounts.betterAuthAccountId`(→ better-auth `account.id`), `ai_attachments.messageId`(→`ai_messages.id`).
 
 ## 마이그레이션 없음 — `db:push` 워크플로
 
@@ -141,7 +141,7 @@
 | 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
 |------|------|------|------|------|------|
 | `drive_folders` | `driveFolders` | `id`(PK varchar36), `user_id`, `parent_id`(소프트 self), `name` (6) | `idx`(user), `idx`(user_parent) | `user_id → user.id` (cascade) | `compose/drive.ts` |
-| `cloud_assets` | `cloudAssets` | `id`(PK int), `user_id`, `s3_key`, `original_name`, `mime_type`, `size_bytes`(bigint), `file_hash`, `folder_id`(소프트), `thumbnail_blob`(mediumblob), `is_public`, `upload_status`(기본 `ready`), `upload_token`, `local_path`, `gdrive_file_id`, `storage_tiers`(기본 `L1`), `access_count`, `last_viewed_at` (19) | uq(`user_id`,`file_hash`)(중복 업로드 방지); 인덱스 5개(`user`, `user_created`, `folder`, `storage_tiers`, `access_count`) | `user_id → user.id` (cascade) | `compose/drive.ts` |
+| `cloud_assets` | `cloudAssets` | `id`(PK int), `user_id`, `s3_key`, `original_name`, `mime_type`, `size_bytes`(bigint), `file_hash`, `folder_id`(소프트), `thumbnail_blob`(mediumblob), `is_public`, `upload_status`(기본 `ready`), `upload_token`, `local_path`, `gdrive_file_id`, `storage_tiers`(기본 `L1`), `access_count`, `last_viewed_at` (19) | `s3_key` unique; uq(`user_id`,`file_hash`)(중복 업로드 방지); 인덱스 5개(`user`, `user_created`, `folder`, `storage_tiers`, `access_count`) | `user_id → user.id` (cascade) | `compose/drive.ts` |
 | `storage_lifecycle_logs` | `storageLifecycleLogs` | `id`(PK), `asset_id`, `action`, `from_tier`, `to_tier`, `reason` (7) | `idx_storage_lifecycle_logs_asset` | `asset_id → cloud_assets.id` (cascade) | `compose/drive.ts` (write 트리거: `service/shared/storage-lifecycle.ts` via ServiceDb) |
 
 ## logs (2)
@@ -162,7 +162,7 @@
 | `ai_providers` | `aiProviders` | `id`(PK int), `user_id`, `provider`, `auth_type`, `credentials`(암호화 text), `status`(기본 active), `status_detail`, `display_name`, `last_used_at`, `last_refreshed_at`, `models_fetched_at` (13) | uq(`user_id`,`provider`); `idx_ai_providers_user` | `user_id → user.id` (cascade) | `compose/ai.ts` |
 | `ai_models` | `aiModels` | `id`(PK int), `provider_id`, `model_id`, `display_name`, `metadata`(json), `fetched_at` (7) | uq(`provider_id`,`model_id`); `idx_ai_models_provider` | `provider_id → ai_providers.id` (cascade) | `compose/ai.ts` |
 | `ai_prompts` | `aiPrompts` | `id`(PK int), `user_id`, `name`, `description`, `stage`(기본 system), `content`(text), `feature_key`, `sort_order`, `is_active` (11) | `idx_ai_prompts_user`, `idx_ai_prompts_user_feature`(user_id,feature_key) | `user_id → user.id` (cascade) | `compose/ai.ts` |
-| `ai_sessions` | `aiSessions` | `id`(PK varchar36), `user_id`, `provider_id`(소프트 set null), `provider`, `model_id`, `title`, `feature_key`, `prompt_ids`(json), `provider_id`, `last_message_at` (11) | `idx_ai_sessions_user`, `idx_ai_sessions_user_last`(user_id,last_message_at) | `user_id → user.id` (cascade); `provider_id → ai_providers.id` (set null) | `compose/ai.ts` |
+| `ai_sessions` | `aiSessions` | `id`(PK varchar36), `user_id`, `provider_id`(nullable), `provider`, `model_id`, `title`, `feature_key`, `prompt_ids`(json), `last_message_at` (11) | `idx_ai_sessions_user`, `idx_ai_sessions_user_last`(user_id,last_message_at) | `user_id → user.id` (cascade); `provider_id → ai_providers.id` (set null) | `compose/ai.ts` |
 | `ai_messages` | `aiMessages` | `id`(PK bigint), `session_id`, `role`, `content`(longtext), `model_id`, `input_tokens`, `output_tokens`, `duration_ms` (9) | `idx_ai_messages_session_created`(session_id,created_at) | `session_id → ai_sessions.id` (cascade) | `compose/ai.ts` |
 | `ai_attachments` | `aiAttachments` | `id`(PK int), `user_id`, `message_id`(bigint 소프트), `filename`, `mime_type`, `size_bytes`, `r2_key` (8) | `r2_key` unique; `idx_ai_attachments_user`, `idx_ai_attachments_message` | `user_id → user.id` (cascade) | `compose/ai.ts` |
 

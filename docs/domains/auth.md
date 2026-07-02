@@ -1,6 +1,6 @@
 # 인증 · 보안 (auth) — 횡단 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `service/shared/auth-provider.ts` · `service/shared/api-token.ts` · `route/auth/oauth.ts` · `route/auth/token.ts` · `lib/with-auth.ts` · `lib/token-utils.ts` · `lib/rate-limit.ts` · `lib/with-rate-limit.ts` · `lib/hmac-state.ts` · `lib/url-validator.ts` · `lib/sensitive-filter.ts` · `middleware/require-*.ts` · `middleware/security-headers.ts` · `page/admin/guard.ts` · `db/schema.ts`(user·session·account·verification·api_token 등)
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `service/shared/auth-provider.ts` · `service/shared/api-token.ts` · `route/auth/oauth.ts` · `route/auth/token.ts` · `lib/with-auth.ts` · `lib/token-utils.ts` · `lib/rate-limit.ts` · `lib/with-rate-limit.ts` · `lib/hmac-state.ts` · `lib/url-validator.ts` · `lib/sensitive-filter.ts` · `middleware/require-*.ts` · `middleware/security-headers.ts` · `page/admin/guard.ts` · `db/schema.ts`(user·session·account·verification·api_token 등)
 
 이 문서는 도메인 하나가 아니라 **b-hub 전 도메인에 걸치는 인증·인가·보안 메커니즘**을 소유한다. 도메인별 데이터/로직은 각 도메인 문서, 어드민 화면은 [../admin-features.md](../admin-features.md), 디바이스 키 수집/쿼터는 [../logging.md](../logging.md) 참조.
 
@@ -26,7 +26,7 @@ b-hub 은 단일 세션 체계가 아니라 **용도별 6종의 자격증명**�
 
 ## 2. better-auth 구성 (`service/shared/auth-provider.ts`)
 
-`createAuthProvider(deps)` 가 `betterAuth(...)` 인스턴스를 만든다. 조립은 `compose/shared.ts`(`composeShared`)에서 env 를 주입.
+`createAuthProvider(deps)` 가 `betterAuth(...)` 인스턴스를 만든다(설정을 `const options: BetterAuthOptions` 로 조립 후 `betterAuth(options)`). 조립은 `compose/shared.ts`(`composeShared`)에서 env 를 주입. **반환 타입만 `: Auth` 로 명시**한다(코드베이스의 "반환타입 미명시" 규칙 예외 — better-auth 1.6 타입 안정성·`AuthProvider = ReturnType<...>` 유도용). `deps.isProduction` 은 compose 가 `env.NODE_ENV === 'production'` 으로 주입한다(auth-provider 는 `process.env` 를 직접 읽지 않음).
 
 - `baseURL`: `deps.baseUrl`(= `env.BASE_URL ?? 'http://localhost:9999'`)
 - `secret`: `env.BETTER_AUTH_SECRET`
@@ -45,7 +45,7 @@ trustedOrigins = [...new Set([...ALWAYS_TRUSTED_ORIGINS, ...(env.TRUSTED_ORIGINS
 ```
 
 - 세 서브도메인 와일드카드는 **하드코딩 상수**로 항상 신뢰. env `TRUSTED_ORIGINS`(콤마 구분)를 추가 병합하고 `Set` 으로 중복 제거.
-- `advanced.crossSubDomainCookies`: `enabled` 는 **`NODE_ENV === 'production'` 일 때만**, `domain: '.gumyo.net'`. 즉 프로덕션에서 `*.gumyo.net` 간 세션 쿠키 공유(`.hyns.dev`·`.seok.dev` 는 크로스서브도메인 쿠키 대상 아님).
+- `advanced.crossSubDomainCookies`: `enabled: deps.isProduction`(= **프로덕션일 때만**, compose 가 `env.NODE_ENV === 'production'` 주입), `domain: '.gumyo.net'`. 즉 프로덕션에서 `*.gumyo.net` 간 세션 쿠키 공유(`.hyns.dev`·`.seok.dev` 는 크로스서브도메인 쿠키 대상 아님).
 
 ### 2.2 세션 정규화 (`compose/shared.ts`)
 
@@ -139,26 +139,32 @@ Hono `use()` 형 미들웨어. 통과 시 `c.set('user', ...)` 로 컨텍스트�
 
 ### 6.2 적용 (`with-rate-limit.ts`)
 
-`withRateLimit({ checkLimit })(handler)` 는 **인증된 핸들러를 감싸는** HOF(2번째 인자 `user` 를 받음 → `withAuth` 안쪽에 합성).
+`withRateLimit({ checkLimit, pathKey? })(handler)` 는 **인증된 핸들러를 감싸는** HOF(2번째 인자 `user` 를 받음 → `withAuth` 안쪽에 합성).
 
-- 키는 `user.id`, 경로는 `c.req.path` 로 `checkLimit(user.id, path)` 호출.
+- 키는 `user.id`, 경로는 `deps.pathKey ?? c.req.path` 로 `checkLimit(user.id, path)` 호출. `pathKey` 를 주면 실제 URL 대신 고정 문자열로 카운트(AI 라우트가 `:sessionId` 같은 가변 경로를 묶으려고 사용 — §6.3).
 - 응답 헤더 `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` 설정.
 - `!allowed` 이면 `RATE_LIMIT_EXCEEDED`(429).
 
 ### 6.3 적용 지점 전수
 
-`createRateLimiter` 인스턴스화는 코드 전체에서 **`compose/mail.ts` 1곳뿐**:
+`createRateLimiter` 인스턴스화는 코드 전체에서 **`compose/mail.ts` · `compose/ai.ts` 2곳**(AI 프로바이더 시스템 신설로 추가):
 
 ```
 mailRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20 })
 mailCheckLimit  = (key, path) => mailRateLimiter.checkLimit(`mail:${key}:${path}`)
+
+aiRateLimiter   = createRateLimiter({ windowMs: 60_000, maxRequests: 30 })
+aiCheckLimit    = (key, path) => aiRateLimiter.checkLimit(`ai:${key}:${path}`)
 ```
 
-- 즉 **사용자·경로별 60초당 20회**. 실제 키 문자열 = `mail:{userId}:{path}`.
-- `route/index.ts` 가 `mailCheckLimit` 을 mail messages / mail sync 라우트에 주입 → 실제로 `withRateLimit` 이 걸리는 엔드포인트는 두 개:
+- **mail: 사용자·경로별 60초당 20회**(키 = `mail:{userId}:{path}`). `route/index.ts` 가 `mailCheckLimit` 을 주입 → `withRateLimit` 이 걸리는 엔드포인트 2개:
   - `POST /api/mail/sync`(동기화 트리거, `route/mail/sync.ts`)
   - `POST /api/mail/messages/send`(메일 발송, `route/mail/message.ts`)
-- 두 라우트 모두 `deps.checkLimit` 미주입 시엔 레이트리밋 없이 동작하도록 삼항 분기(방어).
+- **ai: 사용자·pathKey별 60초당 30회**(키 = `ai:{userId}:{pathKey}`, pathKey 고정문자열로 가변 경로 묶음 §6.2). `route/index.ts` 가 `aiCheckLimit` 을 주입 → `withRateLimit` 이 걸리는 엔드포인트 3개:
+  - `POST /api/ai/sessions/:sessionId/messages`(채팅 전송, pathKey `ai:chat:send`, `route/ai/chat.ts`)
+  - `POST /api/ai/completions`(단발 completion, pathKey `ai:chat:completion`, `route/ai/chat.ts`)
+  - `POST /api/ai/attachments`(첨부 업로드, pathKey `ai:attachment:upload`, `route/ai/attachment.ts`)
+- 모든 라우트가 `deps.checkLimit` 미주입 시엔 레이트리밋 없이 동작하도록 삼항 분기(방어).
 
 ### 6.4 함정 / 구분
 
@@ -252,7 +258,7 @@ better-auth 소셜 로그인과 별개로, **mail(Gmail)·spotify 계정 연결 
 |------|------|------|
 | `UNAUTHORIZED` | 401 | 세션 없음(`withAuth`/`withAdmin`/`requireAuth`/로컬 requireAdmin) |
 | `FORBIDDEN` | 403 | 세션은 있으나 비관리자 |
-| `RATE_LIMIT_EXCEEDED` | 429 | `withRateLimit` 초과(mail) |
+| `RATE_LIMIT_EXCEEDED` | 429 | `withRateLimit` 초과(mail·ai, §6.3) |
 | `API_TOKEN_INVALID` | 401 | `withApiToken`/`requireApiToken`(§4.3 미연결) |
 | `WEATHER_KEY_INVALID` / `WEATHER_KEY_RATE_LIMIT` | 401 / 429 | weather 키 |
 | `SPOTIFY_KEY_INVALID` | 401 | spotify API 키(`X-Spotify-Key`) |
@@ -280,7 +286,7 @@ better-auth 소셜 로그인과 별개로, **mail(Gmail)·spotify 계정 연결 
 
 - **미연결 가드**: `requireAuth`/`requireAdmin`/`requireApiToken` 미들웨어와 `withApiToken` HOF, `apiTokenService.validate` 는 정의·테스트만 됨. 현 런타임 인증은 전부 `getSession` 경유(§4.3).
 - **API 토큰 반쪽**: 발급·관리(세션 보호)는 되지만 `X-API-Token` 헤더 인증 경로가 라우트에 안 붙어 있음.
-- **레이트리밋은 인메모리·프로세스 로컬**: 서버리스에서 전역 보장 아님. mail 2개 엔드포인트에만 적용(§6.3).
+- **레이트리밋은 인메모리·프로세스 로컬**: 서버리스에서 전역 보장 아님. mail 2개 + ai 3개 엔드포인트에 적용(§6.3).
 - **도메인 allowlist 3종 불일치**: better-auth / CORS / 리다이렉트가 각각 다른 목록. `seok.dev` 는 better-auth 만(§10).
 - **크로스서브도메인 쿠키는 프로덕션 + `.gumyo.net` 한정**(§2.1).
 - **HMAC state 시크릿 = `BETTER_AUTH_SECRET` 재사용**: 이 값 부재/회전 시 세션과 OAuth connect state 가 동시에 영향(§7).

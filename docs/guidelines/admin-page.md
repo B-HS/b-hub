@@ -1,6 +1,6 @@
 # 어드민 페이지 추가
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `page/admin/index.ts`, `page/admin/nav.ts`, `page/admin/guard.ts`, `page/admin/components.tsx`, `page/admin/format.ts`, `page/admin/db.ts`, `page/admin/dashboard.tsx`, `page/admin/pages/logs.tsx`, `page/admin/pages/blog.tsx`, `db/schema.ts`, `tests/page/admin/helpers.ts`, `tests/page/admin/index.test.ts`, `tests/page/admin/dashboard.test.ts`, `tests/page/admin/resumes.test.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `page/admin/index.ts`, `page/admin/nav.ts`, `page/admin/guard.ts`, `page/admin/components.tsx`, `page/admin/format.ts`, `page/admin/db.ts`, `page/admin/dashboard.tsx`, `page/admin/pages/logs.tsx`, `page/admin/pages/blog.tsx`, `page/admin/pages/ai.tsx`, `db/schema.ts`, `tests/page/admin/helpers.ts`, `tests/page/admin/index.test.ts`, `tests/page/admin/dashboard.test.ts`, `tests/page/admin/resumes.test.ts`, `tests/page/admin/ai.test.ts`
 
 새 어드민 SSR 페이지를 추가하는 절차만 다룬다. Hono 렌더링·폼·가드 메커니즘의 정본은 [../hono-reference.md](../hono-reference.md), 이미 존재하는 페이지의 기능 인벤토리는 [../admin-features.md](../admin-features.md), 테스트 실행·작성 관례는 [../testing.md](../testing.md), 계층·부트스트랩은 [../architecture.md](../architecture.md) 가 소유한다. 여기서는 그 문서들을 순서대로 엮는 체크리스트와 `page/admin/db.ts`·페이지 파일·라우트 배선·nav·대시보드·테스트 스텁의 구체 절차를 소유한다. 정본 예시는 최근 추가된 Log Events 페이지(`/admin/logs`)의 실제 파일 흐름을 인용한다.
 
@@ -222,7 +222,7 @@ const createApp = (overrides = {}) => {
 ### 8.3 라우트 번들 스윕 등록
 
 - `tests/page/admin/index.test.ts` 는 `adminRoutes` 배열의 모든 list 경로에 대해 관리자 200 / 미인증 303 / 비관리자 403 을 스윕한다. **새 페이지의 list 경로를 이 배열에 추가**한다.
-- 코드 사실(주의): 최신 Log Events 페이지는 아직 전용 `logs.test.ts` 가 없고, `index.test.ts` 의 `adminRoutes` 스윕 목록에도 `/admin/logs` 가 빠져 있다. 새 페이지를 추가할 때는 전용 테스트 작성과 스윕 목록 등록을 함께 한다.
+- 코드 사실(주의): 스윕 목록(`adminRoutes`, 현재 31개 경로)이 일부 최신 페이지를 누락하고 있다 — Log Events(`/admin/logs`)와 AI 3종(`/admin/ai/providers`·`/admin/ai/sessions`·`/admin/ai/prompts`)이 빠져 있다. 전용 테스트는 엇갈린다: Log Events 는 아직 `logs.test.ts` 가 없고, AI 는 `ai.test.ts`(list 200 / 미인증 303 / 비관리자 403 + POST 액션)가 있으나 스윕 목록엔 미등록이다. 새 페이지를 추가할 때는 전용 테스트 작성과 스윕 목록 등록을 함께 한다.
 - 검증: `bun test tests/page/admin/<x>.test.ts` 로 부분 실행 + `bunx tsc --noEmit`.
 
 ---

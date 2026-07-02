@@ -10,6 +10,7 @@
 | `c3adc1f` | `better-auth` 1.4.18→**1.6.23**                                                                                                                                                                                                           |
 | `b04e93f` | `hono` 4.11.9→**4.12.27**                                                                                                                                                                                                                 |
 | `5887a60` | `zod` 3.25.76→**4.3.6** + `hono-openapi` 0.4.8→**1.3.0** + `@hono/standard-validator` 0.2.3 추가, `zod-openapi`·`@hono/zod-validator` 제거                                                                                                |
+| `ed87433` | 범위 내 패치 후속 반영 — `nodemailer` 9.0.3 · `zod` 4.4.3                                                                                                                                                                                 |
 
 ## breaking 대응 상세
 

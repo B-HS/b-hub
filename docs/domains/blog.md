@@ -1,6 +1,6 @@
 # blog 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, `service/shared/markdown.ts`, `service/shared/image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
 
 ## 개요
 
@@ -32,6 +32,8 @@
 | `service/domain/blog/blog-image.ts` | 이미지 에셋 서비스: HMAC 업로드 토큰 발급/검증, prepare/complete/list/delete (`createBlogImageService`) |
 | `compose/blog.ts` | 위 서비스의 `*ServiceDb` 를 Drizzle 로 인라인 구현·주입 + `categoryDb`/`tagDb`/`adminDb` (`composeBlog`) |
 | `compose/types.ts` | `ComposeBlogArgs`(= core + `storageService` + `imageProcessor`) |
+| `service/shared/image-generator.ts` | satori→resvg(WASM)로 PNG 생성(공유). **썸네일 라우트가 사용**(`route/index.ts` 가 `imageGenerator` 주입). 상세 [../reference/shared-services.md](../reference/shared-services.md) |
+| `service/shared/font-loader.ts` | 폰트 로드(공유). 썸네일이 `Noto Sans KR` 400/700 로드에 사용. 상세 [../reference/shared-services.md](../reference/shared-services.md) |
 | `service/shared/markdown.ts` | 마크다운→HTML 변환·HTML sanitize·strip/truncate 유틸 (공유). **현재 blog 런타임 미배선** |
 | `service/shared/image-processor.ts` | sharp 래퍼 toWebp/toPng/resize/getMetadata(10MB 상한, 공유). blog 런타임에서 직접 호출 안 함(→ upload-server) |
 | `route/index.ts` | `/blog/*` 마운트(아래 [엔드포인트](#api-엔드포인트)) |
@@ -170,7 +172,7 @@
 | `BLOG_POST_NOT_FOUND` | 게시글을 찾을 수 없습니다 | 게시글 상세/수정/삭제/썸네일 |
 | `BLOG_COMMENT_NOT_FOUND` | 댓글을 찾을 수 없습니다 | 댓글 수정/삭제(비소유자 포함) |
 
-- `BLOG_CATEGORY_NOT_FOUND` 는 `lib/error-code.ts` 에 정의돼 있으나 현재 blog 코드에서 사용되지 않는다.
+- `BLOG_CATEGORY_NOT_FOUND`·`BLOG_IMAGE_TOO_LARGE`(413)·`BLOG_IMAGE_INVALID_TYPE`(422) 는 `lib/error-code.ts` 에 `BLOG_*` 코드로 정의(+메시지/상태 매핑)돼 있으나 현재 blog 라우트/서비스 어디서도 throw 하지 않는다(정의만 존재, grep 확인). 이미지 검증/처리를 upload-server 에 위임하므로 이미지 관련 코드도 blog 런타임에서 발생하지 않는다.
 - `IMAGE_PROCESS_FAILED` 는 `service/shared/image-processor.ts` 에서만 throw(10MB 초과 등). blog 런타임은 이미지 처리를 직접 하지 않으므로 이 도메인 라우트에서는 발생하지 않는다.
 
 ## 테스트
@@ -180,7 +182,7 @@
 - DTO: `tests/dto/blog/post.test.ts`, `comment.test.ts`, `category.test.ts`, `tag.test.ts`, `message.test.ts`, `image.test.ts`
 - 라우트: `tests/route/blog/post.test.ts`, `comment.test.ts`, `category.test.ts`, `tag.test.ts`, `message.test.ts`, `image.test.ts`, `admin.test.ts` (thumbnail 전용 테스트는 없음)
 - 서비스: `tests/service/domain/blog/post.test.ts`, `comment.test.ts`, `message.test.ts`, `blog-image.test.ts`
-- 공유(참고): `tests/service/shared/markdown.test.ts`, `image-processor.test.ts`, `image-generator.test.ts`
+- 공유(참고): `tests/service/shared/markdown.test.ts`, `image-processor.test.ts`, `image-generator.test.ts`, `font-loader.test.ts`
 - SSR 어드민(참고): `tests/page/admin/blog.test.ts`
 
 ## 주의사항 / 함정

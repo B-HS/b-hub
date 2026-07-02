@@ -1,8 +1,8 @@
 # 아키텍처 (Architecture)
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `index.ts`, `compose/index.ts`·`compose/types.ts`·`compose/shared.ts`, `route/index.ts`, `middleware/*`, `lib/`(error-code·error-message·error·api-response·with-auth·with-error-handling·with-rate-limit·hono-types·env·log-service-name·sentry), `db/index.ts`, `page/index.ts`, `tsconfig.json`·`vercel.json`·`package.json`·`bunfig.toml`·`drizzle.config.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `index.ts`, `compose/index.ts`·`compose/types.ts`·`compose/shared.ts`·`compose/mail.ts`·`compose/ai.ts`, `route/index.ts`, `middleware/*`, `lib/`(error-code·error-message·error·api-response·with-auth·with-error-handling·with-rate-limit·hono-types·env·log-service-name·sentry), `db/index.ts`, `page/index.ts`, `tsconfig.json`·`vercel.json`·`package.json`·`bunfig.toml`·`drizzle.config.ts`
 
-Bun + Hono 단일 서비스. 하나의 `Hono` 앱을 부트스트랩(`index.ts`)에서 조립하고, 모든 도메인 의존성을 `compose()`로 한 번에 주입한다. 계층 경계는 **Route(HTTP) → Service(도메인) → ServiceDb(compose 의 Drizzle 구현)** 로 고정하며, Drizzle 쿼리는 `compose/` 에만 존재한다. 도메인별 엔드포인트·스키마·서비스 상세는 [domains/](./domains/) 와 [reference/](./reference/) 가 소유한다 — 이 문서는 전역 골격만 다룬다.
+Bun + Hono 단일 서비스. 하나의 `Hono` 앱을 부트스트랩(`index.ts`)에서 조립하고, 모든 도메인 의존성을 `compose()`로 한 번에 주입한다. 계층 경계는 **Route(HTTP) → Service(도메인) → ServiceDb(compose 의 Drizzle 구현)** 로 고정하며, Drizzle 쿼리는 원칙적으로 `compose/` 에 둔다(소수 키/토큰 서비스 등 직접 접근 예외는 [reference/db-schema.md](./reference/db-schema.md) 가 전수 나열). 도메인별 엔드포인트·스키마·서비스 상세는 [domains/](./domains/) 와 [reference/](./reference/) 가 소유한다 — 이 문서는 전역 골격만 다룬다.
 
 ---
 
@@ -100,7 +100,7 @@ return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume
 
 - **`composeShared(core)`** 가 먼저 생성하는 공용 의존성: `auth`(better-auth), `getSession`(세션 정규화 어댑터), `apiTokenService`, `storageService`(R2/S3), `imageProcessor`(sharp), `imageGenerator`(satori+resvg), `fontLoader`, `badgeService`, `gdriveStorageService`(`null` 플레이스홀더), `initGdriveStorage`, `getGdriveAccessToken`. 도메인 compose 는 core + 이 shared 산출물을 주입받는다.
 - **스프레드 병합**: `composed.postService`·`composed.mailSyncService`·`composed.logEventService` 처럼 도메인 접두 없이 평탄한 키로 노출된다. `createRouter(composed)` 와 `createPage` 가 이 평탄 객체에서 필요한 서비스를 꺼내 쓴다.
-- **`compose/types.ts`** 역할: 조립 인자 타입 정의. `Db = ReturnType<typeof getDb>`, `Env = ReturnType<typeof getEnv>`, `ComposeCoreArgs = { db, env }`, 그리고 도메인별 주입 요구를 표현하는 `ComposeBlogArgs`(+storage/imageProcessor), `ComposeMailArgs`(+storage), `ComposeDriveArgs`(+storage/imageProcessor/gdrive) 등. 각 도메인이 core 외에 무엇을 더 받는지 이 파일이 계약한다.
+- **`compose/types.ts`** 역할: 조립 인자 타입 정의. `Db = ReturnType<typeof getDb>`, `Env = ReturnType<typeof getEnv>`, `ComposeCoreArgs = { db, env }`, 그리고 도메인별 주입 요구를 표현하는 `ComposeBlogArgs`(+storage/imageProcessor), `ComposeMailArgs`(+storage), `ComposeDriveArgs`(+storage/imageProcessor/gdrive), `ComposeAiArgs`(+storage/logEventService) 등. 각 도메인이 core 외에 무엇을 더 받는지 이 파일이 계약한다.
 - **ServiceDb 인라인 구현**: 각 `compose/<domain>.ts` 가 도메인 ServiceDb 인터페이스를 Drizzle 로 구현해 `create*Service(...)` 에 주입한다. Service 는 순수 로직, 쿼리는 조립부에 격리. (도메인별 조립 상세는 [domains/](./domains/))
 
 ---
@@ -128,7 +128,7 @@ return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume
 ```
 withErrorHandling(
   withAuth({ getSession })(
-    withRateLimit({ checkLimit })(   // 메일 발송·증분 동기화 라우트에만
+    withRateLimit({ checkLimit })(   // 메일 발송·증분 동기화 + AI 채팅/completion/첨부 업로드 라우트
       async (c, user) => { ... }
     )
   )
@@ -202,12 +202,12 @@ AuthUser      = { id; name; email; role: string | null; image: string | null }
 | 방식 | 전달 | 구현 파일 | 적용 위치 | 비고 |
 |------|------|-----------|-----------|------|
 | 세션(better-auth) | 쿠키 | `getSession`(`compose/shared.ts`) + `withAuth`(`lib/with-auth.ts`) | 대부분 `/api` 라우트 | GitHub/Google OAuth, `role` 포함 정규화 |
-| 어드민 | 세션 + `role==='admin'` | `withAdmin`(`lib/with-auth.ts`); `requireAdminPage`(`page/admin/guard.ts`) | logs 관리(목록/purge/resolve), weather 키 한도 수정(`PATCH /:id/limit`), `/admin` SSR | blog tag/category/admin 은 라우트 내부 로컬 `requireAdmin` 헬퍼 사용. weather 키 목록/발급/삭제는 `withAdmin` 이 아니라 `withAuth`(일반 세션) |
+| 어드민 | 세션 + `role==='admin'` | `withAdmin`(`lib/with-auth.ts`); `requireAdminPage`(`page/admin/guard.ts`) | logs 관리(로그 목록/purge/resolve·디바이스 키 관리), weather 키 한도 수정(`PATCH /:id/limit`), `/admin` SSR | blog tag/category/admin 은 라우트 내부 로컬 `requireAdmin` 헬퍼 사용. weather 키 목록/발급/삭제는 `withAdmin` 이 아니라 `withAuth`(일반 세션) |
 | API 토큰 | `X-API-Token` 헤더 | `withApiToken`(`lib/with-auth.ts`) / `require-api-token.ts` | 없음(미적용) | `withApiToken` HOF·`require-api-token.ts` 미들웨어 **모두** 정의·테스트만, 라우트 미와이어 |
 | 디바이스 키 | `X-Device-Key` 헤더 | `requireDeviceKey`(`middleware/require-device-key.ts`) | `POST /api/logs`·`POST /api/logs/batch` 수집 | `validate` + 일일 `checkRateLimit`(`deviceId` 키). `deviceKeyId` 만 세팅, `user` 미세팅 |
 | weather 키 | `X-Weather-Key` 헤더 | `requireWeatherKey`/`requireWeatherKeyNoLog`(`middleware/require-weather-key.ts`) | `/api/weather` 데이터 라우트 | rate limit + 요청 로깅(`logRequest`) |
 | spotify 위젯 토큰 | path `:token` | `spotifyWidgetTokenService.validate`(`route/spotify/playing.ts`) | `/api/spotify/playing/:token*` | 세션 없이 공개, `security` 헤더 제외 경로 |
-| rate limit | `user.id` | `withRateLimit`(`lib/with-rate-limit.ts`) | 메일 발송(`POST /api/mail/messages/send`)·증분 동기화(`POST /api/mail/sync`)만 | `X-RateLimit-*` 헤더 응답. `compose/mail.ts` 의 `mailRateLimiter`(60초/20회) |
+| rate limit | `user.id` | `withRateLimit`(`lib/with-rate-limit.ts`) | 메일 발송(`POST /api/mail/messages/send`)·증분 동기화(`POST /api/mail/sync`), AI 채팅(`POST /api/ai/sessions/:id/messages`)·completion(`POST /api/ai/completions`)·첨부 업로드(`POST /api/ai/attachments`) | `X-RateLimit-*` 헤더 응답. `compose/mail.ts` `mailRateLimiter`(60초/20회) / `compose/ai.ts` `aiRateLimiter`(60초/30회). 버킷 키 `{도메인}:{userId}:{경로}` 로 분리(AI 는 `pathKey` 고정: `ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload`) |
 
 - `getSession` 어댑터: `auth.api.getSession({ headers })` 결과를 `{ user: { id, name, email, role, image } }` 로 정규화. Route/HOF 는 이 정규화된 형태만 의존한다.
 - 미구성 서비스 방어: `createRouter` 가 각 의존성을 `stub()`(Proxy)/`stubFn()` 로 감싸, 미주입 서비스 호출 시 `SERVICE_NOT_CONFIGURED`(503) 를 던진다. 일부 서비스가 빠져도 나머지 라우트는 동작.

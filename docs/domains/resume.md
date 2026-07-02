@@ -1,6 +1,6 @@
 # 이력서(Resume) 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `dto/resume/resume.ts`, `dto/resume/resume-data.ts`, `route/resume/resume.ts`, `service/domain/resume/resume.ts`, `compose/resume.ts`, `route/index.ts`, `index.ts`, `db/schema.ts`, `page/admin/pages/resumes.tsx`, `page/admin/db.ts`, `lib/error-code.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/resume/resume.ts`, `dto/resume/resume-data.ts`, `route/resume/resume.ts`, `service/domain/resume/resume.ts`, `compose/resume.ts`, `compose/types.ts`, `route/index.ts`, `index.ts`, `db/schema.ts`, `page/admin/pages/resumes.tsx`, `page/admin/db.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -20,7 +20,7 @@
 | `compose/resume.ts` | DI — `composeResume`가 `ResumeServiceDb`를 Drizzle 쿼리(`schema.resumes`)로 인라인 구현 |
 | `compose/types.ts` | `ComposeResumeArgs = ComposeCoreArgs`(`{ db, env }`) |
 | `route/index.ts` | `/resume` 프리픽스로 라우트 마운트(`stub`으로 감쌈) |
-| `index.ts` | `/api`에 API 라우터 마운트, `/admin`에 SSR 페이지 마운트 |
+| `index.ts` | `/api`에 API 라우터 마운트 + 루트(`''`)에 SSR 페이지 라우터(`createPage`) 마운트 → 어드민은 `page/index.ts`에서 `/admin` 프리픽스 |
 | `db/schema.ts` | `resumes` 테이블 정의 (`Resume`/`NewResume` 타입) |
 | `page/admin/pages/resumes.tsx` | 어드민 SSR 페이지 — 목록/상세/공개토글/삭제 |
 | `page/admin/db.ts` | 어드민 전용 쿼리 — `listResumes`·`getResume`·`toggleResumeVisibility`·`deleteResume` |

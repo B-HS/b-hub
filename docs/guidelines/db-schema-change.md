@@ -1,6 +1,6 @@
 # DB 스키마 변경 지침
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `db/schema.ts`, `drizzle.config.ts`, `package.json`, `.gitignore`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `db/schema.ts`, `drizzle.config.ts`, `package.json`, `.gitignore`
 
 ## 개요
 
@@ -39,12 +39,12 @@
 
 ### 물리명 ↔ TS 필드
 
-- **신규 계열**(better-auth·mail·spotify·calendar·drive·logs·weather·`image_assets` 등)은 물리 컬럼 **snake_case** + TS 필드 **camelCase**(예: `error_code`→`errorCode`).
+- **신규 계열**(better-auth·mail·spotify·calendar·drive·logs·weather·ai·`image_assets` 등)은 물리 컬럼 **snake_case** + TS 필드 **camelCase**(예: `error_code`→`errorCode`).
 - **레거시 블로그 계열**(`posts`·`comments`·`messages` 등)은 물리 컬럼명 자체가 camelCase — 신규 테이블에서 따라하지 말 것. 상세는 [../reference/db-schema.md](../reference/db-schema.md) §공통 규칙.
 
 ### 컬럼 타입·기본값
 
-- **PK**: 대부분 `int().autoincrement()`. 대량 로그는 `bigint({ mode: 'number' }).autoincrement()`(`log_events`). UUID PK 는 `varchar(36)`(better-auth 4테이블·`image_assets`·`messages`·calendar·`drive_folders`). 순수 조인 테이블은 PK 없이 조합 unique 만.
+- **PK**: 대부분 `int().autoincrement()`. 대량 로그·메시지는 `bigint({ mode: 'number' }).autoincrement()`(`log_events`·`ai_messages`). UUID PK 는 `varchar(36)`(better-auth 4테이블·`image_assets`·`messages`·calendar·`drive_folders`·`ai_sessions`). 순수 조인 테이블은 PK 없이 조합 unique 만.
 - **타입 파생은 손으로 적지 않는다** — 스키마 하단에서 `typeof X.$inferSelect` / `$inferInsert` 로 export(예: `LogEvent`, `NewLogEvent`).
 
 ### timestamp(3) vs datetime(3) 선택 기준
@@ -80,7 +80,7 @@
 | **json 컬럼 리터럴 default 불가** | json 은 리터럴 default 를 못 붙임(표현식 default 는 MySQL 8.0.13+) | `log_events.details` 는 **default 없이 nullable**. 배열 초기값이 필요한 mail json(`to_addresses`/`cc_addresses`/`bcc_addresses`)은 Drizzle `.default([])` 로 선언 → 이런 컬럼 추가 시 `db:generate` 로 생성 DDL 을 반드시 확인 |
 | **타입 매핑** | Postgres 타입은 직접 대응 없음 | `bigserial`→`bigint AUTO_INCREMENT`, `timestamptz`→`timestamp(3)`/`datetime(3)`, `jsonb`→`json`, `inet`→`varchar(45)` |
 
-- 특수 타입 참고: `longtext`(대용량 본문, `mail_messages.body_html/body_text`), `mediumblob`(`customType` 로 정의, `cloud_assets.thumbnail_blob`), `mysqlEnum`(`calendar_event.status`/`transp`), `json().$type<...>()`(타입 지정 json).
+- 특수 타입 참고: `longtext`(대용량 본문, `mail_messages.body_html/body_text`·`ai_messages.content`), `mediumblob`(`customType` 로 정의, `cloud_assets.thumbnail_blob`), `mysqlEnum`(`calendar_event.status`/`transp`), `json().$type<...>()`(타입 지정 json).
 
 ## 파괴적 변경 (drop / rename)
 

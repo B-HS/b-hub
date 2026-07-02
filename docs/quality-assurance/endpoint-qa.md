@@ -1,6 +1,6 @@
 # 엔드포인트 QA 체크리스트 (신규/변경 라우트)
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/health.ts`, `route/badge.ts`, `route/mail/sync.ts`, `route/mail/message.ts`, `lib/with-error-handling.ts`, `lib/with-auth.ts`, `lib/with-rate-limit.ts`, `lib/rate-limit.ts`, `lib/api-response.ts`, `lib/error.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/log-service-name.ts`, `dto/error-response.ts`, `middleware/index.ts`, `middleware/log-capture.ts`, `middleware/error-handler.ts`, `middleware/require-device-key.ts`, `tests/route/health.test.ts`, `package.json`, `index.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/health.ts`, `route/badge.ts`, `route/mail/sync.ts`, `route/mail/message.ts`, `route/ai/chat.ts`, `route/ai/attachment.ts`, `lib/with-error-handling.ts`, `lib/with-auth.ts`, `lib/with-rate-limit.ts`, `lib/rate-limit.ts`, `compose/mail.ts`, `compose/ai.ts`, `lib/api-response.ts`, `lib/error.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/log-service-name.ts`, `dto/error-response.ts`, `middleware/index.ts`, `middleware/log-capture.ts`, `middleware/error-handler.ts`, `middleware/require-device-key.ts`, `tests/route/health.test.ts`, `package.json`, `route/index.ts`, `index.ts`
 
 ## 범위
 
@@ -75,12 +75,12 @@
 
 - 새 에러는 **3파일 모두** 추가한다: `lib/error-code.ts`(`ERROR_CODE` 상수 + `ErrorCode` union) → `lib/error-message.ts`(`ERROR_MESSAGE` 한국어) → `lib/error.ts`(`STATUS_MAP` 상태코드).
 - `STATUS_MAP` 누락 시 `getStatusCode` 가 500 fallback 이므로, 4xx 로 의도한 코드는 반드시 매핑을 추가한다.
-- 도메인 접두사 네이밍을 따른다(`BLOG_*`·`MAIL_*`·`DRIVE_*`·`LOG_*`, 공통은 `VALIDATION_ERROR`·`UNAUTHORIZED`·`FORBIDDEN`·`NOT_FOUND`·`RATE_LIMIT_EXCEEDED` 등).
+- 도메인 접두사 네이밍을 따른다(`BLOG_*`·`MAIL_*`·`DRIVE_*`·`AI_*`·`LOG_*`, 공통은 `VALIDATION_ERROR`·`UNAUTHORIZED`·`FORBIDDEN`·`NOT_FOUND`·`RATE_LIMIT_EXCEEDED` 등).
 
 ### 7. rate limit 필요성
 
 - 레이트리밋은 `createRateLimiter({windowMs,maxRequests})`(`lib/rate-limit.ts`, 인메모리 `Map`) + `withRateLimit({checkLimit})`(`lib/with-rate-limit.ts`) 로 건다. 초과 시 `X-RateLimit-*` 헤더와 함께 `RATE_LIMIT_EXCEEDED`(429).
-- 현재 실제 연결처는 **5개**: mail 2개(`POST /api/mail/messages/send`·`POST /api/mail/sync`, 키 `mail:{userId}:{path}`) + ai 3개(`POST /api/ai/sessions/:id/messages`·`POST /api/ai/completions`·`POST /api/ai/attachments`, `compose/ai.ts` 가 사용자당 고정 키 `ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload` 로 주입). `compose/mail.ts`·`compose/ai.ts` 둘 다 `windowMs:60_000, maxRequests:20`(mail)·`30`(ai). 라우트는 `deps.checkLimit` 유무로 분기(미주입 시 무제한).
+- 현재 실제 연결처는 **5개**: mail 2개(`POST /api/mail/messages/send`·`POST /api/mail/sync`) + ai 3개(`POST /api/ai/sessions/:id/messages`·`POST /api/ai/completions`·`POST /api/ai/attachments`). 저장키는 `withRateLimit` 이 `checkLimit(user.id, pathKey ?? c.req.path)` 로 만든다 — mail 라우트는 `pathKey` 없이 요청 경로를 써 `mail:{userId}:{c.req.path}`(`compose/mail.ts` `mailCheckLimit`), ai 라우트(`route/ai/{chat,attachment}.ts`)는 고정 `pathKey`(`ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload`)를 넘겨 `ai:{userId}:{pathKey}`(`compose/ai.ts` `aiCheckLimit`). 리미터는 mail·ai 둘 다 `windowMs:60_000`, `maxRequests` 는 mail 20·ai 30. 라우트는 `deps.checkLimit` 유무로 분기(미주입 시 무제한).
 - 판단 기준: 외부 API 호출·발송·업로드처럼 남용 시 비용/차단 위험이 있으면 검토. **저장소가 인메모리라 인스턴스 간 공유되지 않는다** — 서버리스 다중 인스턴스에선 인스턴스 국소 제한임을 감안한다.
 
 ### 8. 4xx·5xx log-capture 기록

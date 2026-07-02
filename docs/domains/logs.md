@@ -1,6 +1,6 @@
 # 로그(logs) 도메인
 
-> 기준: 2026-07-02 (dev @ `f20afcf`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/logs/device-key.ts`, `service/domain/logs/log-event.ts`, `service/domain/logs/device-key.ts`, `dto/logs/log-event.ts`, `dto/logs/device-key.ts`, `compose/logs.ts`, `middleware/require-device-key.ts`, `middleware/log-capture.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `route/index.ts`, `index.ts`, `middleware/index.ts`, `db/schema.ts`, `lib/error-code.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/logs/device-key.ts`, `service/domain/logs/log-event.ts`, `service/domain/logs/device-key.ts`, `dto/logs/log-event.ts`, `dto/logs/device-key.ts`, `compose/logs.ts`, `compose/types.ts`, `middleware/require-device-key.ts`, `middleware/log-capture.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `route/index.ts`, `index.ts`, `middleware/index.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -17,7 +17,7 @@
 | `service/domain/logs/device-key.ts` | 도메인 로직 — `createDeviceKeyService`(create/validate/checkRateLimit/revoke/listAll). 토큰은 `hashToken`(sha256) 저장, 24h 내 `log_events` 카운트로 `daily_limit` 레이트리밋 |
 | `dto/logs/log-event.ts` | Zod 스키마 — `logEventIngestSchema`·`logEventBatchSchema`·`logEventResolveSchema`·`logEventListQuerySchema`·`logEventResponseSchema`, `SEVERITY` 상수(DEBUG10~FATAL50), 이름/숫자 severity 변환 |
 | `dto/logs/device-key.ts` | Zod 스키마 — `deviceKeyCreateSchema`(deviceId/label optional), `deviceKeyResponseSchema` |
-| `compose/logs.ts` | DI — `composeLogs`가 `LogEventServiceDb`를 Drizzle(`schema.logEvents`)로 인라인 구현. `DISCORD_WEBHOOK_URL` 있으면 `service:errorCode` 키 60초 throttle `alerter` 주입 |
+| `compose/logs.ts` | DI — `composeLogs`가 `LogEventServiceDb`를 Drizzle(`schema.logEvents`)로 인라인 구현하고 `deviceKeyService`(Drizzle `db` 직접 주입)까지 조립. `DISCORD_WEBHOOK_URL` 있으면 `service:errorCode` 키 60초 throttle `alerter` 주입 |
 | `compose/types.ts` | `ComposeLogsArgs = ComposeCoreArgs`(`{ db, env }`) |
 | `middleware/require-device-key.ts` | 디바이스 인증 — `X-Device-Key` 헤더 검증 + 레이트리밋. 실패 시 `LOG_DEVICE_KEY_INVALID`(401)·`LOG_DEVICE_KEY_RATE_LIMIT`(429) |
 | `middleware/log-capture.ts` | 서버 자동 캡처 — `app.use('*')` post-response 미들웨어. `status >= 400`(단 `/api/logs` skip)이면 `captureServerError` fire-and-forget |

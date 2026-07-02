@@ -1,6 +1,6 @@
 # 신규 도메인 추가 지침
 
-> 기준: 2026-07-02 (dev @ `f6c65f3`) 코드 검증. 다루는 코드: `db/schema.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `dto/logs/log-event.ts`·`dto/logs/device-key.ts`, `service/domain/logs/log-event.ts`·`service/domain/logs/device-key.ts`, `compose/logs.ts`·`compose/types.ts`·`compose/index.ts`, `route/logs/log-event.ts`·`route/logs/device-key.ts`·`route/index.ts`, `middleware/require-device-key.ts`, `tests/dto/logs/log-event.test.ts`·`tests/service/domain/logs/log-event.test.ts`, `index.ts`, `drizzle.config.ts`, `package.json`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `db/schema.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `dto/logs/log-event.ts`·`dto/logs/device-key.ts`, `service/domain/logs/log-event.ts`·`service/domain/logs/device-key.ts`, `compose/logs.ts`·`compose/types.ts`·`compose/index.ts`, `route/logs/log-event.ts`·`route/logs/device-key.ts`·`route/index.ts`, `middleware/require-device-key.ts`, `tests/dto/logs/log-event.test.ts`·`tests/service/domain/logs/log-event.test.ts`, `index.ts`, `drizzle.config.ts`, `package.json`
 
 ## 목적 / 적용 시점
 
@@ -36,8 +36,8 @@
 | ② | 에러 3파일 | `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts` (코드·메시지·상태 각각 추가) | 동 3파일 `LOG_*` |
 | ③ | DTO | `dto/<domain>/*.ts` (Zod 스키마 + `z.infer` 타입) | `dto/logs/log-event.ts`·`dto/logs/device-key.ts` |
 | ④ | 서비스 | `service/domain/<domain>/*.ts` (`*ServiceDb` 타입 + `create*Service` 팩토리) | `service/domain/logs/log-event.ts` |
-| ⑤ | compose | `compose/<domain>.ts` 신규 + `compose/types.ts`·`compose/index.ts` 수정 | `compose/logs.ts`·`compose/types.ts:27`·`compose/index.ts:21,32` |
-| ⑥ | 라우트 | `route/<domain>/*.ts` 신규 + `route/index.ts` 수정 | `route/logs/log-event.ts`·`route/index.ts:318-332` |
+| ⑤ | compose | `compose/<domain>.ts` 신규 + `compose/types.ts`·`compose/index.ts` 수정 | `compose/logs.ts`·`compose/types.ts:28`·`compose/index.ts:22,40` |
+| ⑥ | 라우트 | `route/<domain>/*.ts` 신규 + `route/index.ts` 수정 | `route/logs/log-event.ts`·`route/index.ts:324-338` |
 | ⑦ | 미들웨어(선택) | `middleware/require-*.ts` (+ 필요 시 `middleware/index.ts`) | `middleware/require-device-key.ts` |
 | ⑧ | 테스트 | `tests/dto/<domain>/`·`tests/service/domain/<domain>/`·`tests/route/<domain>/` | `tests/dto/logs/`·`tests/service/domain/logs/` |
 | ⑨ | 어드민(선택) | `page/admin/*` → [admin-page.md](./admin-page.md) | — |
@@ -81,19 +81,19 @@
 
 ### ⑤ compose 배선 — `compose/<domain>.ts` + `compose/types.ts` + `compose/index.ts`
 
-- **정본 예시**: `compose/logs.ts`, `compose/types.ts:27`, `compose/index.ts:21,32`.
+- **정본 예시**: `compose/logs.ts`, `compose/types.ts:28`, `compose/index.ts:22,40`.
 - [ ] `compose/<domain>.ts` 신규: `compose<Domain>({ db, env }: Compose<Domain>Args)` 가 `<Domain>ServiceDb` 를 **Drizzle 로 인라인 구현**(`db.select/insert/update/delete(...)`)해 `create<Domain>Service({ db: <domain>Db, ... })` 에 주입하고, 도메인 서비스 객체를 반환한다(`compose/logs.ts:10-66`).
-- [ ] `compose/types.ts` 에 조립 인자 타입을 추가한다: core 만 필요하면 `export type Compose<Domain>Args = ComposeCoreArgs`(정본 `ComposeLogsArgs`, `compose/types.ts:27`). 공용 서비스(storage 등)가 더 필요하면 `ComposeBlogArgs`/`ComposeMailArgs` 처럼 `ComposeCoreArgs & { ... }` 로 계약한다.
-- [ ] `compose/index.ts` 에 배선한다: `import { compose<Domain> } ...` → **core → shared → domain** 순서 안에서 `const <domain> = compose<Domain>(core)`(shared 산출물이 필요하면 `{ ...core, storageService: shared.storageService }` 주입) → return 객체에 `...<domain>` 스프레드 병합(`compose/index.ts:6,21,32`). 병합 결과는 `composed.<serviceName>` 처럼 도메인 접두 없이 평탄한 키로 노출된다.
+- [ ] `compose/types.ts` 에 조립 인자 타입을 추가한다: core 만 필요하면 `export type Compose<Domain>Args = ComposeCoreArgs`(정본 `ComposeLogsArgs`, `compose/types.ts:28`). 공용 서비스(storage 등)가 더 필요하면 `ComposeBlogArgs`/`ComposeMailArgs` 처럼 `ComposeCoreArgs & { ... }` 로 계약한다. 다른 도메인 서비스가 필요하면 그 서비스 타입까지 넣는다(정본 `ComposeAiArgs = ComposeCoreArgs & { storageService; logEventService }`, `compose/types.ts:40-43` — ai 가 logs 의 `logEventService` 를 주입받는다).
+- [ ] `compose/index.ts` 에 배선한다: `import { compose<Domain> } ...` → **core → shared → domain** 순서 안에서 `const <domain> = compose<Domain>(core)`(shared 산출물이 필요하면 `{ ...core, storageService: shared.storageService }` 주입) → return 객체에 `...<domain>` 스프레드 병합(`compose/index.ts:6,22,40`). 병합 결과는 `composed.<serviceName>` 처럼 도메인 접두 없이 평탄한 키로 노출된다. 다른 도메인 서비스를 주입받는 도메인은 그 의존 도메인을 **먼저** 조립한다(정본: `ai` 가 `logs.logEventService` 를 받으므로 `logs` 를 `ai` 앞에서 조립, `compose/index.ts:22,34`).
 
 ### ⑥ 라우트 배선 — `route/<domain>/` + `route/index.ts`
 
-- **정본 예시**: `route/logs/log-event.ts`·`route/logs/device-key.ts`, `route/index.ts:318-332`.
+- **정본 예시**: `route/logs/log-event.ts`·`route/logs/device-key.ts`, `route/index.ts:324-338`.
 - [ ] `route/<domain>/*.ts` 신규: `create<Domain>Route(deps)` 팩토리가 `new Hono<AuthContext>()` 를 반환한다(`route/logs/log-event.ts:27-28`). 세션 의존은 `getSession: Parameters<typeof withAuth>[0]['getSession']` 로 타입을 유도한다(`route/logs/log-event.ts:24`).
 - [ ] 각 핸들러 = `describeRoute({ tags, summary, responses: { 200: {...}, ...errorResponses([...codes]) } })` + `validator('json'|'query', <schema>)` + HOF 합성. 값은 `c.req.valid('json' as never) as z.infer<typeof <schema>>` 로 꺼낸다.
 - [ ] **HOF 합성 순서**: 바깥 `withErrorHandling` → 안쪽 인증(`withAdmin`/`withAuth`). 예: `withErrorHandling(withAdmin({ getSession: deps.getSession })(async (c) => { ... }))`(`route/logs/log-event.ts:95-120`). 디바이스/도메인 키 미들웨어는 핸들러 앞 체인에 둔다(`describeRoute, requireDeviceKey({...}), validator, withErrorHandling(...)`, `route/logs/log-event.ts:30-45`).
 - [ ] "없음"은 서비스가 준 `null` 을 라우트가 `throw createAppError('...')` 로 변환한다. 응답은 봉투 헬퍼로만: `successResponse(data)` / `paginatedResponse(data, { page, limit, total })`. 목록은 row → 응답 shape 매핑 시 `Date` 를 `?.toISOString() ?? null` 로 직렬화한다(`route/logs/log-event.ts:99-118`).
-- [ ] `route/index.ts` 의 `createRouter` 에 마운트한다: `import { create<Domain>Route } ...` → `router.route('/<domain>', create<Domain>Route({ <service>: stub(deps.<service>), getSession: stubFn(deps.getSession) as never }))`. 각 의존성은 `stub()`/`stubFn()` 로 감싸 미주입 시 `SERVICE_NOT_CONFIGURED`(503) 를 던지게 한다(`route/index.ts:44-59,318-332`). 더 구체적인 접두사를 먼저 등록한다(정본은 `/logs/device-keys` 를 `/logs` 앞에 등록, `route/index.ts:318,325`). `index.ts` 가 이 라우터를 `app.route('/api', api)` 로 마운트하므로 최종 경로는 `/api/<domain>/...` 이다.
+- [ ] `route/index.ts` 의 `createRouter` 에 마운트한다: `import { create<Domain>Route } ...` → `router.route('/<domain>', create<Domain>Route({ <service>: stub(deps.<service>), getSession: stubFn(deps.getSession) as never }))`. 각 의존성은 `stub()`/`stubFn()` 로 감싸 미주입 시 `SERVICE_NOT_CONFIGURED`(503) 를 던지게 한다(`route/index.ts:50-65,324-338`). 더 구체적인 접두사를 먼저 등록한다(정본은 `/logs/device-keys` 를 `/logs` 앞에 등록, `route/index.ts:324,331`). `index.ts` 가 이 라우터를 `app.route('/api', api)` 로 마운트하므로 최종 경로는 `/api/<domain>/...` 이다.
 
 ### ⑦ 미들웨어 (필요 시)
 
