@@ -130,7 +130,7 @@ export { default } from './hub.js'
 - 함수 빌드는 buildCommand(번들 생성) **이후** 실행되므로 셔임의 `./hub.js` import 가 14MB 자가 번들을 가리킨다. 최종 함수 = 셔임 + 번들 + externals(@google/genai·cheerio) node_modules 트레이싱 — 기존 정상 토폴로지와 동일.
 - 셔임이 `../index.ts`(소스)가 아니라 번들을 가리키는 것이 핵심: 소스를 가리키면 원시 모듈 그래프 트레이싱으로 §2-2 의 exports 조건 불일치를 그대로 다시 밟는다.
 
-검증: fresh-clone 시뮬레이션(`rm api/hub.js` 후 `bunx vercel@54.21.1 build`) → `functions/api/index.func` 생성(셔임 원문 + `api/hub.js` 14MB + externals node_modules), TypeScript 단계·에러 없음, 로컬 실행 링킹 완주(env 검증 도달), `bunx tsc --noEmit` 0, `bun test` 2278 pass. 클라우드 배포 후 `/`·`/api/health`·`/admin` 스모크 통과.
+검증: fresh-clone 시뮬레이션(`rm api/hub.js` 후 `bunx vercel@54.21.1 build`) → `functions/api/index.func` 생성(셔임 원문 + `api/hub.js` 14MB + externals node_modules), TypeScript 단계·에러 없음, 로컬 실행 링킹 완주(env 검증 도달), `bunx tsc --noEmit` 0, `bun test` 2278 pass. 클라우드 최종 배포 `b-a24uv1u5c`(빌드 24초·에러 없음·`λ api/index` 단일 함수)에서 `/`·`/api/health` 스모크 통과. rollback 해제 후 api.gumyo.net 을 이 배포로 promote(사용자 수행), 도메인에서 `/`·`/api/health` 200 재확인 — **사건 종결**.
 
 ## 6. 재발 방지 — 앞으로 지킬 것
 
@@ -148,5 +148,6 @@ export { default } from './hub.js'
 - 실패(크래시): `b-9xpqh096i` (a6e0bbc) · `b-owokanq5i`/`b-bqssdk95o` (0ac4e0d) — 2026-07-08, CLI 54.19.0.
 - 실패(함수 0개·전 경로 404): `b-81m9dsgjr` (88ec15a, `framework: null` 만 적용) — 2026-07-09, CLI 54.21.1.
 - 동작하나 TS2303 잔존: `b-r4alz145p` (c005003, `.ts` 셔임) — 2026-07-09, CLI 54.21.1.
-- 관련 커밋: deps 업그레이드 `c70b372`~`ed87433`(특히 better-auth 1.6 `c3adc1f`), 무효했던 대응 `0ac4e0d`, 1차 수정 `e26ab62`, 2차 수정(`.ts` 셔임) `c005003`, 최종 수정(JS 셔임 + hub.js) — 이 문서와 같은 커밋.
+- 최종 정상: `b-a24uv1u5c` (09e13e1, JS 셔임 + hub.js) — 2026-07-09, CLI 54.21.1, 스모크 통과.
+- 관련 커밋: deps 업그레이드 `c70b372`~`ed87433`(특히 better-auth 1.6 `c3adc1f`), 무효했던 대응 `0ac4e0d`, 1차 수정 `e26ab62`, 2차 수정(`.ts` 셔임) `c005003`, 최종 수정(JS 셔임 + hub.js) `09e13e1`.
 - better-auth 1.6.23 기준. 분리 패키지: `@better-auth/{core,telemetry,utils,drizzle-adapter,kysely-adapter,memory-adapter}`.

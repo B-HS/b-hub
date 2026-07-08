@@ -1,6 +1,6 @@
 # 폴더별 작업 지침 (Folder Guide)
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `index.ts`, `package.json`, `tsconfig.json`, `vercel.json`, `bunfig.toml`, `drizzle.config.ts`, `prettier.config.cjs`, `.gitignore`, `route/index.ts`·`route/health.ts`·`route/resume/resume.ts`, `dto/resume/resume.ts`·`dto/common.ts`·`dto/error-response.ts`, `service/domain/resume/resume.ts`·`service/shared/api-token.ts`, `compose/index.ts`·`compose/types.ts`·`compose/resume.ts`·`compose/shared.ts`, `db/index.ts`·`db/schema.ts`, `middleware/index.ts`, `page/index.ts`·`page/admin/db.ts`, `masterdata/locations.json`, `scripts/backfill-thread-id.ts`, `deploy/**`, `tests/**`
+> 기준: 2026-07-09 (vercel 배포 계약 @ `09e13e1`) 코드 검증. 다루는 코드: `index.ts`, `api/index.js`, `package.json`, `tsconfig.json`, `vercel.json`, `bunfig.toml`, `drizzle.config.ts`, `prettier.config.cjs`, `.gitignore`, `route/index.ts`·`route/health.ts`·`route/resume/resume.ts`, `dto/resume/resume.ts`·`dto/common.ts`·`dto/error-response.ts`, `service/domain/resume/resume.ts`·`service/shared/api-token.ts`, `compose/index.ts`·`compose/types.ts`·`compose/resume.ts`·`compose/shared.ts`, `db/index.ts`·`db/schema.ts`, `middleware/index.ts`, `page/index.ts`·`page/admin/db.ts`, `masterdata/locations.json`, `scripts/backfill-thread-id.ts`, `deploy/**`, `tests/**`
 
 이 문서는 **최상위 폴더·루트 설정 파일별 "여기에 무엇을 두고, 어떻게 쓰고, 바꿀 때 무엇을 함께 손대나"의 정본**이다. 각 폴더의 전수 인벤토리(테이블·엔드포인트·env·유틸 목록)와 도메인 로직은 [reference/](../reference/) 와 [domains/](../domains/) 가 소유하므로 여기서 재나열하지 않고 링크한다. 계층 경계·부트스트랩·불변 규칙은 [architecture.md](../architecture.md) 와 [memory/stack-and-invariants.md](../memory/stack-and-invariants.md) 가 정본이다.
 
@@ -64,7 +64,7 @@
 ### `tsconfig.json`
 
 - **역할**: 컴파일러 설정. `jsx: react-jsx` + `jsxImportSource: hono/jsx`(어드민 SSR JSX), `strict`, `types: [bun-types]`.
-- **배치 규칙**: `include: **/*.ts` + `exclude: [node_modules, tests, dist, api, drizzle]` — `exclude` 에 `tests` 가 있어 `tsc --noEmit` 은 **소스만** 타입체크한다(테스트 전용 tsconfig 없음 → 테스트는 tsc 대상 아님, `bun test` 로만 실행). `api`/`drizzle`/`dist` 는 빌드 산출물이라 제외.
+- **배치 규칙**: `include: **/*.ts` + `exclude: [node_modules, tests, dist, api, drizzle]` — `exclude` 에 `tests` 가 있어 `tsc --noEmit` 은 **소스만** 타입체크한다(테스트 전용 tsconfig 없음 → 테스트는 tsc 대상 아님, `bun test` 로만 실행). `api`/`drizzle`/`dist` 는 빌드 산출물이라 제외(`api/index.js` 셔임은 커밋되지만 JS 라 tsc 대상 아님).
 - **변경 체크리스트**
   - [ ] JSX 관련 옵션 변경 시 [hono-reference.md](../hono-reference.md) §1 갱신 (React 아님, `hono/jsx`)
   - [ ] `exclude` 변경 시 타입체크 범위 영향 확인(`bunx tsc --noEmit`)
@@ -72,12 +72,19 @@
 
 ### `vercel.json`
 
-- **역할**: 배포 정의. `bunVersion: 1.x`, `buildCommand: bun run vercel-build`, `rewrites: /(.*) → /api`(전 요청을 단일 함수로), `crons` 2개.
-- **배치 규칙**: 라우팅은 앱 내부 Hono 가 담당하므로 경로별 rewrite 를 늘리지 않는다(단일 `/api` 유지). cron 대상은 실제 `route/drive/lifecycle.ts` 핸들러와 경로가 일치해야 한다.
+- **역할**: 배포 정의. `bunVersion: 1.x`, **`framework: null`(hono 자동 감지 차단 — 제거 금지)**, `buildCommand: bun run vercel-build`, `rewrites: /(.*) → /api`(전 요청을 단일 함수로), `crons` 2개.
+- **배치 규칙**: 라우팅은 앱 내부 Hono 가 담당하므로 경로별 rewrite 를 늘리지 않는다(단일 `/api` 유지). cron 대상은 실제 `route/drive/lifecycle.ts` 핸들러와 경로가 일치해야 한다. `framework: null` 은 커밋된 셔임 `api/index.js` 와 한 세트다([bug/2026-07-09](../bug/2026-07-09-vercel-hono-detection-crash.md) — 2026-07 production 장애의 재발 방지 계약).
 - **변경 체크리스트**
   - [ ] cron 추가/변경 시 대응 라우트(현재 `route/drive/lifecycle.ts`) 존재·인증(`verifyCronAuth`) 확인
   - [ ] cron 표를 [deploy.md](../deploy.md) §1·[reference/api-endpoints.md](../reference/api-endpoints.md) "Vercel cron" 과 동기화
+  - [ ] `framework`·`buildCommand` 를 건드리면 fresh-clone 조건(`rm api/hub.js` 후 `bunx vercel build`)으로 함수 생성 여부 재검증
 - **참조**: [deploy.md](../deploy.md) §1, [architecture.md](../architecture.md) §8
+
+### `api/` — Vercel 함수 엔트리
+
+- **역할**: `api/index.js`(커밋, `export { default } from './hub.js'` 1줄 셔임) + `api/hub.js`(gitignored, `vercel-build` 가 생성하는 자가 번들). 새 Vercel 빌더가 함수를 클론 시점 소스에서 열거하므로 커밋된 셔임이 함수 엔트리가 되고, 빌드 시 번들을 re-export 한다.
+- **배치 규칙**: 셔임은 JS 유지(`.ts` 금지 — 빌더 tsc 의 `.js`→`.ts` 매핑으로 타입에러) + 번들(`./hub.js`)만 가리킨다(소스 지향 금지 — 트레이싱 크래시 재발). 앱 코드를 이 폴더에 두지 않는다.
+- **참조**: [deploy.md](../deploy.md) §1, [bug/2026-07-09-vercel-hono-detection-crash.md](../bug/2026-07-09-vercel-hono-detection-crash.md)
 
 ### `bunfig.toml`
 

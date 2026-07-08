@@ -1,6 +1,6 @@
 # 아키텍처 (Architecture)
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `index.ts`, `compose/index.ts`·`compose/types.ts`·`compose/shared.ts`·`compose/mail.ts`·`compose/ai.ts`, `route/index.ts`, `middleware/*`, `lib/`(error-code·error-message·error·api-response·with-auth·with-error-handling·with-rate-limit·hono-types·env·log-service-name·sentry), `db/index.ts`, `page/index.ts`, `tsconfig.json`·`vercel.json`·`package.json`·`bunfig.toml`·`drizzle.config.ts`
+> 기준: 2026-07-09 (vercel 배포 계약 @ `09e13e1`) 코드 검증. 다루는 코드: `index.ts`, `compose/index.ts`·`compose/types.ts`·`compose/shared.ts`·`compose/mail.ts`·`compose/ai.ts`, `route/index.ts`, `middleware/*`, `lib/`(error-code·error-message·error·api-response·with-auth·with-error-handling·with-rate-limit·hono-types·env·log-service-name·sentry), `db/index.ts`, `page/index.ts`, `tsconfig.json`·`vercel.json`·`api/index.js`·`package.json`·`bunfig.toml`·`drizzle.config.ts`
 
 Bun + Hono 단일 서비스. 하나의 `Hono` 앱을 부트스트랩(`index.ts`)에서 조립하고, 모든 도메인 의존성을 `compose()`로 한 번에 주입한다. 계층 경계는 **Route(HTTP) → Service(도메인) → ServiceDb(compose 의 Drizzle 구현)** 로 고정하며, Drizzle 쿼리는 원칙적으로 `compose/` 에 둔다(소수 키/토큰 서비스 등 직접 접근 예외는 [reference/db-schema.md](./reference/db-schema.md) 가 전수 나열). 도메인별 엔드포인트·스키마·서비스 상세는 [domains/](./domains/) 와 [reference/](./reference/) 가 소유한다 — 이 문서는 전역 골격만 다룬다.
 

@@ -1,6 +1,6 @@
 # 배포·운영(Deploy & Ops)
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `vercel.json`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
+> 기준: 2026-07-09 (vercel 배포 계약 @ `09e13e1`) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
 
 ## 개요
 
