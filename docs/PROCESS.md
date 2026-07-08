@@ -5,6 +5,12 @@
 
 ## 현재 진행 중 작업
 
+### Vercel production 크래시 원인 규명 (2026-07-09) — 상세: [bug/2026-07-09-vercel-hono-detection-crash.md](./bug/2026-07-09-vercel-hono-detection-crash.md)
+
+- [x] 원인 규명 — Vercel 빌더 54.19.0 의 hono 자동 감지가 비번들 `λ index` 를 추가 생성 + better-auth 1.6 분리 패키지(`@better-auth/telemetry`·`@better-auth/utils`)의 exports `node`/`default` 조건 불일치로 트레이싱 누락 → `/` 콜드스타트 크래시(`Requested module is not instantiated yet` 는 2차 증상).
+- [x] 수정 — `vercel.json` 에 `"framework": null` 추가(자동 감지 차단, 단일 번들 함수 토폴로지 복원). `bunx vercel@54.19.0 build` 로컬 재검증 완료. tsc 0.
+- [ ] 커밋 + production 재배포 + `/`·`/api/*` 확인 — 사용자 지시 대기.
+
 ### 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`) — 결정: [acknowledge/2026-07-02-deps-upgrade.md](./acknowledge/2026-07-02-deps-upgrade.md) · 이력: [history/2026-07-deps-upgrade.md](./history/2026-07-deps-upgrade.md)
 
 - [x] 안전 최신화 + breaking major 3종(better-auth 1.6 · hono 4.12 · zod 4+hono-openapi 1) — 상세는 history 문서. 커밋 `c70b372`·`c3adc1f`·`b04e93f`·`5887a60`.

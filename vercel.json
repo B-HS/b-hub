@@ -1,5 +1,6 @@
 {
     "bunVersion": "1.x",
+    "framework": null,
     "buildCommand": "bun run vercel-build",
     "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
     "crons": [
