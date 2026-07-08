@@ -23,6 +23,7 @@
 - **응답은 헬퍼로만**: `successResponse` / `paginatedResponse` / `errorResponse` (`lib/api-response.ts`).
 - **모든 4xx·5xx 는 `log_events` 로 자동 캡처**된다(`middleware/log-capture.ts`). → [logging.md](../logging.md)
 - **환경변수는 `getEnv()`(lib/env.ts) 로만 접근.** 시크릿 하드코딩·문서 기재 금지.
+- **`vercel.json` 의 `"framework": null` 제거 금지.** Vercel 빌더가 hono 를 자동 감지하면 비번들 함수(`λ index`)를 추가 생성하고, 트레이서-Bun 런타임의 exports 조건 불일치로 모듈 누락 → `/` 콜드스타트 크래시(2026-07-09 production 장애). 배포 계약은 "자가 번들 단일 함수". → [bug/2026-07-09-vercel-hono-detection-crash.md](../bug/2026-07-09-vercel-hono-detection-crash.md)
 - 커밋: Conventional Commits(type 영어·설명 한국어), **author 사용자 단독, Co-Authored-By/Claude 트레일러 금지, 요청 전 commit/push 금지.**
 - 코드 컨벤션: arrow function only · 반환 타입 미명시 · any/unknown 금지 · **코드 주석 금지(JSDoc 영어만 예외)** · named export. 정본: `~/.claude/convention/*`.
 

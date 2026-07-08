@@ -21,7 +21,8 @@
 
 ### 파이프라인
 
-- `vercel.json` 이 배포를 정의한다. `buildCommand` = `bun run vercel-build`, `bunVersion` = `1.x`.
+- `vercel.json` 이 배포를 정의한다. `buildCommand` = `bun run vercel-build`, `bunVersion` = `1.x`, **`framework` = `null`(필수, 제거 금지)**.
+- **`"framework": null` 은 Vercel 빌더의 hono 프레임워크 자동 감지를 차단한다.** 빌더 CLI 54.19.0 부터 hono 감지 시 자가 번들 함수와 별개로 루트 `index.ts` 기반 **비번들 함수**(`λ index`, NFT 트레이싱 node_modules)를 추가 생성하는데, 트레이서(exports `default` 조건 파일 포함)와 Bun 런타임(exports `node` 조건 resolve)의 불일치로 better-auth 1.6 분리 패키지가 누락되어 `/` 콜드스타트가 크래시했다(2026-07-09 production 장애). 상세 경위·재현·진단 절차: [bug/2026-07-09-vercel-hono-detection-crash.md](./bug/2026-07-09-vercel-hono-detection-crash.md)
 - `vercel-build` 는 `bun build ./index.ts --outfile ./api/index.js --target bun --format esm` 로 진입점 `index.ts` 를 **단일 파일 `api/index.js`** 로 번들한다. `api/` 는 `.gitignore` 에 있어 커밋되지 않고 빌드 시 생성된다.
 - `rewrites`: `/(.*)` → `/api`. **모든 경로가 하나의 서버리스 함수(`api/index.js`)로 유입**되고, `/api`·`/caldav`·어드민 페이지 분기는 앱 내부 Hono 라우터(`index.ts`)가 담당한다.
 

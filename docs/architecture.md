@@ -237,6 +237,7 @@ AuthUser      = { id; name; email; role: string | null; image: string | null }
 | 키 | 값 | 의미 |
 |----|-----|------|
 | `bunVersion` | `1.x` | Bun 런타임 |
+| `framework` | `null` | **hono 자동 감지 차단(제거 금지)** — 감지되면 비번들 함수가 추가 생성되어 트레이싱 누락으로 `/` 크래시([bug/2026-07-09](./bug/2026-07-09-vercel-hono-detection-crash.md)) |
 | `buildCommand` | `bun run vercel-build` | `index.ts` → `api/index.js` 단일 번들 |
 | `rewrites` | `/(.*) → /api` | **모든 경로를 단일 서버리스 함수(`api/index.js`)로** 라우팅(라우팅은 앱 내부 Hono 가 담당) |
 | `crons` | `/api/drive/lifecycle/evict-r2` `0 3 * * *`, `/api/drive/lifecycle/auto-promote` `0 5 * * *` | drive 스토리지 계층 관리 크론 |
