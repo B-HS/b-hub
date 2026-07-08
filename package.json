@@ -25,6 +25,7 @@
         "cheerio": "^1.2.0",
         "dayjs": "^1.11.21",
         "drizzle-orm": "^0.45.2",
+        "fast-xml-parser": "^5.9.3",
         "hono": "^4.12",
         "hono-openapi": "^1",
         "icojs": "^1",
