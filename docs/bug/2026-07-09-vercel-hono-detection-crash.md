@@ -1,6 +1,6 @@
 # Vercel production 크래시 — "Requested module is not instantiated yet" (2026-07-09)
 
-> **한 줄 요약**: Vercel 빌더가 54.19.0 부터 이 프로젝트를 hono 프레임워크로 자동 감지해 **비번들 함수(`λ index`)를 추가 생성**했고, better-auth 1.6 분리 패키지의 exports 조건(`node` vs `default`) 불일치로 그 함수의 node_modules 트레이싱이 깨져 **루트 `/` 콜드스타트가 크래시**했다. 수정은 `vercel.json` `"framework": null` 1줄(커밋 `e26ab62`).
+> **한 줄 요약**: Vercel 빌더가 54.19.0 부터 이 프로젝트를 hono 프레임워크로 자동 감지해 **비번들 함수(`λ index`)를 추가 생성**했고, better-auth 1.6 분리 패키지의 exports 조건(`node` vs `default`) 불일치로 그 함수의 node_modules 트레이싱이 깨져 **루트 `/` 콜드스타트가 크래시**했다. 수정은 2단계: ① `vercel.json` `"framework": null`(자동 감지 차단, `e26ab62`) + ② **커밋되는 함수 엔트리 `api/index.ts` 셔임**(새 빌더의 소스 시점 함수 열거 대응 — §5-2). ①만으로는 클라우드에서 함수가 0개가 되어 전 경로 404 가 났다.
 >
 > **이 문서를 읽어야 하는 경우**: `vercel.json` 을 수정할 때 · 의존성(특히 better-auth)을 업그레이드할 때 · Vercel 배포가 `FUNCTION_INVOCATION_FAILED` / `Requested module is not instantiated yet` 로 죽을 때.
 
@@ -96,23 +96,44 @@ cd .vercel/output/functions/index.func && bun -e 'await import("./index.js")'
 
 ## 5. 수정과 검증
 
-수정: `vercel.json` 에 `"framework": null` 추가 (커밋 `e26ab62`).
+### 5-1. 1차 수정 — `"framework": null` (커밋 `e26ab62`)
 
-- 프레임워크 자동 감지를 차단 → `bunx vercel@54.19.0 build` 재검증 결과 함수가 `functions/api/index.func` **1개로 복원**(7/2 정상 배포와 동일 토폴로지).
-- 라우팅: filesystem 에서 `/` 가 매칭될 함수가 없어짐 → rewrite `/(.*) → /api` → 번들 함수. 기존 동작 그대로.
-- 번들 함수 로컬 실행 링킹 완주 + `bunx tsc --noEmit` 0 에러 확인.
+`vercel.json` 에 `"framework": null` 을 추가해 hono 자동 감지를 차단했다. `bunx vercel@54.19.0 build` 로컬 검증에서는 함수가 `functions/api/index.func` 1개로 복원되어 충분해 보였다.
+
+### 5-2. 1차 수정의 클라우드 실패 — 소스 시점 함수 열거 (전 경로 404)
+
+그러나 push 후 클라우드 배포(`b-81m9dsgjr`, 빌더 CLI **54.21.1**)는 **함수 0개**로 나와 `/`·`/api/*` 전부 플랫폼 404(`NOT_FOUND`)가 됐다.
+
+- 빌드 로그 증거: 기존 정상 빌드에 있던 함수 컴파일 단계("Using TypeScript x.y.z", 약 50초 소요)가 사라지고 **2초 만에 "Build Completed"**. `vercel inspect` 의 Builds 목록이 빔.
+- 원인: **새 빌더 파이프라인은 함수 열거를 소스 트리(클론 시점) 기준으로 한다.** `api/index.js` 는 gitignored 산출물이라 클론 시점에 없고, buildCommand 가 빌드 중에 생성해도 함수로 잡히지 않는다. (구 빌더 ≤54.18.7 은 buildCommand **이후** `api/` 를 열거해 산출물이 함수가 됐다. 7/8 의 54.19.0 은 hono 프리셋 경로라 `λ api/index` 가 생성됐다.)
+- 로컬 재현: `rm api/index.js` 후 `bunx vercel@54.21.1 build` → functions 디렉토리 자체가 안 생김. 로컬에서 1차 검증이 통과했던 이유는 **이전 빌드가 남긴 `api/index.js` 가 이미 워킹트리에 존재**했기 때문(fresh clone 조건 미재현 — 함정).
+
+### 5-3. 최종 수정 — 커밋되는 셔임 `api/index.ts`
+
+```ts
+export { default } from './index.js'
+```
+
+- `api/index.ts` 를 **커밋**한다(.gitignore 를 `api/` → `api/index.js` 로 좁힘). 클론 시점에 존재하므로 함수로 열거된다.
+- 함수 빌드는 buildCommand(번들 생성) **이후** 실행되므로, 셔임의 `./index.js` import 가 14MB 자가 번들을 흡수해 최종 핸들러 = 번들 그 자체가 된다. externals(@google/genai·cheerio)만 node_modules 로 트레이싱(약 85MB) — 기존 정상 토폴로지와 동일.
+- 셔임이 `../index.ts`(소스)가 아니라 `./index.js`(번들)를 가리키는 것이 핵심: 소스를 가리키면 원시 모듈 그래프 트레이싱으로 §2-2 의 exports 조건 불일치를 그대로 다시 밟는다.
+
+검증: fresh-clone 시뮬레이션(`rm api/index.js` 후 `bunx vercel@54.21.1 build`) → `functions/api/index.func` 생성(핸들러 14MB 번들 + externals node_modules), 로컬 실행 링킹 완주(env 검증 도달), `bunx tsc --noEmit` 0(tsconfig 이 `api` 제외), `bun test` 2278 pass. 클라우드 배포 후 `/`·`/api/health`·`/admin` 스모크 통과(§7 참조).
 
 ## 6. 재발 방지 — 앞으로 지킬 것
 
-1. **`vercel.json` 의 `"framework": null` 을 제거하지 않는다.** 이 프로젝트의 배포 계약은 "자가 번들 단일 함수" 다. 번들 방식은 트레이싱 누락에 면역이라는 것이 이 사건의 핵심 교훈. Vercel 의 hono 프레임워크 지원으로 갈아타려면 이 문서의 트레이싱 문제(exports `node` 조건)가 해소됐는지 §4 방법으로 먼저 로컬 검증할 것.
-2. **의존성 업그레이드 후에는 preview 배포에서 `/api/*` 만이 아니라 루트 `/` 도 확인한다.** 이번 사건에서 preview 는 `/api` 만 확인되어 통과처럼 보였다.
-3. **production 배포 직후 `/`·`/api/health`·`/admin` 3종 스모크 체크.** 함수가 여러 개로 갈라지면 경로별로 다른 함수가 응답한다.
-4. **`Requested module is not instantiated yet` = 2차 증상.** Bun 버그로 단정하지 말고 §4 로 1차 import 실패(모듈 부재)를 먼저 찾는다.
-5. **빌드 로그의 `Vercel CLI` 버전은 배포 간 부지불식 변수.** 같은 코드가 갑자기 깨지면 정상/실패 배포의 빌더 버전과 Builds(λ 목록)부터 대조한다.
+1. **`vercel.json` 의 `"framework": null` 과 커밋된 `api/index.ts` 셔임을 제거하지 않는다. 둘은 한 세트다.** 이 프로젝트의 배포 계약은 "자가 번들 단일 함수" 다. `framework: null` 만 있으면 함수 0개(전 경로 404, §5-2), 셔임만 있으면 hono 감지로 비번들 `λ index` 가 부활해 `/` 크래시(§2). Vercel 의 hono 프레임워크 지원으로 갈아타려면 트레이싱 문제(exports `node` 조건)가 해소됐는지 §4 방법으로 먼저 로컬 검증할 것.
+2. **셔임 `api/index.ts` 는 반드시 번들(`./index.js`)을 가리킨다.** 소스(`../index.ts`)로 바꾸면 원시 그래프 트레이싱으로 §2-2 문제를 그대로 다시 밟는다.
+3. **로컬 `vercel build` 검증은 fresh-clone 조건으로.** 검증 전 `rm api/index.js` — 워킹트리에 남은 산출물이 클라우드와 다른 결과를 만든다(§5-2 의 함정).
+4. **의존성 업그레이드 후에는 preview 배포에서 `/api/*` 만이 아니라 루트 `/` 도 확인한다.** 이번 사건에서 preview 는 `/api` 만 확인되어 통과처럼 보였다.
+5. **production 배포 직후 `/`·`/api/health`·`/admin` 3종 스모크 체크.** 함수가 여러 개로 갈라지면 경로별로 다른 함수가 응답한다.
+6. **`Requested module is not instantiated yet` = 2차 증상.** Bun 버그로 단정하지 말고 §4 로 1차 import 실패(모듈 부재)를 먼저 찾는다.
+7. **빌드 로그의 `Vercel CLI` 버전은 배포 간 부지불식 변수.** 같은 코드가 갑자기 깨지면 정상/실패 배포의 빌더 버전·Builds(λ 목록)·빌드 소요 시간(함수 컴파일 단계 유무)부터 대조한다. (이 사건 동안에만 54.18.7 → 54.19.0 → 54.21.1 세 번 바뀌었다.)
 
 ## 7. 참고 (당시 식별자)
 
 - 정상: `b-hvghy150o` (ec88797, 2026-07-02, CLI 54.18.7) — instant rollback 대상.
-- 실패: `b-9xpqh096i` (a6e0bbc) · `b-owokanq5i`/`b-bqssdk95o` (0ac4e0d) — 2026-07-08, CLI 54.19.0.
-- 관련 커밋: deps 업그레이드 `c70b372`~`ed87433`(특히 better-auth 1.6 `c3adc1f`), 무효했던 대응 `0ac4e0d`, 수정 `e26ab62`.
+- 실패(크래시): `b-9xpqh096i` (a6e0bbc) · `b-owokanq5i`/`b-bqssdk95o` (0ac4e0d) — 2026-07-08, CLI 54.19.0.
+- 실패(함수 0개·전 경로 404): `b-81m9dsgjr` (88ec15a, `framework: null` 만 적용) — 2026-07-09, CLI 54.21.1.
+- 관련 커밋: deps 업그레이드 `c70b372`~`ed87433`(특히 better-auth 1.6 `c3adc1f`), 무효했던 대응 `0ac4e0d`, 1차 수정 `e26ab62`, 최종 수정(셔임) — 이 문서와 같은 커밋.
 - better-auth 1.6.23 기준. 분리 패키지: `@better-auth/{core,telemetry,utils,drizzle-adapter,kysely-adapter,memory-adapter}`.
