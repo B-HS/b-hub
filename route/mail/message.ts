@@ -317,6 +317,7 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
                         'Content-Type': sanitizeHeaderValue(data.mimeType),
                         'Content-Disposition': `attachment; filename="${encodeURIComponent(data.filename)}"`,
                         'Content-Length': data.content.length.toString(),
+                        'X-Content-Type-Options': 'nosniff',
                     },
                 })
             }),

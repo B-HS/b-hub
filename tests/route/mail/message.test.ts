@@ -234,6 +234,13 @@ describe('GET /mail/messages/:messageId/attachments/:attachmentId', () => {
         expect(res.headers.get('Content-Type')).toBe('application/pdf')
     })
 
+    test('다운로드 응답은 attachment 강제 + nosniff 헤더를 붙인다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/mail/messages/1/attachments/10')
+        expect(res.headers.get('Content-Disposition')?.startsWith('attachment;')).toBe(true)
+        expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    })
+
     test('잘못된 messageId는 400을 반환한다', async () => {
         const { app } = createApp()
         const res = await app.request('/mail/messages/abc/attachments/10')
