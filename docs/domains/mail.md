@@ -129,12 +129,14 @@
 
 - `downloadAttachment(userId, messageId, attachmentId)`: 메시지 소유권 확인 → 첨부가 해당 메시지 소속인지 확인 → `r2_key` 캐시가 있으면 스토리지에서 먼저 시도(실패 시 provider 재요청) → provider 다운로드 → 성공분을 `mail/attachments/{messageId}/{attachmentId}/{filename}` 로 캐시 업로드 후 `r2_key` 저장.
 - **IMAP 폴더 open 선행**: provider 에 `folder?.remoteFolderId` 를 넘기면 `imap.getMailboxLock(folderId)` 로 mailbox 를 연 뒤 `imap.download(uid, part)` 로 part 를 받는다(열지 않으면 UID 접근 불가).
+- **응답 헤더(보안)**: 다운로드 라우트는 `Content-Disposition: attachment`(항상 다운로드 강제) + `X-Content-Type-Options: nosniff`(MIME 스니핑 차단)를 붙인다. HTML/SVG 첨부가 브라우저에서 인라인 실행되지 않도록 하기 위함.
 - **stale Gmail attachment id 복구**: Gmail attachmentId 는 재조회 시 바뀔 수 있다. `downloadAttachmentViaProvider` 는 1차 다운로드 실패 시 `fetchMessageDetail` 로 현재 첨부 목록을 받아 `contentId`→`filename`→`size` 순으로 매칭(`matchAttachmentRef`)하고, 다른 remote id 를 찾으면 그 id 로 재시도한다.
 
 ### 발송·업로드
 
 - **업로드(`mail-upload.ts`)**: MIME 정규식 검증. inline 은 이미지 MIME 화이트리스트 + magic bytes + 10MB 제한, 일반 첨부는 위험 MIME/확장자 차단 + 25MB 제한. `mail/uploads/{userId}/{uuid}/{filename}` 로 저장하고 `mail_uploads` 기록. `resolveForSend(ids, userId)` 가 발송 시 스토리지에서 내용을 내려받아 `ComposeAttachment[]` 로 만든다.
-- **발송(`send`/`reply`/`forward`)**: `attachmentIds` 가 있으면 `resolveForSend` 로 첨부 해석 후 `provider.sendMessage`. Gmail 은 raw MIME(멀티파트, base64url)을 `/messages/send` 로, IMAP 은 nodemailer SMTP 로 전송. `reply` 는 원본 `messageIdHeader`→In-Reply-To, `referencesHeader`+`messageIdHeader`→References 를 세팅하고 제목 `Re:`. `forward` 는 원문 인용 + 제목 `Fwd:`.
+- **발송(`send`/`reply`/`forward`)**: `attachmentIds` 가 있으면 `resolveForSend` 로 첨부 해석 후 `provider.sendMessage`. Gmail 은 raw MIME(멀티파트, base64url)을 `/messages/send` 로, IMAP 은 nodemailer SMTP 로 전송. `reply` 는 원본 `messageIdHeader`→In-Reply-To, `referencesHeader`+`messageIdHeader`→References 를 세팅하고 제목 `Re:`. `reply` 는 `to`/`cc` 배열을 그대로 받아 발송하므로 프론트가 원문 From/To/Cc 로 reply-all 대상을 계산해 넘길 수 있다(미지정 시 `to`=원문 발신자). `forward` 는 원문 인용 + 제목 `Fwd:`.
+- **plain-text 대체본(multipart/alternative)**: `bodyText` 미지정 시 `bodyHtml` 을 `htmlToPlainText`(`lib/mail-utils.ts`)로 변환해 text 파트를 자동 생성한다. Gmail 은 `multipart/alternative`(text/plain + text/html, 첨부 동반 시 `multipart/mixed` 로 래핑), IMAP 은 nodemailer `text`+`html` 로 전송. 따라서 프론트는 `bodyHtml` 만 보내도 되고, `bodyText` 를 명시하면 그 값이 text 파트로 쓰인다.
 
 ### 자격증명 암호화 (`lib/credential-crypto.ts`)
 

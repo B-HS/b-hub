@@ -302,6 +302,45 @@ describe('sendMessage', () => {
         expect(decoded).toContain('In-Reply-To: <original@msg>')
         expect(decoded).toContain('References: <original@msg>')
     })
+
+    test('bodyHtml만 있으면 multipart/alternative로 text 대체본을 자동 생성한다', async () => {
+        setFetchResponse('/messages/send', { id: 'sent-alt' })
+
+        const provider = createGmailProvider(createDeps())
+        await provider.sendMessage({
+            to: [{ name: '', address: 'to@test.com' }],
+            subject: 'Alt',
+            bodyHtml: '<p>Hello <b>World</b></p>',
+        })
+
+        const call = fetchCalls.find((c) => c.url.includes('/messages/send'))!
+        const body = JSON.parse(call.options.body as string)
+        const decoded = Buffer.from(body.raw, 'base64url').toString()
+        expect(decoded).toContain('multipart/alternative')
+        expect(decoded).toContain('Content-Type: text/plain; charset=utf-8')
+        expect(decoded).toContain('Content-Type: text/html; charset=utf-8')
+        expect(decoded).toContain('Hello World')
+        expect(decoded).toContain('<p>Hello <b>World</b></p>')
+    })
+
+    test('bodyText가 주어지면 그 값을 text 파트로 사용한다', async () => {
+        setFetchResponse('/messages/send', { id: 'sent-alt2' })
+
+        const provider = createGmailProvider(createDeps())
+        await provider.sendMessage({
+            to: [{ name: '', address: 'to@test.com' }],
+            subject: 'Alt2',
+            bodyHtml: '<p>Rich</p>',
+            bodyText: 'Plain body',
+        })
+
+        const call = fetchCalls.find((c) => c.url.includes('/messages/send'))!
+        const body = JSON.parse(call.options.body as string)
+        const decoded = Buffer.from(body.raw, 'base64url').toString()
+        expect(decoded).toContain('multipart/alternative')
+        expect(decoded).toContain('Plain body')
+        expect(decoded).toContain('<p>Rich</p>')
+    })
 })
 
 describe('fetchMessages', () => {

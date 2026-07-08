@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { sanitizeHeaderValue, sanitizeEmailName, escapeHtml, sanitizeFilename, isBlockedHost, maskProviderError, deriveThreadId } from '../../lib/mail-utils'
+import {
+    sanitizeHeaderValue,
+    sanitizeEmailName,
+    escapeHtml,
+    htmlToPlainText,
+    sanitizeFilename,
+    isBlockedHost,
+    maskProviderError,
+    deriveThreadId,
+} from '../../lib/mail-utils'
 
 describe('sanitizeHeaderValue', () => {
     test('일반 문자열을 그대로 반환한다', () => {
@@ -103,6 +112,33 @@ describe('escapeHtml', () => {
 
     test('빈 문자열을 처리한다', () => {
         expect(escapeHtml('')).toBe('')
+    })
+})
+
+describe('htmlToPlainText', () => {
+    test('태그를 제거하고 텍스트만 남긴다', () => {
+        expect(htmlToPlainText('<p>Hello <b>World</b></p>')).toBe('Hello World')
+    })
+
+    test('br과 블록 종료 태그를 개행으로 바꾼다', () => {
+        expect(htmlToPlainText('<div>a</div><div>b</div>')).toBe('a\nb')
+        expect(htmlToPlainText('line1<br/>line2')).toBe('line1\nline2')
+    })
+
+    test('script/style 블록을 제거한다', () => {
+        expect(htmlToPlainText('<style>.x{color:red}</style><p>hi</p><script>alert(1)</script>')).toBe('hi')
+    })
+
+    test('HTML 엔티티를 디코드한다', () => {
+        expect(htmlToPlainText('<p>a &amp; b &lt;c&gt; &nbsp;d</p>')).toBe('a & b <c> d')
+    })
+
+    test('과도한 공백/개행을 정리한다', () => {
+        expect(htmlToPlainText('<p>a</p>\n\n\n<p>b</p>')).toBe('a\n\nb')
+    })
+
+    test('빈 문자열을 처리한다', () => {
+        expect(htmlToPlainText('')).toBe('')
     })
 })
 

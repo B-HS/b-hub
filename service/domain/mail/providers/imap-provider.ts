@@ -12,7 +12,7 @@ import type {
     EmailAddress,
     ProviderAttachment,
 } from '../mail-provider'
-import { sanitizeHeaderValue, sanitizeEmailName, deriveThreadId } from '../../../../lib/mail-utils'
+import { sanitizeHeaderValue, sanitizeEmailName, deriveThreadId, htmlToPlainText } from '../../../../lib/mail-utils'
 
 type ImapProviderDeps = {
     email: string
@@ -328,8 +328,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 const flags = msg.flags ?? new Set()
                 const envelope = parseEnvelope(msg as unknown as Record<string, unknown>)
                 const references = parseReferencesHeader(msg.headers)
-                const threadId =
-                    deriveThreadId({ references, inReplyTo: envelope.inReplyTo, messageIdHeader: envelope.messageIdHeader }) ?? undefined
+                const threadId = deriveThreadId({ references, inReplyTo: envelope.inReplyTo, messageIdHeader: envelope.messageIdHeader }) ?? undefined
 
                 let bodyHtml: string | null = null
                 let bodyText: string | null = null
@@ -504,7 +503,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 bcc: data.bcc?.map(formatAddr).join(', '),
                 subject: sanitizeHeaderValue(data.subject),
                 html: data.bodyHtml,
-                text: data.bodyText,
+                text: data.bodyText ?? (data.bodyHtml ? htmlToPlainText(data.bodyHtml) : undefined),
                 inReplyTo: data.inReplyTo ? sanitizeHeaderValue(data.inReplyTo) : undefined,
                 references: data.references ? sanitizeHeaderValue(data.references) : undefined,
                 attachments: data.attachments?.map((att) => ({

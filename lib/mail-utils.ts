@@ -50,6 +50,26 @@ export const escapeHtml = (str: string): string => {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+export const htmlToPlainText = (html: string): string => {
+    return html
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<li[^>]*>/gi, '\n- ')
+        .replace(/<\/(p|div|li|tr|h[1-6]|table|blockquote|ul|ol)>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&amp;/gi, '&')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/[ \t]*\n[ \t]*/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
 const isPrivateIPv4 = (a: number, b: number): boolean => {
     if (a === 127) return true
     if (a === 10) return true

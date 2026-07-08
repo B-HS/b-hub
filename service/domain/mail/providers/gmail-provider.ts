@@ -9,7 +9,7 @@ import type {
     EmailAddress,
 } from '../mail-provider'
 import { parseEmailAddress, getHeader, getBody, getAttachments } from './gmail-helpers'
-import { sanitizeHeaderValue, encodeMimeWord, formatMailAddress } from '../../../../lib/mail-utils'
+import { sanitizeHeaderValue, encodeMimeWord, formatMailAddress, htmlToPlainText } from '../../../../lib/mail-utils'
 
 type GmailProviderDeps = {
     email: string
@@ -403,18 +403,39 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             if (data.references) headers.push(`References: ${sanitizeHeaderValue(data.references)}`)
             headers.push('MIME-Version: 1.0')
 
+            const html = data.bodyHtml
+            const text = data.bodyText ?? (html ? htmlToPlainText(html) : undefined)
+
+            const buildContentEntity = () => {
+                if (html && text !== undefined) {
+                    const altBoundary = `----=_Alt_${Date.now()}_${Math.random().toString(36).slice(2)}`
+                    return [
+                        `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+                        '',
+                        `--${altBoundary}`,
+                        'Content-Type: text/plain; charset=utf-8',
+                        '',
+                        text,
+                        `--${altBoundary}`,
+                        'Content-Type: text/html; charset=utf-8',
+                        '',
+                        html,
+                        `--${altBoundary}--`,
+                    ]
+                }
+                if (html) return ['Content-Type: text/html; charset=utf-8', '', html]
+                if (text !== undefined) return ['Content-Type: text/plain; charset=utf-8', '', text]
+                return ['Content-Type: text/html; charset=utf-8', '', '']
+            }
+
+            const entity = buildContentEntity()
+
             let rawMessage: string
             if (data.attachments?.length) {
                 const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`
                 headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
 
-                const parts: string[] = []
-                parts.push(headers.join('\r\n'))
-                parts.push('')
-                parts.push(`--${boundary}`)
-                parts.push('Content-Type: text/html; charset=utf-8')
-                parts.push('')
-                parts.push(data.bodyHtml ?? data.bodyText ?? '')
+                const parts: string[] = [headers.join('\r\n'), '', `--${boundary}`, ...entity]
 
                 for (const att of data.attachments) {
                     const safeMime = sanitizeHeaderValue(att.mimeType)
@@ -430,8 +451,7 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                 parts.push(`--${boundary}--`)
                 rawMessage = parts.join('\r\n')
             } else {
-                headers.push('Content-Type: text/html; charset=utf-8')
-                rawMessage = headers.join('\r\n') + '\r\n\r\n' + (data.bodyHtml ?? data.bodyText ?? '')
+                rawMessage = [...headers, ...entity].join('\r\n')
             }
 
             const raw = Buffer.from(rawMessage).toString('base64url')
