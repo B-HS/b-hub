@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
 import { createMailCrypto } from '../service/domain/mail/mail-crypto'
@@ -533,31 +533,6 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                 .innerJoin(schema.mailAccounts, eq(schema.mailMessages.accountId, schema.mailAccounts.id))
                 .where(and(inArray(schema.mailMessages.id, messageIds), eq(schema.mailAccounts.userId, userId)))
             return msgs
-        },
-        expandToThreadMessageIds: async (messageIds: number[], userId: string) => {
-            if (messageIds.length === 0) return []
-            const owned = await db
-                .select({ id: schema.mailMessages.id, accountId: schema.mailMessages.accountId, threadId: schema.mailMessages.threadId })
-                .from(schema.mailMessages)
-                .innerJoin(schema.mailAccounts, eq(schema.mailMessages.accountId, schema.mailAccounts.id))
-                .where(and(inArray(schema.mailMessages.id, messageIds), eq(schema.mailAccounts.userId, userId)))
-
-            const result = new Set(owned.map((m) => m.id))
-            const threadPairs = owned.filter((m) => m.threadId !== null) as { id: number; accountId: number; threadId: string }[]
-            if (threadPairs.length > 0) {
-                const threadRows = await db
-                    .select({ id: schema.mailMessages.id })
-                    .from(schema.mailMessages)
-                    .where(
-                        or(
-                            ...[...new Map(threadPairs.map((p) => [`${p.accountId}:${p.threadId}`, p])).values()].map((p) =>
-                                and(eq(schema.mailMessages.accountId, p.accountId), eq(schema.mailMessages.threadId, p.threadId)),
-                            ),
-                        ),
-                    )
-                for (const row of threadRows) result.add(row.id)
-            }
-            return [...result]
         },
         getUnreadMessages: async (params: { userId: string; accountId?: number; folderId?: number }) => {
             const conditions = [eq(schema.mailMessages.isRead, false), eq(schema.mailAccounts.userId, params.userId)]

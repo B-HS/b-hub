@@ -36,7 +36,6 @@ type MailMessageDb = {
         messageIds: number[],
         userId: string,
     ) => Promise<{ messageId: number; accountId: number; remoteMessageId: string; folderId: number }[]>
-    expandToThreadMessageIds: (messageIds: number[], userId: string) => Promise<number[]>
     getUnreadMessages: (params: {
         userId: string
         accountId?: number
@@ -237,14 +236,8 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         return { updated: unread.length }
     }
 
-    const markStarred = async (userId: string, messageIds: number[]) => {
-        const threadIds = await deps.db.expandToThreadMessageIds(messageIds, userId)
-        return applyFlagAction(userId, threadIds, 'markStarred')
-    }
-    const unmarkStarred = async (userId: string, messageIds: number[]) => {
-        const threadIds = await deps.db.expandToThreadMessageIds(messageIds, userId)
-        return applyFlagAction(userId, threadIds, 'unmarkStarred')
-    }
+    const markStarred = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'markStarred')
+    const unmarkStarred = (userId: string, messageIds: number[]) => applyFlagAction(userId, messageIds, 'unmarkStarred')
 
     const moveToFolder = async (userId: string, messageIds: number[], targetFolderId: number) => {
         const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
@@ -347,7 +340,13 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             const { provider } = await deps.accountService.getProvider(msg.accountId, userId)
             await provider.connect()
             try {
-                data = await downloadAttachmentViaProvider(provider, msg.remoteMessageId, attachment.remoteAttachmentId, attachment, folder?.remoteFolderId)
+                data = await downloadAttachmentViaProvider(
+                    provider,
+                    msg.remoteMessageId,
+                    attachment.remoteAttachmentId,
+                    attachment,
+                    folder?.remoteFolderId,
+                )
             } finally {
                 await provider.disconnect().catch(() => {})
             }
