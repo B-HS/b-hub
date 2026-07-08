@@ -221,7 +221,7 @@ AuthUser      = { id; name; email; role: string | null; image: string | null }
 | 명령 | 실제 커맨드 | 용도 |
 |------|-------------|------|
 | `bun run dev` | `bun run --hot index.ts` | 핫리로드 개발 서버(기본 포트 9999) |
-| `bun run build` | `bun build ./index.ts --outfile ./api/index.js --target bun --format esm` | 단일 함수 번들 |
+| `bun run build` | `bun build ./index.ts --outfile ./api/hub.js --target bun --format esm` | 단일 함수 번들 |
 | `bun run vercel-build` | build + `--external @google/genai --external cheerio` | Vercel 빌드(무거운 의존성 외부화) |
 | `bun test` | `bun test` | 테스트(루트 `./tests`, `bunfig.toml`) |
 | `bun run typecheck` | `tsc --noEmit` | 타입체크(`tests`·`dist`·`api`·`drizzle` 제외) |
@@ -237,9 +237,9 @@ AuthUser      = { id; name; email; role: string | null; image: string | null }
 | 키 | 값 | 의미 |
 |----|-----|------|
 | `bunVersion` | `1.x` | Bun 런타임 |
-| `framework` | `null` | **hono 자동 감지 차단(제거 금지)** — 감지되면 비번들 함수가 추가 생성되어 트레이싱 누락으로 `/` 크래시. 커밋된 셔임 `api/index.ts` 와 한 세트([bug/2026-07-09](./bug/2026-07-09-vercel-hono-detection-crash.md)) |
-| `buildCommand` | `bun run vercel-build` | `index.ts` → `api/index.js` 단일 번들 |
-| `rewrites` | `/(.*) → /api` | **모든 경로를 단일 서버리스 함수(`api/index.js`)로** 라우팅(라우팅은 앱 내부 Hono 가 담당) |
+| `framework` | `null` | **hono 자동 감지 차단(제거 금지)** — 감지되면 비번들 함수가 추가 생성되어 트레이싱 누락으로 `/` 크래시. 커밋된 JS 셔임 `api/index.js` 와 한 세트([bug/2026-07-09](./bug/2026-07-09-vercel-hono-detection-crash.md)) |
+| `buildCommand` | `bun run vercel-build` | `index.ts` → `api/hub.js` 단일 번들(커밋 셔임 `api/index.js` 가 re-export) |
+| `rewrites` | `/(.*) → /api` | **모든 경로를 단일 서버리스 함수(셔임 `api/index.js` → 번들 `api/hub.js`)로** 라우팅(라우팅은 앱 내부 Hono 가 담당) |
 | `crons` | `/api/drive/lifecycle/evict-r2` `0 3 * * *`, `/api/drive/lifecycle/auto-promote` `0 5 * * *` | drive 스토리지 계층 관리 크론 |
 
 - 전 요청이 하나의 함수로 들어와 앱 내부에서 `/api`·`/caldav`·페이지로 분기된다.

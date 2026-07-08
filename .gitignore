@@ -1,6 +1,6 @@
 node_modules/
 dist/
-api/index.js
+api/hub.js
 drizzle/
 .env
 .env.local

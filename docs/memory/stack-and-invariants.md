@@ -11,7 +11,7 @@
 | DB | MySQL + Drizzle ORM (`mysql2` 풀) |
 | 인증 | better-auth (OAuth) + API 토큰 + 도메인별 키(디바이스 키·weather key·spotify widget token) |
 | 어드민 UI | Hono JSX **SSR 전용** (`jsxImportSource: 'hono/jsx'`), **CSR/클라이언트 JS 금지**, 폼 POST → 303 |
-| 배포 | Vercel 단일 함수(`bun run vercel-build` → `api/index.js`, `vercel.json` rewrite) + `deploy/` 하위 별도 Docker 서비스 2개(caldav-proxy, upload-server) |
+| 배포 | Vercel 단일 함수(`bun run vercel-build` → 번들 `api/hub.js`, 커밋 셔임 `api/index.js`, `vercel.json` rewrite) + `deploy/` 하위 별도 Docker 서비스 2개(caldav-proxy, upload-server) |
 | 테스트 | `bun test` (bun:test), tests/ 는 소스 미러 구조, describe/test 한국어 |
 | 포맷 | prettier — `feconfig-bhs` 확장 (4-space, no semi, single quote, printWidth 150) |
 
@@ -23,7 +23,7 @@
 - **응답은 헬퍼로만**: `successResponse` / `paginatedResponse` / `errorResponse` (`lib/api-response.ts`).
 - **모든 4xx·5xx 는 `log_events` 로 자동 캡처**된다(`middleware/log-capture.ts`). → [logging.md](../logging.md)
 - **환경변수는 `getEnv()`(lib/env.ts) 로만 접근.** 시크릿 하드코딩·문서 기재 금지.
-- **`vercel.json` 의 `"framework": null` 과 커밋된 셔임 `api/index.ts`(`export { default } from './index.js'`) 는 한 세트 — 어느 쪽도 제거·변경 금지.** framework null 없으면 hono 자동 감지가 비번들 함수를 만들어 `/` 크래시, 셔임 없으면 새 빌더의 소스 시점 함수 열거에 걸려 함수 0개(전 경로 404). 셔임은 반드시 번들(`./index.js`)을 가리켜야 한다(소스 지향 금지). 배포 계약은 "자가 번들 단일 함수"(2026-07-09 production 장애). → [bug/2026-07-09-vercel-hono-detection-crash.md](../bug/2026-07-09-vercel-hono-detection-crash.md)
+- **`vercel.json` 의 `"framework": null` 과 커밋된 JS 셔임 `api/index.js`(`export { default } from './hub.js'`) 는 한 세트 — 어느 쪽도 제거·변경 금지.** framework null 없으면 hono 자동 감지가 비번들 함수를 만들어 `/` 크래시, 셔임 없으면 새 빌더의 소스 시점 함수 열거에 걸려 함수 0개(전 경로 404). 셔임은 JS 유지(`.ts` 금지 — 빌더 tsc 의 `.js`→`.ts` 매핑으로 타입에러) + 반드시 번들(`./hub.js`)을 가리켜야 한다(소스 지향 금지). 배포 계약은 "자가 번들 단일 함수"(2026-07-09 production 장애). → [bug/2026-07-09-vercel-hono-detection-crash.md](../bug/2026-07-09-vercel-hono-detection-crash.md)
 - 커밋: Conventional Commits(type 영어·설명 한국어), **author 사용자 단독, Co-Authored-By/Claude 트레일러 금지, 요청 전 commit/push 금지.**
 - 코드 컨벤션: arrow function only · 반환 타입 미명시 · any/unknown 금지 · **코드 주석 금지(JSDoc 영어만 예외)** · named export. 정본: `~/.claude/convention/*`.
 

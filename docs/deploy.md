@@ -8,7 +8,7 @@
 
 | 대상 | 실행 방식 | 포트 | 소스 | 소유 문서 |
 |------|-----------|:---:|------|-----------|
-| 메인 앱 | Vercel 서버리스 단일 함수 | 플랫폼 관리(로컬 기본 9999) | 루트(`index.ts` → `api/index.js`) | 이 문서 §1~3 |
+| 메인 앱 | Vercel 서버리스 단일 함수 | 플랫폼 관리(로컬 기본 9999) | 루트(`index.ts` → 번들 `api/hub.js`, 커밋 셔임 `api/index.js`) | 이 문서 §1~3 |
 | caldav-proxy | Docker(Bun) 리버스 프록시 | 4000 | `deploy/caldav-proxy/` | 이 문서 §4 |
 | upload-server | Docker(Bun) 별도 서비스(자체 `package.json`) | 4100 | `deploy/upload-server/` | 이 문서 §5 |
 
@@ -23,9 +23,9 @@
 
 - `vercel.json` 이 배포를 정의한다. `buildCommand` = `bun run vercel-build`, `bunVersion` = `1.x`, **`framework` = `null`(필수, 제거 금지)**.
 - **`"framework": null` 은 Vercel 빌더의 hono 프레임워크 자동 감지를 차단한다.** 빌더 CLI 54.19.0 부터 hono 감지 시 자가 번들 함수와 별개로 루트 `index.ts` 기반 **비번들 함수**(`λ index`, NFT 트레이싱 node_modules)를 추가 생성하는데, 트레이서(exports `default` 조건 파일 포함)와 Bun 런타임(exports `node` 조건 resolve)의 불일치로 better-auth 1.6 분리 패키지가 누락되어 `/` 콜드스타트가 크래시했다(2026-07-09 production 장애). 상세 경위·재현·진단 절차: [bug/2026-07-09-vercel-hono-detection-crash.md](./bug/2026-07-09-vercel-hono-detection-crash.md)
-- `vercel-build` 는 `bun build ./index.ts --outfile ./api/index.js --target bun --format esm` 로 진입점 `index.ts` 를 **단일 파일 `api/index.js`** 로 번들한다. `api/index.js` 는 `.gitignore` 에 있어 커밋되지 않고 빌드 시 생성된다.
-- **`api/index.ts` 는 커밋되는 함수 엔트리 셔임이다(제거 금지, 번들 지향 유지).** 내용은 `export { default } from './index.js'` 한 줄. 새 빌더(CLI 54.21.1+)는 함수를 **클론 시점 소스 트리에서 열거**하므로 gitignored 산출물 `api/index.js` 만으로는 함수가 생성되지 않는다(전 경로 404). 셔임이 클론 시점에 존재해 함수로 열거되고, 함수 빌드가 buildCommand 이후 실행되며 `./index.js`(번들)를 흡수해 최종 핸들러 = 자가 번들이 된다. **`../index.ts`(소스)로 바꾸면 안 된다** — 원시 그래프 트레이싱으로 아래 크래시를 다시 밟는다. 경위: [bug/2026-07-09-vercel-hono-detection-crash.md](./bug/2026-07-09-vercel-hono-detection-crash.md)
-- `rewrites`: `/(.*)` → `/api`. **모든 경로가 하나의 서버리스 함수(`api/index.js`)로 유입**되고, `/api`·`/caldav`·어드민 페이지 분기는 앱 내부 Hono 라우터(`index.ts`)가 담당한다.
+- `vercel-build` 는 `bun build ./index.ts --outfile ./api/hub.js --target bun --format esm` 로 진입점 `index.ts` 를 **단일 파일 `api/hub.js`** 로 번들한다. `api/hub.js` 는 `.gitignore` 에 있어 커밋되지 않고 빌드 시 생성된다.
+- **`api/index.js` 는 커밋되는 함수 엔트리 셔임이다(제거·변경 금지).** 내용은 `export { default } from './hub.js'` 한 줄. 새 빌더(CLI 54.21.1+)는 함수를 **클론 시점 소스 트리에서 열거**하므로 gitignored 번들만으로는 함수가 생성되지 않는다(전 경로 404). 셔임이 클론 시점에 존재해 함수로 열거되고, 함수 빌드가 buildCommand 이후 실행되며 `./hub.js`(번들)를 가리켜 최종 핸들러 = 자가 번들이 된다. **`.ts` 로 바꾸면 안 되고**(빌더 tsc 가 `./hub.js` 류 지정자를 `.ts` 로 매핑해 타입에러), **소스(`../index.ts`)를 가리켜도 안 된다**(원시 그래프 트레이싱으로 아래 크래시를 다시 밟음). 경위: [bug/2026-07-09-vercel-hono-detection-crash.md](./bug/2026-07-09-vercel-hono-detection-crash.md)
+- `rewrites`: `/(.*)` → `/api`. **모든 경로가 하나의 서버리스 함수(셔임 `api/index.js` → 번들 `api/hub.js`)로 유입**되고, `/api`·`/caldav`·어드민 페이지 분기는 앱 내부 Hono 라우터(`index.ts`)가 담당한다.
 
 ### `--external` 플래그
 

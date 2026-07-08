@@ -9,8 +9,9 @@
 
 - [x] 원인 규명 — Vercel 빌더 54.19.0 의 hono 자동 감지가 비번들 `λ index` 를 추가 생성 + better-auth 1.6 분리 패키지(`@better-auth/telemetry`·`@better-auth/utils`)의 exports `node`/`default` 조건 불일치로 트레이싱 누락 → `/` 콜드스타트 크래시(`Requested module is not instantiated yet` 는 2차 증상).
 - [x] 1차 수정 — `vercel.json` `"framework": null`(커밋 `e26ab62`). 단, 클라우드(빌더 54.21.1)에서 **함수 0개·전 경로 404** 재발견: 새 파이프라인은 함수를 클론 시점 소스에서 열거 → gitignored 산출물 `api/index.js` 가 함수로 안 잡힘.
-- [x] 최종 수정 — 커밋되는 셔임 `api/index.ts`(`export { default } from './index.js'`) + `.gitignore` 를 `api/` → `api/index.js` 로 축소. fresh-clone 시뮬레이션(`rm api/index.js` 후 `bunx vercel@54.21.1 build`)으로 함수 생성·링킹 완주 검증. tsc 0 · 2278 pass.
-- [x] docs 상세화 — bug 문서 전면 확장(두 실패 모드·배제 가설·재현 절차·재발 방지 7항) + deploy.md·architecture.md 계약 기재 + memory/stack-and-invariants.md 불변 규칙("framework null + 셔임 = 한 세트").
+- [x] 2차 수정 — `.ts` 셔임(`c005003`, 배포 `b-r4alz145p`): 동작·스모크 통과했으나 빌더 tsc 의 `.js`→`.ts` 매핑으로 non-fatal `TS2303` 로그 잔존(잠재 폭탄).
+- [x] 최종 수정 — **JS 셔임 `api/index.js`(커밋, `export { default } from './hub.js'`) + 번들 출력 `api/hub.js` 분리**(build·vercel-build outfile 변경, `.gitignore` = `api/hub.js`). fresh-clone 시뮬레이션(`rm api/hub.js` 후 `bunx vercel@54.21.1 build`)으로 함수 생성·TS 단계 부재·링킹 완주 검증. tsc 0 · 2278 pass.
+- [x] docs 상세화 — bug 문서 전면 확장(실패 모드 3종·배제 가설·재현 절차·재발 방지 7항) + deploy.md·architecture.md 계약 기재 + memory/stack-and-invariants.md 불변 규칙("framework null + JS 셔임 = 한 세트").
 - [ ] production 재배포 후 `/`·`/api/health`·`/admin` 스모크 확인 + api.gumyo.net 도메인 재지정(rollback 해제) 확인.
 
 ### 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`) — 결정: [acknowledge/2026-07-02-deps-upgrade.md](./acknowledge/2026-07-02-deps-upgrade.md) · 이력: [history/2026-07-deps-upgrade.md](./history/2026-07-deps-upgrade.md)
