@@ -5,7 +5,29 @@
 
 ## 현재 진행 중 작업
 
-(없음)
+### AI 채팅 SSE 스트리밍 엔드포인트 추가 (2026-07-10)
+
+> 배경: 원격 AI Provider 시스템의 chat/completions 는 upstream SSE 를 서버에서 소비·집계해 단일 JSON 반환. 클라이언트 채팅 패널의 토큰 타이핑 UX 를 위해 delta 를 SSE 로 relay 하는 엔드포인트 추가. usage 집계·세션 저장·rate limit·에러 체계는 유지.
+
+- [x] a. SSE/NDJSON 파서 유틸 — service/domain/ai/ai-sse.ts (parseSseBlock·iterateSseEvents·iterateStreamLines)
+- [x] b. provider client 에 completeStream 추가 — ai-provider.ts 타입 + codex(Responses SSE)·anthropic(/v1/messages stream:true)·ollama(/api/chat stream:true NDJSON). codex complete 는 completeStream 소비로 재구성(동작 동일)
+- [x] c. ai-chat 서비스 스트리밍 변형 — sendStream(세션 저장·touch·logUsage 동일 후처리)·completeStream(touchUsed·logUsage), 공통 조립 헬퍼 추출
+- [x] d. SSE 라우트 — POST /api/ai/completions/stream · POST /api/ai/sessions/:sessionId/messages/stream (streamSSE, delta/done/error 이벤트, 스트림 시작 전 오류는 JSON errorResponse)
+- [x] e. 테스트 — ai-sse 파서·provider completeStream 3종·ai-chat 스트리밍 집계/저장/고아 방지·route SSE 형식/401/사전 오류 JSON
+- [x] f. 검증 — bunx tsc --noEmit 0 · bun test 전체 pass (2410 유지 + 신규) · docs(api-endpoints·domains/ai) 갱신
+
+### /manage AI 섹션을 원격 AI Provider 계약으로 재작성 (2026-07-10)
+
+> 배경: origin/dev 위에 cherry-pick 된 /manage 커밋이 폐기된 AiService(listKeys/addKey/getStatus)를 참조해 tsc 11 에러. 원격 aiConnectionService 계약으로 재작성.
+
+- [x] a. 원격 AI 계약 파악 — route/ai/connection.ts · service/domain/ai/ai-connection.ts · dto/ai/provider.ts · compose/ai.ts · db/schema.ts(ai_providers)
+- [x] b. page/manage/pages/ai.tsx 재작성 — aiConnectionService 기반 연결 목록(자격증명 미노출·status 표시)+등록 폼(codex 3필드 / anthropic·ollama apiKey)+삭제, POST→303 (`createManageAiProvidersRoute`, `/manage/ai/providers`)
+- [x] c. overview.tsx AI 요약을 원격 providers 기준(연결 수/상태)으로 변경 — 공용 `AiProviderStatusList`(components.tsx) 사용
+- [x] d. page/manage/index.ts·루트 index.ts 배선을 aiConnectionService 로 교체 (ManageRouteDeps 포함)
+- [x] e. admin/pages/ai.tsx RowAction confirmText→confirm(data-confirm) 계약 정합 — 파괴적 확인 동작 유지
+- [x] f. nav.ts AI 항목 /manage/ai/providers·Providers 로 변경, flash(ai_credentials_invalid·ai_reauth_required)·util(errorToFlashCode AI 매핑, aiProviderStatusBadgeKind) 갱신
+- [x] g. 테스트 갱신 — tests/page/manage/{helpers,ai.test,overview.test,index.test} 를 aiConnectionService 스텁 기준으로 (자격증명 미노출 어서션 포함)
+- [x] h. 검증 — bunx tsc --noEmit 0 에러 · bun test 2410 pass / 0 fail (203 파일) · prettier --check 통과
 
 ### 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`) — 결정: [acknowledge/2026-07-02-deps-upgrade.md](./acknowledge/2026-07-02-deps-upgrade.md) · 이력: [history/2026-07-deps-upgrade.md](./history/2026-07-deps-upgrade.md)
 

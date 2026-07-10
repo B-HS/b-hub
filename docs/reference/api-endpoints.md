@@ -339,11 +339,13 @@
 | DELETE | `/api/ai/sessions/:sessionId` | 세션 | 세션 삭제 | `route/ai/session.ts` |
 | GET | `/api/ai/sessions/:sessionId/messages` | 세션 | 세션 메시지 목록 | `route/ai/session.ts` |
 | POST | `/api/ai/sessions/:sessionId/messages` | 세션 + rate limit | 메시지 전송·응답 생성 | `route/ai/chat.ts` |
+| POST | `/api/ai/sessions/:sessionId/messages/stream` | 세션 + rate limit | 메시지 전송·SSE 스트리밍 응답(delta/done/error) | `route/ai/chat.ts` |
 | POST | `/api/ai/completions` | 세션 + rate limit | 세션 없는 단발 completion(도메인 융합) | `route/ai/chat.ts` |
+| POST | `/api/ai/completions/stream` | 세션 + rate limit | 단발 completion SSE 스트리밍(delta/done/error) | `route/ai/chat.ts` |
 | POST | `/api/ai/attachments` | 세션 + rate limit | 이미지 업로드(vision, R2) | `route/ai/attachment.ts` |
 | DELETE | `/api/ai/attachments/:attachmentId` | 세션 | 이미지 삭제 | `route/ai/attachment.ts` |
 
-파일 카운트: `connection.ts` = 4, `model.ts` = 2, `prompt.ts` = 4, `session.ts` = 5, `chat.ts` = 2, `attachment.ts` = 2. 상세: [../domains/ai.md](../domains/ai.md).
+파일 카운트: `connection.ts` = 4, `model.ts` = 2, `prompt.ts` = 4, `session.ts` = 5, `chat.ts` = 4, `attachment.ts` = 2. 상세: [../domains/ai.md](../domains/ai.md).
 
 ---
 
@@ -415,4 +417,4 @@
 | `route/ai/session.ts` | 5 | `route/ai/chat.ts` | 2 |
 | `route/ai/attachment.ts` | 2 | | |
 
-- API(`/api/*`) 라우트 등록 합계 = **167**(기존 148 + ai 19). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **169**(기존 148 + ai 21, SSE 스트리밍 2 포함). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

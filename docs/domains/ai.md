@@ -44,17 +44,18 @@
 |------|------|
 | `dto/ai/provider.ts` | provider 등록(discriminated union: codex=token 3종 / anthropic·ollama=apiKey)·수정·응답 스키마, `AI_PROVIDER`·`AI_PROVIDER_STATUS` 상수 |
 | `dto/ai/model.ts`·`prompt.ts`·`session.ts`·`chat.ts`·`attachment.ts` | 모델·프롬프트(stage)·세션·챗(send/completion)·첨부 Zod 스키마 |
-| `service/domain/ai/ai-provider.ts` | `AiProviderClient` 인터페이스(`listModels`/`complete`/`verify`) + 메시지·이미지·완성 타입 |
-| `service/domain/ai/providers/anthropic-provider.ts` | Anthropic 구현(`/v1/models`·`/v1/messages`, 이미지 base64 block) |
-| `service/domain/ai/providers/ollama-provider.ts` | Ollama Cloud 구현(`/api/tags`·`/api/chat` stream:false, images 배열) |
-| `service/domain/ai/providers/codex-provider.ts` | Codex 구현(`/models`·`/responses` **SSE 파싱**, fallback 모델) |
+| `service/domain/ai/ai-provider.ts` | `AiProviderClient` 인터페이스(`listModels`/`complete`/`completeStream`/`verify`) + 메시지·이미지·완성·스트림 이벤트 타입 |
+| `service/domain/ai/ai-sse.ts` | 스트림 파서 — 블록 SSE `parseSseBlock`·`iterateSseEvents`(anthropic) + 라인 `iterateStreamLines`(codex data 라인·ollama NDJSON) |
+| `service/domain/ai/providers/anthropic-provider.ts` | Anthropic 구현(`/v1/models`·`/v1/messages`, 이미지 base64 block, `completeStream`=stream:true SSE) |
+| `service/domain/ai/providers/ollama-provider.ts` | Ollama Cloud 구현(`/api/tags`·`/api/chat`, images 배열, `completeStream`=stream:true NDJSON) |
+| `service/domain/ai/providers/codex-provider.ts` | Codex 구현(`/models`·`/responses` **SSE 파싱**, fallback 모델. `complete` 는 `completeStream` 드레인) |
 | `service/domain/ai/ai-provider-factory.ts` | 복호화 + provider별 client 생성. codex OAuth 자동 갱신(회전 저장·reauth 마킹), `createFromStored`(등록 검증용), `getCodexAccountId`(id_token claim) |
 | `service/domain/ai/ai-connection.ts` | 연결 CRUD — 등록 전 `verify()` ping, codex accountId 보강, 소유권, `resolveClient`(status 가드) |
 | `service/domain/ai/ai-model.ts` | 모델 fetch·캐시 replace(새로고침 시 전체 교체)·`modelsFetchedAt` 기록 |
 | `service/domain/ai/ai-prompt.ts` | 사용자별 프롬프트 템플릿 CRUD + `resolveOwned`(챗 조립용) |
 | `service/domain/ai/ai-session.ts` | 세션·메시지 CRUD, `listRecentMessages`(history) |
 | `service/domain/ai/ai-attachment.ts` | 이미지 업로드(MIME·magic bytes·20MB)·R2 영구화·`resolveImages`(vision base64)·메시지 연결 |
-| `service/domain/ai/ai-chat.ts` | 오케스트레이션 — 프롬프트 stage 조립 + history + 이미지 → `client.complete` → 메시지 저장·usage 로깅. `send`(세션) / `complete`(ephemeral, 도메인 융합) |
+| `service/domain/ai/ai-chat.ts` | 오케스트레이션 — 프롬프트 stage 조립 + history + 이미지 → `client.complete`/`completeStream` → 메시지 저장·usage 로깅. `send`/`sendStream`(세션) / `complete`/`completeStream`(ephemeral, 도메인 융합) |
 | `compose/ai.ts` | ServiceDb Drizzle 인라인 구현 + factory 조립(codex refresh HTTP)·usage logger·rate limiter. **`AI_ENCRYPTION_KEY` 없으면 `{}` 반환(graceful)** |
 | `lib/credential-crypto.ts` | AES-256-GCM(v2 scrypt) 공용 crypto(mail 과 공유, 키 분리) |
 | `lib/jwt-decode.ts` | 서명 미검증 JWT payload 디코드 + exp 추출(codex 토큰 만료 판단·account_id) |
@@ -98,7 +99,9 @@
 | DELETE | `/api/ai/sessions/:sessionId` | 세션 | 세션 삭제 |
 | GET | `/api/ai/sessions/:sessionId/messages` | 세션 | 세션 메시지 목록 |
 | POST | `/api/ai/sessions/:sessionId/messages` | 세션 + rate limit | 메시지 전송·응답 생성 |
+| POST | `/api/ai/sessions/:sessionId/messages/stream` | 세션 + rate limit | 메시지 전송·SSE 스트리밍 응답(delta/done/error) |
 | POST | `/api/ai/completions` | 세션 + rate limit | 세션 없는 단발 completion(도메인 융합) |
+| POST | `/api/ai/completions/stream` | 세션 + rate limit | 단발 completion SSE 스트리밍(delta/done/error) |
 | POST | `/api/ai/attachments` | 세션 + rate limit | 이미지 업로드(vision, R2) |
 | DELETE | `/api/ai/attachments/:attachmentId` | 세션 | 이미지 삭제 |
 
@@ -121,6 +124,11 @@
 2. `listRecentMessages`(최근 50) + 첨부 이미지(`resolveImages` base64) 로 messages 를 **메모리에서만** 조립(seed → history → 이번 user 메시지). 이 시점엔 DB 에 아무것도 저장하지 않는다.
 3. `client.complete` 호출(시간 측정). **실패 시 `logUsage`(severity 40 → Discord 알림) 후 재-throw — 메시지는 저장하지 않는다(고아 user 메시지 방지, f6c65f3).** 성공한 경우에만 user 메시지 저장(첨부 연결) → assistant 메시지 저장(tokens·durationMs) → `touchLastMessage`·`touchUsed` → `logUsage`(severity 20).
 - `complete`(ephemeral)는 세션 없이 동일 조립으로 completion 만 반환 — 다른 도메인이 `aiChatService.complete(userId, {...})` 로 융합 호출.
+
+### SSE 스트리밍 (`ai-chat.sendStream` · `ai-chat.completeStream`)
+- provider client 의 `completeStream(request)` 이 upstream(codex Responses SSE · anthropic `/v1/messages` `stream:true` SSE · ollama `/api/chat` `stream:true` NDJSON)을 `AsyncIterable<{type:'delta',text}|{type:'done',result}>` 로 노출. 파서는 `service/domain/ai/ai-sse.ts`(블록 SSE `iterateSseEvents`, 라인 `iterateStreamLines`). codex 의 `complete` 는 `completeStream` 을 드레인해 동일 결과를 반환한다.
+- 서비스 스트림 변형은 **조립·후처리를 send/complete 와 공유**한다: delta 를 그대로 relay 하며 content·usage 를 누적하고, 스트림이 정상 종료(`done`)한 경우에만 세션 메시지 저장(sendStream)·`touchUsed`·`logUsage`(severity 20) 를 수행한다. 중간 실패는 저장 없이 `logUsage`(severity 40) 후 재-throw(고아 방지 동일).
+- 라우트는 `hono/streaming` 의 `streamSSE` 로 relay: `event: delta` `data: {"text":"..."}` (증분), `event: done` `data: {content,modelId,inputTokens,outputTokens,durationMs}`(세션 스트림은 `id` 포함, 어시스턴트 메시지 PK), `event: error` `data: {code,message}`. **스트림 시작 전 오류**(세션/키 미존재·reauth·rate limit·업스트림 연결 실패)는 기존과 동일한 JSON `errorResponse` 로 반환된다.
 
 ### 사용기록
 - `logUsage` → `logEventService.ingest({ service:'b-hub-ai', errorCode:'AI_CHAT_COMPLETED'|'AI_CHAT_FAILED'|'AI_COMPLETION_*', severity, category:'ai', details:{ provider, model, inputTokens, outputTokens, durationMs, featureKey } })`. **프롬프트 원문·자격증명은 details 에 넣지 않는다.** 실패(severity 40)는 [../logging.md](../logging.md) 규칙으로 Discord 알림 대상.
