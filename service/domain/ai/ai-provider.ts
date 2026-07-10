@@ -24,6 +24,8 @@ export type AiCompletionResult = {
     outputTokens: number | null
 }
 
+export type AiStreamEvent = { type: 'delta'; text: string } | { type: 'done'; result: AiCompletionResult }
+
 export type AiModelInfo = {
     modelId: string
     displayName: string | null
@@ -33,6 +35,7 @@ export type AiModelInfo = {
 export type AiProviderClient = {
     listModels(): Promise<AiModelInfo[]>
     complete(request: AiCompletionRequest): Promise<AiCompletionResult>
+    completeStream(request: AiCompletionRequest): Promise<AsyncIterable<AiStreamEvent>>
     verify(): Promise<{ ok: boolean; error?: string }>
 }
 

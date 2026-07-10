@@ -112,6 +112,47 @@ describe('createCodexProvider.complete', () => {
     })
 })
 
+describe('createCodexProvider.completeStream', () => {
+    test('델타를 순서대로 방출하고 마지막에 done 결과를 방출한다', async () => {
+        const fetchFn = queuedFetch([
+            sseResponse([
+                'data: {"type":"response.output_text.delta","delta":"Hello"}\n',
+                'data: {"type":"response.output_text.delta","delta":" World"}\n',
+                'data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5}}}\n',
+            ]),
+        ])
+        const provider = createCodexProvider({ getAccessToken: getAccessTokenOk(), fetchFn })
+        const events = []
+        for await (const event of await provider.completeStream({ modelId: 'gpt-5.1-codex', messages: [{ role: 'user', content: 'hi' }] })) {
+            events.push(event)
+        }
+        expect(events).toEqual([
+            { type: 'delta', text: 'Hello' },
+            { type: 'delta', text: ' World' },
+            { type: 'done', result: { content: 'Hello World', modelId: 'gpt-5.1-codex', inputTokens: 10, outputTokens: 5 } },
+        ])
+    })
+
+    test('response.failed 이벤트면 이터레이션 중 AI_COMPLETION_FAILED를 던진다', async () => {
+        const fetchFn = queuedFetch([sseResponse(['data: {"type":"response.failed","response":{"error":{"message":"boom"}}}\n'])])
+        const provider = createCodexProvider({ getAccessToken: getAccessTokenOk(), fetchFn })
+        const events = await provider.completeStream({ modelId: 'gpt-5.1-codex', messages: [{ role: 'user', content: 'hi' }] })
+        await expect(
+            (async () => {
+                for await (const event of events) void event
+            })(),
+        ).rejects.toMatchObject({ code: 'AI_COMPLETION_FAILED' })
+    })
+
+    test('HTTP 응답이 실패하면 스트림 시작 전에 reject 한다', async () => {
+        const fetchFn = queuedFetch([httpErr(429, 'rate limited')])
+        const provider = createCodexProvider({ getAccessToken: getAccessTokenOk(), fetchFn })
+        await expect(provider.completeStream({ modelId: 'gpt-5.1-codex', messages: [{ role: 'user', content: 'hi' }] })).rejects.toMatchObject({
+            code: 'AI_COMPLETION_FAILED',
+        })
+    })
+})
+
 describe('createCodexProvider.verify', () => {
     test('listModels가 성공하면 ok:true를 반환한다', async () => {
         const fetchFn = queuedFetch([jsonOk({ models: [{ slug: 'gpt-5.1-codex' }] })])

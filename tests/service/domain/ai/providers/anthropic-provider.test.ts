@@ -129,6 +129,73 @@ describe('createAnthropicProvider.complete', () => {
     })
 })
 
+const sseResponse = (blocks: string[]) => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+        start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
+            for (const block of blocks) controller.enqueue(encoder.encode(block))
+            controller.close()
+        },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+}
+
+describe('createAnthropicProvider.completeStream', () => {
+    test('stream:true 바디로 /v1/messages 를 호출한다', async () => {
+        const fetchFn = queuedFetch([sseResponse(['event: message_stop\ndata: {"type":"message_stop"}\n\n'])])
+        const provider = createAnthropicProvider({ apiKey: 'test-key', fetchFn })
+        const events = await provider.completeStream({ modelId: 'claude-x', messages: [{ role: 'user', content: 'hi' }] })
+        for await (const event of events) void event
+        expect(bodyOf(fetchFn, 0).stream).toBe(true)
+        expect(String(callOf(fetchFn, 0)[0])).toContain('/v1/messages')
+    })
+
+    test('text_delta 를 방출하고 message_start/message_delta 의 usage 를 done 에 집계한다', async () => {
+        const fetchFn = queuedFetch([
+            sseResponse([
+                'event: message_start\ndata: {"type":"message_start","message":{"model":"claude-real","usage":{"input_tokens":12}}}\n\n',
+                'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+                'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n\n',
+                'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" World"}}\n\n',
+                'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+                'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}\n\n',
+                'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+            ]),
+        ])
+        const provider = createAnthropicProvider({ apiKey: 'test-key', fetchFn })
+        const events = []
+        for await (const event of await provider.completeStream({ modelId: 'claude-x', messages: [{ role: 'user', content: 'hi' }] })) {
+            events.push(event)
+        }
+        expect(events).toEqual([
+            { type: 'delta', text: 'Hello' },
+            { type: 'delta', text: ' World' },
+            { type: 'done', result: { content: 'Hello World', modelId: 'claude-real', inputTokens: 12, outputTokens: 7 } },
+        ])
+    })
+
+    test('error 이벤트면 이터레이션 중 AI_COMPLETION_FAILED를 던진다', async () => {
+        const fetchFn = queuedFetch([
+            sseResponse(['event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n']),
+        ])
+        const provider = createAnthropicProvider({ apiKey: 'test-key', fetchFn })
+        const events = await provider.completeStream({ modelId: 'claude-x', messages: [{ role: 'user', content: 'hi' }] })
+        await expect(
+            (async () => {
+                for await (const event of events) void event
+            })(),
+        ).rejects.toMatchObject({ code: 'AI_COMPLETION_FAILED' })
+    })
+
+    test('HTTP 응답이 실패하면 스트림 시작 전에 reject 한다', async () => {
+        const fetchFn = queuedFetch([httpErr(429, 'rate limited')])
+        const provider = createAnthropicProvider({ apiKey: 'test-key', fetchFn })
+        await expect(provider.completeStream({ modelId: 'claude-x', messages: [{ role: 'user', content: 'hi' }] })).rejects.toMatchObject({
+            code: 'AI_COMPLETION_FAILED',
+        })
+    })
+})
+
 describe('createAnthropicProvider.verify', () => {
     test('listModels가 성공하면 ok:true를 반환한다', async () => {
         const fetchFn = queuedFetch([jsonOk({ data: [], has_more: false })])

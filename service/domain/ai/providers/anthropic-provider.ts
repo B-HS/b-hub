@@ -1,6 +1,7 @@
-import type { AiProviderClient, AiChatMessage, AiCompletionRequest, AiModelInfo } from '../ai-provider'
+import type { AiProviderClient, AiChatMessage, AiCompletionRequest, AiModelInfo, AiStreamEvent } from '../ai-provider'
 import { providerErrorMessage } from '../ai-provider'
-import { createAppError } from '../../../../lib/error'
+import { iterateSseEvents } from '../ai-sse'
+import { createAppError, isAppError } from '../../../../lib/error'
 import { maskProviderError } from '../../../../lib/mail-utils'
 
 type AnthropicProviderDeps = {
@@ -23,6 +24,68 @@ const buildContent = (message: AiChatMessage): string | AnthropicContentBlock[] 
     }))
     blocks.push({ type: 'text', text: message.content })
     return blocks
+}
+
+const buildMessagesBody = (request: AiCompletionRequest) => {
+    const systemFromMessages = request.messages
+        .filter((m) => m.role === 'system')
+        .map((m) => m.content)
+        .join('\n\n')
+    const system = request.system ?? (systemFromMessages || undefined)
+    const messages = request.messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: buildContent(m) }))
+
+    const body: Record<string, unknown> = {
+        model: request.modelId,
+        max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
+        messages,
+    }
+    if (system) body.system = system
+    if (request.temperature !== undefined) body.temperature = Math.min(1, Math.max(0, request.temperature))
+    return body
+}
+
+type AnthropicStreamPayload = {
+    type?: string
+    message?: { model?: string; usage?: { input_tokens?: number } }
+    delta?: { type?: string; text?: string }
+    usage?: { output_tokens?: number }
+    error?: { type?: string; message?: string }
+}
+
+const relayAnthropicStream = async function* (body: ReadableStream<Uint8Array>, fallbackModelId: string): AsyncGenerator<AiStreamEvent> {
+    let content = ''
+    let modelId = fallbackModelId
+    let inputTokens: number | null = null
+    let outputTokens: number | null = null
+    try {
+        for await (const sseEvent of iterateSseEvents(body)) {
+            if (sseEvent.event === 'message_stop') break
+            let payload: AnthropicStreamPayload
+            try {
+                payload = JSON.parse(sseEvent.data) as AnthropicStreamPayload
+            } catch {
+                continue
+            }
+            if (sseEvent.event === 'error' || payload.type === 'error') {
+                throw createAppError('AI_COMPLETION_FAILED', {
+                    detail: maskProviderError(payload.error?.message ?? 'stream error').slice(0, 500),
+                })
+            }
+            if (sseEvent.event === 'message_start') {
+                modelId = payload.message?.model ?? modelId
+                inputTokens = payload.message?.usage?.input_tokens ?? inputTokens
+            } else if (sseEvent.event === 'content_block_delta' && payload.delta?.type === 'text_delta' && payload.delta.text) {
+                content += payload.delta.text
+                yield { type: 'delta', text: payload.delta.text }
+            } else if (sseEvent.event === 'message_delta') {
+                outputTokens = payload.usage?.output_tokens ?? outputTokens
+            }
+        }
+    } catch (error) {
+        if (isAppError(error)) throw error
+        throw createAppError('AI_COMPLETION_FAILED', { detail: maskProviderError(providerErrorMessage(error)).slice(0, 500) })
+    }
+    yield { type: 'done', result: { content, modelId, inputTokens, outputTokens } }
 }
 
 export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicProviderDeps): AiProviderClient => {
@@ -52,25 +115,10 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
     }
 
     const complete = async (request: AiCompletionRequest) => {
-        const systemFromMessages = request.messages
-            .filter((m) => m.role === 'system')
-            .map((m) => m.content)
-            .join('\n\n')
-        const system = request.system ?? (systemFromMessages || undefined)
-        const messages = request.messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: buildContent(m) }))
-
-        const body: Record<string, unknown> = {
-            model: request.modelId,
-            max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
-            messages,
-        }
-        if (system) body.system = system
-        if (request.temperature !== undefined) body.temperature = Math.min(1, Math.max(0, request.temperature))
-
         const res = await fetchFn(`${ANTHROPIC_BASE}/v1/messages`, {
             method: 'POST',
             headers: { ...authHeaders, 'content-type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify(buildMessagesBody(request)),
         })
         if (!res.ok) {
             const errBody = await res.text().catch(() => '')
@@ -93,6 +141,20 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
         }
     }
 
+    const completeStream = async (request: AiCompletionRequest) => {
+        const res = await fetchFn(`${ANTHROPIC_BASE}/v1/messages`, {
+            method: 'POST',
+            headers: { ...authHeaders, 'content-type': 'application/json', 'accept': 'text/event-stream' },
+            body: JSON.stringify({ ...buildMessagesBody(request), stream: true }),
+        })
+        if (!res.ok) {
+            const errBody = await res.text().catch(() => '')
+            throw createAppError('AI_COMPLETION_FAILED', { status: res.status, detail: maskProviderError(errBody).slice(0, 500) })
+        }
+        if (!res.body) throw createAppError('AI_COMPLETION_FAILED', { detail: 'empty response body' })
+        return relayAnthropicStream(res.body, request.modelId)
+    }
+
     const verify = async () => {
         try {
             await listModels()
@@ -102,5 +164,5 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
         }
     }
 
-    return { listModels, complete, verify }
+    return { listModels, complete, completeStream, verify }
 }

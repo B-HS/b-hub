@@ -1,7 +1,8 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createAiChatService } from '../../../../service/domain/ai/ai-chat'
-import type { AiUsageLogger } from '../../../../service/domain/ai/ai-chat'
-import type { AiCompletionRequest } from '../../../../service/domain/ai/ai-provider'
+import type { AiUsageLogger, AiChatStreamEvent } from '../../../../service/domain/ai/ai-chat'
+import type { AiCompletionRequest, AiStreamEvent } from '../../../../service/domain/ai/ai-provider'
+import { createAppError } from '../../../../lib/error'
 import type { AiSession, AiMessage, AiPrompt } from '../../../../db/schema'
 
 const buildSession = (over: Partial<AiSession> = {}): AiSession => ({
@@ -47,9 +48,28 @@ const buildMessage = (over: Partial<AiMessage>): AiMessage => ({
     ...over,
 })
 
+const upstreamOf = (events: AiStreamEvent[]) =>
+    (async function* () {
+        for (const event of events) yield event
+    })()
+
+const defaultUpstream = () =>
+    upstreamOf([
+        { type: 'delta', text: 'ans' },
+        { type: 'delta', text: 'wer' },
+        { type: 'done', result: { content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 } },
+    ])
+
+const collect = async (events: AsyncIterable<AiChatStreamEvent>) => {
+    const collected: AiChatStreamEvent[] = []
+    for await (const event of events) collected.push(event)
+    return collected
+}
+
 const createDeps = () => {
     const client = {
         complete: mock(async (_req: AiCompletionRequest) => ({ content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 })),
+        completeStream: mock(async (_req: AiCompletionRequest) => defaultUpstream()),
         listModels: mock(async () => []),
         verify: mock(async () => ({ ok: true })),
     }
@@ -189,6 +209,128 @@ describe('createAiChatService', () => {
 
             await expect(
                 service.complete('user-1', { provider: 'anthropic', modelId: 'claude-x', messages: [{ role: 'user', content: 'ping' }] }),
+            ).rejects.toThrow('provider down')
+
+            const logged = deps.logUsage.mock.calls[0][0]
+            expect(logged.severity).toBe(40)
+            expect(logged.errorCode).toBe('AI_COMPLETION_FAILED')
+            expect(deps.connectionService.touchUsed).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('sendStream', () => {
+        test('델타를 그대로 방출하고 done 에서 유저·어시스턴트 메시지를 저장한다', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+
+            const events = await collect(await service.sendStream('user-1', 'sess-1', { content: 'hello world' }))
+
+            expect(events[0]).toEqual({ type: 'delta', text: 'ans' })
+            expect(events[1]).toEqual({ type: 'delta', text: 'wer' })
+            expect(events[2]).toMatchObject({
+                type: 'done',
+                result: { id: 100, content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 },
+            })
+            expect((events[2] as { result: { durationMs: number } }).result.durationMs).toEqual(expect.any(Number))
+
+            const userInsert = deps.sessionService.insertMessage.mock.calls[0][0]
+            expect(userInsert).toMatchObject({ sessionId: 'sess-1', role: 'user', content: 'hello world' })
+            const assistantInsert = deps.sessionService.insertMessage.mock.calls[1][0]
+            expect(assistantInsert).toMatchObject({ role: 'assistant', content: 'answer', inputTokens: 10, outputTokens: 20 })
+
+            expect(deps.sessionService.touchLastMessage).toHaveBeenCalledWith('sess-1')
+            expect(deps.connectionService.touchUsed).toHaveBeenCalledWith(5)
+            const logged = deps.logUsage.mock.calls[0][0]
+            expect(logged.severity).toBe(20)
+            expect(logged.errorCode).toBe('AI_CHAT_COMPLETED')
+        })
+
+        test('스트림 연결이 실패하면 reject 하고 logUsage(severity 40)를 남긴다', async () => {
+            const deps = createDeps()
+            deps.client.completeStream = mock((_req: AiCompletionRequest) => Promise.reject(new Error('provider down')))
+            const service = createAiChatService(deps as never)
+
+            await expect(service.sendStream('user-1', 'sess-1', { content: 'hello world' })).rejects.toThrow('provider down')
+
+            const logged = deps.logUsage.mock.calls[0][0]
+            expect(logged.severity).toBe(40)
+            expect(logged.errorCode).toBe('AI_CHAT_FAILED')
+            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+        })
+
+        test('스트림 중간 실패면 메시지를 저장하지 않고 logUsage(severity 40) 후 throw 한다(고아 방지)', async () => {
+            const deps = createDeps()
+            deps.client.completeStream = mock(async (_req: AiCompletionRequest) =>
+                (async function* (): AsyncGenerator<AiStreamEvent> {
+                    yield { type: 'delta', text: 'par' }
+                    throw createAppError('AI_PROVIDER_ERROR')
+                })(),
+            )
+            const service = createAiChatService(deps as never)
+
+            const events = await service.sendStream('user-1', 'sess-1', { content: 'hello world' })
+            await expect(collect(events)).rejects.toMatchObject({ code: 'AI_PROVIDER_ERROR' })
+
+            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.sessionService.touchLastMessage).not.toHaveBeenCalled()
+            const logged = deps.logUsage.mock.calls[0][0]
+            expect(logged.severity).toBe(40)
+            expect(logged.errorCode).toBe('AI_CHAT_FAILED')
+        })
+
+        test('done 없이 스트림이 끝나면 AI_COMPLETION_FAILED를 던지고 저장하지 않는다', async () => {
+            const deps = createDeps()
+            deps.client.completeStream = mock(async (_req: AiCompletionRequest) => upstreamOf([{ type: 'delta', text: 'par' }]))
+            const service = createAiChatService(deps as never)
+
+            const events = await service.sendStream('user-1', 'sess-1', { content: 'hello world' })
+            await expect(collect(events)).rejects.toMatchObject({ code: 'AI_COMPLETION_FAILED' })
+            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('completeStream', () => {
+        test('델타를 방출하고 done 에서 touchUsed·logUsage(severity 20)만 수행한다(세션 미저장)', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+
+            const events = await collect(
+                await service.completeStream('user-1', { provider: 'anthropic', modelId: 'claude-x', messages: [{ role: 'user', content: 'ping' }] }),
+            )
+
+            expect(events[0]).toEqual({ type: 'delta', text: 'ans' })
+            expect(events[2]).toMatchObject({
+                type: 'done',
+                result: { content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 },
+            })
+            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.connectionService.touchUsed).toHaveBeenCalledWith(5)
+            const logged = deps.logUsage.mock.calls[0][0]
+            expect(logged.severity).toBe(20)
+            expect(logged.errorCode).toBe('AI_COMPLETION_COMPLETED')
+        })
+
+        test('done 을 방출하기 전에는 touchUsed·logUsage 를 수행하지 않는다', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+
+            const events = await service.completeStream('user-1', {
+                provider: 'anthropic',
+                modelId: 'claude-x',
+                messages: [{ role: 'user', content: 'ping' }],
+            })
+            await events.next()
+            expect(deps.connectionService.touchUsed).not.toHaveBeenCalled()
+            expect(deps.logUsage).not.toHaveBeenCalled()
+        })
+
+        test('스트림 연결이 실패하면 reject 하고 logUsage(severity 40)를 남긴다', async () => {
+            const deps = createDeps()
+            deps.client.completeStream = mock((_req: AiCompletionRequest) => Promise.reject(new Error('provider down')))
+            const service = createAiChatService(deps as never)
+
+            await expect(
+                service.completeStream('user-1', { provider: 'anthropic', modelId: 'claude-x', messages: [{ role: 'user', content: 'ping' }] }),
             ).rejects.toThrow('provider down')
 
             const logged = deps.logUsage.mock.calls[0][0]

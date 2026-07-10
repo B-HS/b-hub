@@ -1,6 +1,7 @@
-import type { AiProviderClient, AiChatMessage, AiCompletionRequest, AiModelInfo } from '../ai-provider'
+import type { AiProviderClient, AiChatMessage, AiCompletionRequest, AiCompletionResult, AiModelInfo, AiStreamEvent } from '../ai-provider'
 import { providerErrorMessage } from '../ai-provider'
-import { createAppError } from '../../../../lib/error'
+import { iterateStreamLines } from '../ai-sse'
+import { createAppError, isAppError } from '../../../../lib/error'
 import { maskProviderError } from '../../../../lib/mail-utils'
 
 type CodexProviderDeps = {
@@ -32,51 +33,48 @@ const buildInput = (messages: AiChatMessage[]) =>
 
 type CodexUsage = { input_tokens?: number; output_tokens?: number }
 
-const parseResponsesSse = async (res: Response): Promise<{ text: string; usage: CodexUsage | null }> => {
-    if (!res.body) throw createAppError('AI_COMPLETION_FAILED', { detail: 'empty response body' })
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let text = ''
-    let usage: CodexUsage | null = null
-    let failed: string | null = null
-
-    const handleLine = (line: string) => {
-        const trimmed = line.trim()
-        if (!trimmed.startsWith('data:')) return
-        const payload = trimmed.slice(5).trim()
-        if (!payload || payload === '[DONE]') return
-        let evt: {
+const parseCodexEvent = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('data:')) return null
+    const payload = trimmed.slice(5).trim()
+    if (!payload || payload === '[DONE]') return null
+    try {
+        return JSON.parse(payload) as {
             type?: string
             delta?: string
-            response?: { usage?: { input_tokens?: number; output_tokens?: number }; error?: { message?: string } }
+            response?: { usage?: CodexUsage; error?: { message?: string } }
         }
-        try {
-            evt = JSON.parse(payload)
-        } catch {
-            return
-        }
-        if (evt.type === 'response.output_text.delta' && typeof evt.delta === 'string') text += evt.delta
-        else if (evt.type === 'response.completed') usage = evt.response?.usage ?? usage
-        else if (evt.type === 'response.failed' || evt.type === 'response.incomplete') failed = evt.response?.error?.message ?? evt.type
+    } catch {
+        return null
     }
+}
 
+const relayCodexStream = async function* (body: ReadableStream<Uint8Array>, modelId: string): AsyncGenerator<AiStreamEvent> {
+    let content = ''
+    let usage: CodexUsage | null = null
     try {
-        for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() ?? ''
-            for (const line of lines) handleLine(line)
+        for await (const line of iterateStreamLines(body)) {
+            const evt = parseCodexEvent(line)
+            if (!evt) continue
+            if (evt.type === 'response.output_text.delta' && typeof evt.delta === 'string') {
+                content += evt.delta
+                yield { type: 'delta', text: evt.delta }
+            } else if (evt.type === 'response.completed') {
+                usage = evt.response?.usage ?? usage
+            } else if (evt.type === 'response.failed' || evt.type === 'response.incomplete') {
+                throw createAppError('AI_COMPLETION_FAILED', {
+                    detail: maskProviderError(evt.response?.error?.message ?? evt.type).slice(0, 500),
+                })
+            }
         }
-        if (buffer) handleLine(buffer)
     } catch (error) {
+        if (isAppError(error)) throw error
         throw createAppError('AI_COMPLETION_FAILED', { detail: maskProviderError(providerErrorMessage(error)).slice(0, 500) })
     }
-
-    if (failed) throw createAppError('AI_COMPLETION_FAILED', { detail: maskProviderError(failed).slice(0, 500) })
-    return { text, usage }
+    yield {
+        type: 'done',
+        result: { content, modelId, inputTokens: usage?.input_tokens ?? null, outputTokens: usage?.output_tokens ?? null },
+    }
 }
 
 export const createCodexProvider = ({
@@ -109,7 +107,7 @@ export const createCodexProvider = ({
         }))
     }
 
-    const complete = async (request: AiCompletionRequest) => {
+    const completeStream = async (request: AiCompletionRequest) => {
         const { accessToken, accountId } = await getAccessToken()
         const body = {
             model: request.modelId,
@@ -134,13 +132,17 @@ export const createCodexProvider = ({
             const errBody = await res.text().catch(() => '')
             throw createAppError('AI_COMPLETION_FAILED', { status: res.status, detail: maskProviderError(errBody).slice(0, 500) })
         }
-        const { text, usage } = await parseResponsesSse(res)
-        return {
-            content: text,
-            modelId: request.modelId,
-            inputTokens: usage?.input_tokens ?? null,
-            outputTokens: usage?.output_tokens ?? null,
+        if (!res.body) throw createAppError('AI_COMPLETION_FAILED', { detail: 'empty response body' })
+        return relayCodexStream(res.body, request.modelId)
+    }
+
+    const complete = async (request: AiCompletionRequest) => {
+        let result: AiCompletionResult | null = null
+        for await (const event of await completeStream(request)) {
+            if (event.type === 'done') result = event.result
         }
+        if (!result) throw createAppError('AI_COMPLETION_FAILED', { detail: 'stream ended without completion' })
+        return result
     }
 
     const verify = async () => {
@@ -152,5 +154,5 @@ export const createCodexProvider = ({
         }
     }
 
-    return { listModels, complete, verify }
+    return { listModels, complete, completeStream, verify }
 }

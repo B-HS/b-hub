@@ -90,6 +90,79 @@ describe('createOllamaProvider.complete', () => {
     })
 })
 
+const ndjsonResponse = (lines: string[]) => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+        start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
+            for (const line of lines) controller.enqueue(encoder.encode(line))
+            controller.close()
+        },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'application/x-ndjson' } })
+}
+
+describe('createOllamaProvider.completeStream', () => {
+    test('stream:true 바디로 /api/chat 를 호출한다', async () => {
+        const fetchFn = queuedFetch([ndjsonResponse(['{"done":true}\n'])])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        const events = await provider.completeStream({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }] })
+        for await (const event of events) void event
+        expect(bodyOf(fetchFn, 0).stream).toBe(true)
+        expect(String(callOf(fetchFn, 0)[0])).toContain('/api/chat')
+    })
+
+    test('NDJSON 델타를 방출하고 done 청크의 usage 를 집계한다', async () => {
+        const fetchFn = queuedFetch([
+            ndjsonResponse([
+                '{"model":"llama3","message":{"role":"assistant","content":"Hel"},"done":false}\n',
+                '{"model":"llama3","message":{"role":"assistant","content":"lo"},"done":false}\n',
+                '{"model":"llama3-real","done":true,"prompt_eval_count":11,"eval_count":18}\n',
+            ]),
+        ])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        const events = []
+        for await (const event of await provider.completeStream({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }] })) {
+            events.push(event)
+        }
+        expect(events).toEqual([
+            { type: 'delta', text: 'Hel' },
+            { type: 'delta', text: 'lo' },
+            { type: 'done', result: { content: 'Hello', modelId: 'llama3-real', inputTokens: 11, outputTokens: 18 } },
+        ])
+    })
+
+    test('청크 경계로 잘린 NDJSON 라인도 버퍼링하여 방출한다', async () => {
+        const fetchFn = queuedFetch([
+            ndjsonResponse(['{"message":{"content":"Spl', 'it"},"done":false}\n', '{"done":true,"prompt_eval_count":1,"eval_count":2}\n']),
+        ])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        const events = []
+        for await (const event of await provider.completeStream({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }] })) {
+            events.push(event)
+        }
+        expect(events[0]).toEqual({ type: 'delta', text: 'Split' })
+    })
+
+    test('error 청크면 이터레이션 중 AI_COMPLETION_FAILED를 던진다', async () => {
+        const fetchFn = queuedFetch([ndjsonResponse(['{"error":"model not found"}\n'])])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        const events = await provider.completeStream({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }] })
+        await expect(
+            (async () => {
+                for await (const event of events) void event
+            })(),
+        ).rejects.toMatchObject({ code: 'AI_COMPLETION_FAILED' })
+    })
+
+    test('HTTP 응답이 실패하면 스트림 시작 전에 reject 한다', async () => {
+        const fetchFn = queuedFetch([httpErr(500, 'server error')])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        await expect(provider.completeStream({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }] })).rejects.toMatchObject({
+            code: 'AI_COMPLETION_FAILED',
+        })
+    })
+})
+
 describe('createOllamaProvider.verify', () => {
     test('listModels가 성공하면 ok:true를 반환한다', async () => {
         const fetchFn = queuedFetch([jsonOk({ models: [] })])
