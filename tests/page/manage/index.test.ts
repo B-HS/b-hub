@@ -2,7 +2,26 @@ import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { createManageRoute } from '../../../page/manage'
 import { issueCsrfToken } from '../../../page/admin/csrf'
-import { mockAdmin, mockUser, sessionOf, stubAiService, stubApiTokenService, stubMailAccountService, stubWeatherApiKeyService } from './helpers'
+import {
+    mockAdmin,
+    mockUser,
+    sessionOf,
+    stubAiService,
+    stubApiTokenService,
+    stubCalendarService,
+    stubDriveAssetService,
+    stubDriveFolderService,
+    stubMailAccountService,
+    stubMailFolderDb,
+    stubMailMessageService,
+    stubMailSyncService,
+    stubMailUploadService,
+    stubResumeService,
+    stubSpotifyAccountService,
+    stubSpotifyApiKeyService,
+    stubSpotifyWidgetTokenService,
+    stubWeatherApiKeyService,
+} from './helpers'
 
 const SECRET = 'test-csrf-secret'
 
@@ -16,13 +35,42 @@ const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null, csrfS
             weatherApiKeyService: stubWeatherApiKeyService(),
             aiService: stubAiService(),
             mailAccountService: stubMailAccountService(),
+            mailMessageService: stubMailMessageService(),
+            mailSyncService: stubMailSyncService(),
+            mailUploadService: stubMailUploadService(),
+            mailFolderDb: stubMailFolderDb(),
+            calendarService: stubCalendarService(),
+            driveFolderService: stubDriveFolderService(),
+            driveAssetService: stubDriveAssetService(),
+            resumeService: stubResumeService(),
+            spotifyAccountService: stubSpotifyAccountService(),
+            spotifyApiKeyService: stubSpotifyApiKeyService(),
+            spotifyWidgetTokenService: stubSpotifyWidgetTokenService(),
+            baseUrl: 'https://hub.test',
             csrfSecret,
         }),
     )
     return app
 }
 
-const manageRoutes = ['/manage', '/manage/ai/keys', '/manage/tokens', '/manage/weather/keys']
+const manageRoutes = [
+    '/manage',
+    '/manage/ai/keys',
+    '/manage/tokens',
+    '/manage/weather/keys',
+    '/manage/mail/accounts',
+    '/manage/mail/messages',
+    '/manage/mail/sync',
+    '/manage/calendar/events',
+    '/manage/calendar/groups',
+    '/manage/calendar/subscription',
+    '/manage/drive/folders',
+    '/manage/drive/assets',
+    '/manage/resume',
+    '/manage/spotify/accounts',
+    '/manage/spotify/keys',
+    '/manage/spotify/widget-tokens',
+]
 
 describe('Manage 라우트 번들링', () => {
     test('로그인 사용자(비관리자 포함)에게 모든 섹션이 200을 반환한다', async () => {
@@ -43,6 +91,29 @@ describe('Manage 라우트 번들링', () => {
             const res = await app.request(path)
             expect(res.status).toBe(303)
             expect(res.headers.get('location')).toContain('/manage/login')
+        }
+    })
+
+    test('도메인 서비스가 미구성이어도 도메인 섹션은 200(미구성 안내)을 반환한다', async () => {
+        const app = new Hono()
+        app.route(
+            '/manage',
+            createManageRoute({
+                getSession: sessionOf(mockUser),
+                apiTokenService: stubApiTokenService(),
+                weatherApiKeyService: stubWeatherApiKeyService(),
+            }),
+        )
+        for (const path of [
+            '/manage/mail/accounts',
+            '/manage/calendar/events',
+            '/manage/drive/assets',
+            '/manage/resume',
+            '/manage/spotify/accounts',
+        ]) {
+            const res = await app.request(path)
+            expect(res.status).toBe(200)
+            expect(await res.text()).toContain('구성되지 않았습니다')
         }
     })
 
@@ -107,5 +178,19 @@ describe('Manage CSRF 가드', () => {
             body: new URLSearchParams({ name: 'x' }),
         })
         expect(res.status).toBe(200)
+    })
+
+    test('신규 도메인 섹션도 토큰 없는 POST는 403이다', async () => {
+        for (const path of ['/manage/mail/accounts', '/manage/calendar/groups', '/manage/drive/folders', '/manage/spotify/accounts/2/delete']) {
+            const res = await createApp(mockUser, SECRET).request(path, { method: 'POST', body: new URLSearchParams() })
+            expect(res.status).toBe(403)
+        }
+    })
+
+    test('신규 도메인 섹션 폼에도 _csrf 토큰이 렌더링된다', async () => {
+        const token = issueCsrfToken(mockUser.id, SECRET)
+        const html = await (await createApp(mockUser, SECRET).request('/manage/calendar/groups')).text()
+        expect(html).toContain('name="_csrf"')
+        expect(html).toContain(token)
     })
 })

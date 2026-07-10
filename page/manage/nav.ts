@@ -7,6 +7,41 @@ export const MANAGE_NAV: readonly ManageNavGroup[] = [
         items: [{ href: '/manage', label: 'Overview' }],
     },
     {
+        title: 'Mail',
+        items: [
+            { href: '/manage/mail/accounts', label: 'Accounts' },
+            { href: '/manage/mail/messages', label: 'Messages' },
+            { href: '/manage/mail/sync', label: 'Sync' },
+        ],
+    },
+    {
+        title: 'Calendar',
+        items: [
+            { href: '/manage/calendar/events', label: 'Events' },
+            { href: '/manage/calendar/groups', label: 'Groups' },
+            { href: '/manage/calendar/subscription', label: 'Subscription' },
+        ],
+    },
+    {
+        title: 'Drive',
+        items: [
+            { href: '/manage/drive/folders', label: 'Folders' },
+            { href: '/manage/drive/assets', label: 'Assets' },
+        ],
+    },
+    {
+        title: 'Resume',
+        items: [{ href: '/manage/resume', label: 'Resumes' }],
+    },
+    {
+        title: 'Spotify',
+        items: [
+            { href: '/manage/spotify/accounts', label: 'Accounts' },
+            { href: '/manage/spotify/keys', label: 'API Keys' },
+            { href: '/manage/spotify/widget-tokens', label: 'Widget Tokens' },
+        ],
+    },
+    {
         title: 'AI',
         items: [{ href: '/manage/ai/keys', label: 'Provider Keys' }],
     },
