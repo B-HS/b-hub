@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
-import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { AdminShell, Badge, CsrfField, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { parseFlash } from '../flash'
 import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -98,15 +99,11 @@ const UserDetailPage: FC<{
         subtitle='사용자 상세 정보'
         user={user}
         currentPath='/admin/users'
-        breadcrumbs={[
-            { href: '/admin', label: 'Admin' },
-            { href: '/admin/users', label: 'Users' },
-            { label: target.email },
-        ]}
+        breadcrumbs={[{ href: '/admin', label: 'Admin' }, { href: '/admin/users', label: 'Users' }, { label: target.email }]}
         flash={flash}>
-        <div class='cards-grid' style='grid-template-columns:repeat(auto-fill,minmax(280px,1fr));'>
+        <div class='cards-grid cols-280'>
             <div class='card'>
-                <h3 style='font-weight:600;margin-bottom:0.5rem;'>프로필</h3>
+                <h3 class='card-title-sm'>프로필</h3>
                 <dl class='kv'>
                     <dt>ID</dt>
                     <dd class='mono'>{target.id}</dd>
@@ -128,8 +125,9 @@ const UserDetailPage: FC<{
             </div>
 
             <div class='card'>
-                <h3 style='font-weight:600;margin-bottom:0.5rem;'>Role 변경</h3>
-                <form method='post' action={`/admin/users/${target.id}/role`} style='display:flex;gap:0.5rem;align-items:end;'>
+                <h3 class='card-title-sm'>Role 변경</h3>
+                <form method='post' action={`/admin/users/${target.id}/role`} class='form-inline'>
+                    <CsrfField />
                     <div class='field'>
                         <label for='role-sel'>Role</label>
                         <select id='role-sel' class='select' name='role'>
@@ -148,21 +146,18 @@ const UserDetailPage: FC<{
             </div>
 
             <div class='card'>
-                <h3 style='font-weight:600;margin-bottom:0.5rem;'>Ban 상태</h3>
-                <form method='post' action={`/admin/users/${target.id}/ban`} style='display:flex;flex-direction:column;gap:0.5rem;'>
+                <h3 class='card-title-sm'>Ban 상태</h3>
+                <form method='post' action={`/admin/users/${target.id}/ban`} class='form-stack'>
+                    <CsrfField />
                     <div class='field'>
                         <label>Reason</label>
                         <input class='input' name='reason' value={target.banReason ?? ''} />
                     </div>
                     <div class='field'>
                         <label>Expires (YYYY-MM-DD or empty)</label>
-                        <input
-                            class='input'
-                            name='expires'
-                            value={target.banExpires ? new Date(target.banExpires).toISOString().slice(0, 10) : ''}
-                        />
+                        <input class='input' name='expires' value={target.banExpires ? new Date(target.banExpires).toISOString().slice(0, 10) : ''} />
                     </div>
-                    <div style='display:flex;gap:0.5rem;'>
+                    <div class='hstack'>
                         <button class='btn destructive' type='submit' name='action' value='ban'>
                             Ban
                         </button>
@@ -174,8 +169,9 @@ const UserDetailPage: FC<{
             </div>
 
             <div class='card'>
-                <h3 style='font-weight:600;margin-bottom:0.5rem;'>Storage Quota</h3>
-                <form method='post' action={`/admin/users/${target.id}/quota`} style='display:flex;gap:0.5rem;align-items:end;'>
+                <h3 class='card-title-sm'>Storage Quota</h3>
+                <form method='post' action={`/admin/users/${target.id}/quota`} class='form-inline'>
+                    <CsrfField />
                     <div class='field'>
                         <label>Bytes</label>
                         <input class='input' name='bytes' type='number' value={String(target.storageQuotaBytes)} />
@@ -188,7 +184,7 @@ const UserDetailPage: FC<{
         </div>
 
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>연결된 계정</h3>
+            <h3 class='card-title-sm'>연결된 계정</h3>
             <DataTable
                 rows={accounts}
                 rowKey={(r) => r.id}
@@ -204,7 +200,7 @@ const UserDetailPage: FC<{
         </div>
 
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>활성 세션</h3>
+            <h3 class='card-title-sm'>활성 세션</h3>
             <DataTable
                 rows={sessions}
                 rowKey={(r) => r.id}
@@ -230,7 +226,12 @@ const UserDetailPage: FC<{
                     ] as Column<UserSession>[]
                 }
             />
-            <form method='post' action={`/admin/users/${target.id}/sessions/revoke-all`} style='margin-top:0.75rem;'>
+            <form
+                method='post'
+                action={`/admin/users/${target.id}/sessions/revoke-all`}
+                class='mt-sm'
+                data-confirm='이 사용자의 모든 세션을 만료할까요?'>
+                <CsrfField />
                 <input type='hidden' name='returnTo' value={`/admin/users/${target.id}`} />
                 <button class='btn destructive' type='submit'>
                     모든 세션 강제 만료
@@ -239,7 +240,7 @@ const UserDetailPage: FC<{
         </div>
 
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>최근 API 요청 (20건)</h3>
+            <h3 class='card-title-sm'>최근 API 요청 (20건)</h3>
             <DataTable
                 rows={apiLogs}
                 rowKey={(r) => r.id}
@@ -276,9 +277,20 @@ export const createUsersRoute = (deps: { getSession: AdminGetSession; adminDb: A
         const role = c.req.query('role')
         const banned = c.req.query('banned')
         const { rows, total } = await deps.adminDb.listUsers({ page, size, q, role, banned: banned as 'y' | 'n' | undefined })
-        const flashStatus = c.req.query('flash')
-        const flash = flashStatus === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-        return c.html(<UsersListPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} role={role} banned={banned} flash={flash} />)
+        const flash = parseFlash(c)
+        return c.html(
+            <UsersListPage
+                user={c.get('adminUser')}
+                rows={rows}
+                total={total}
+                page={page}
+                size={size}
+                q={q}
+                role={role}
+                banned={banned}
+                flash={flash}
+            />,
+        )
     })
 
     app.get('/:id', async (c) => {
@@ -290,9 +302,10 @@ export const createUsersRoute = (deps: { getSession: AdminGetSession; adminDb: A
             deps.adminDb.getUserSessions(id),
             deps.adminDb.getUserApiRequests(id),
         ])
-        const flashStatus = c.req.query('flash')
-        const flash = flashStatus === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-        return c.html(<UserDetailPage user={c.get('adminUser')} target={target} accounts={accounts} sessions={sessions} apiLogs={apiLogs} flash={flash} />)
+        const flash = parseFlash(c)
+        return c.html(
+            <UserDetailPage user={c.get('adminUser')} target={target} accounts={accounts} sessions={sessions} apiLogs={apiLogs} flash={flash} />,
+        )
     })
 
     app.post('/:id/role', async (c) => {

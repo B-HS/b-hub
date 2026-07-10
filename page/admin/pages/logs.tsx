@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatDate, parseDateEnd, parseDateStart, parseIntOr, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -10,8 +11,6 @@ const sanitizeReturn = (raw: unknown, fallback: string): string => {
     const v = typeof raw === 'string' ? raw : ''
     return v.startsWith('/admin') ? v : fallback
 }
-
-const appendFlash = (path: string): string => path + (path.includes('?') ? '&' : '?') + 'flash=ok'
 
 type LogEventRow = Awaited<ReturnType<AdminDb['listLogEvents']>>['rows'][number]
 
@@ -97,7 +96,13 @@ const LogEventsPage: FC<{
                 ] as Column<LogEventRow>[]
             }
         />
-        <Pagination page={page} pageSize={size} total={total} baseQuery={{ service, severity, deviceId, unresolved, from, to, size }} basePath='/admin/logs' />
+        <Pagination
+            page={page}
+            pageSize={size}
+            total={total}
+            baseQuery={{ service, severity, deviceId, unresolved, from, to, size }}
+            basePath='/admin/logs'
+        />
     </AdminShell>
 )
 
@@ -124,7 +129,7 @@ export const createLogEventsRoute = (deps: { getSession: AdminGetSession; adminD
             from: parseDateStart(from),
             to: parseDateEnd(to),
         })
-        const flash = c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '해소 처리되었습니다.' } : null
+        const flash = parseFlash(c, '해소 처리되었습니다.')
         return c.html(
             <LogEventsPage
                 user={c.get('adminUser')}
@@ -147,7 +152,7 @@ export const createLogEventsRoute = (deps: { getSession: AdminGetSession; adminD
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.resolveLogEvent(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/logs')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/logs')), 303)
     })
 
     return app

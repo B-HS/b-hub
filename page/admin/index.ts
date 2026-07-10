@@ -1,7 +1,11 @@
 import { Hono } from 'hono'
+import { setCookie } from 'hono/cookie'
+import { contextStorage } from 'hono/context-storage'
 import type { AuthProvider } from '../../service/shared/auth-provider'
 import { createAdminDb, type AdminDb } from './db'
 import type { AdminGetSession } from './guard'
+import { createAdminCsrfGuard } from './csrf'
+import { ADMIN_THEME_COOKIE, THEME_COOKIE_MAX_AGE, sanitizeTheme } from './theme'
 import { ADMIN_DESIGN_TOKENS_CACHE_HEADERS, ADMIN_DESIGN_TOKENS_CSS } from './styles'
 import { createLoginRoute } from './login'
 import { createDashboardRoute } from './dashboard'
@@ -26,6 +30,7 @@ export type AdminRouteDeps = {
     adminDb?: AdminDb
     auth?: AuthProvider
     triggerMailSync?: TriggerMailSync
+    csrfSecret?: string
 }
 
 export const createAdminRoute = (deps: AdminRouteDeps) => {
@@ -35,6 +40,22 @@ export const createAdminRoute = (deps: AdminRouteDeps) => {
     const app = new Hono()
 
     app.get('/styles.css', (c) => c.body(ADMIN_DESIGN_TOKENS_CSS, { headers: ADMIN_DESIGN_TOKENS_CACHE_HEADERS }))
+    app.get('/theme', (c) => {
+        const to = sanitizeTheme(c.req.query('to'))
+        const returnToRaw = c.req.query('returnTo')
+        const returnTo = returnToRaw && returnToRaw.startsWith('/admin') ? returnToRaw : '/admin'
+        setCookie(c, ADMIN_THEME_COOKIE, to, {
+            path: '/admin',
+            maxAge: THEME_COOKIE_MAX_AGE,
+            sameSite: 'Lax',
+            secure: process.env.NODE_ENV === 'production',
+        })
+        return c.redirect(returnTo, 303)
+    })
+
+    app.use('*', contextStorage())
+    app.use('*', createAdminCsrfGuard({ getSession: deps.getSession, secret: deps.csrfSecret }))
+
     app.route('/login', createLoginRoute({ getSession: deps.getSession, auth: deps.auth }))
 
     const baseDeps = { getSession: deps.getSession, adminDb }

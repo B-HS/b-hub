@@ -1,3 +1,29 @@
+const DARK_TOKENS = `        --color-background: var(--palette-neutral-900);
+        --color-foreground: var(--palette-neutral-25);
+        --color-card: var(--palette-neutral-800);
+        --color-card-foreground: var(--palette-neutral-25);
+        --color-popover: var(--palette-neutral-800);
+        --color-popover-foreground: var(--palette-neutral-25);
+        --color-primary: var(--palette-neutral-200);
+        --color-primary-foreground: var(--palette-neutral-800);
+        --color-secondary: var(--palette-neutral-700);
+        --color-secondary-foreground: var(--palette-neutral-25);
+        --color-muted: var(--palette-neutral-700);
+        --color-muted-foreground: var(--palette-neutral-400);
+        --color-accent: var(--palette-neutral-700);
+        --color-accent-foreground: var(--palette-neutral-25);
+        --color-destructive: var(--palette-red-400);
+        --color-border: oklch(1 0 0 / 10%);
+        --color-input: oklch(1 0 0 / 15%);
+        --color-ring: var(--palette-neutral-500);
+        --color-sidebar: var(--palette-neutral-800);
+        --color-sidebar-foreground: var(--palette-neutral-25);
+        --color-sidebar-primary: var(--palette-neutral-25);
+        --color-sidebar-primary-foreground: var(--palette-neutral-800);
+        --color-sidebar-accent: var(--palette-neutral-700);
+        --color-sidebar-accent-foreground: var(--palette-neutral-25);
+        --color-sidebar-border: oklch(1 0 0 / 10%);`
+
 export const ADMIN_DESIGN_TOKENS_CSS = `:root {
     --palette-neutral-0: oklch(1 0 0);
     --palette-neutral-25: oklch(0.985 0 0);
@@ -70,33 +96,13 @@ export const ADMIN_DESIGN_TOKENS_CSS = `:root {
 }
 
 @media (prefers-color-scheme: dark) {
-    :root {
-        --color-background: var(--palette-neutral-900);
-        --color-foreground: var(--palette-neutral-25);
-        --color-card: var(--palette-neutral-800);
-        --color-card-foreground: var(--palette-neutral-25);
-        --color-popover: var(--palette-neutral-800);
-        --color-popover-foreground: var(--palette-neutral-25);
-        --color-primary: var(--palette-neutral-200);
-        --color-primary-foreground: var(--palette-neutral-800);
-        --color-secondary: var(--palette-neutral-700);
-        --color-secondary-foreground: var(--palette-neutral-25);
-        --color-muted: var(--palette-neutral-700);
-        --color-muted-foreground: var(--palette-neutral-400);
-        --color-accent: var(--palette-neutral-700);
-        --color-accent-foreground: var(--palette-neutral-25);
-        --color-destructive: var(--palette-red-400);
-        --color-border: oklch(1 0 0 / 10%);
-        --color-input: oklch(1 0 0 / 15%);
-        --color-ring: var(--palette-neutral-500);
-        --color-sidebar: var(--palette-neutral-800);
-        --color-sidebar-foreground: var(--palette-neutral-25);
-        --color-sidebar-primary: var(--palette-neutral-25);
-        --color-sidebar-primary-foreground: var(--palette-neutral-800);
-        --color-sidebar-accent: var(--palette-neutral-700);
-        --color-sidebar-accent-foreground: var(--palette-neutral-25);
-        --color-sidebar-border: oklch(1 0 0 / 10%);
+    :root:not([data-theme='light']) {
+${DARK_TOKENS}
     }
+}
+
+:root[data-theme='dark'] {
+${DARK_TOKENS}
 }
 
 * {
@@ -565,6 +571,7 @@ table {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.5rem;
     padding-top: 0.5rem;
 }
@@ -574,10 +581,33 @@ table {
     color: var(--color-muted-foreground);
 }
 
+.pagination .page-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.pagination .page-size-label {
+    font-size: 0.75rem;
+    color: var(--color-muted-foreground);
+    margin-right: 0.125rem;
+}
+
 .pagination .nav {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.pagination .nav .btn {
+    min-width: 1.875rem;
+}
+
+.pagination .ellipsis {
+    color: var(--color-muted-foreground);
+    padding: 0 0.125rem;
+    user-select: none;
 }
 
 .empty {
@@ -651,6 +681,95 @@ table {
 .login-sub {
     color: var(--color-muted-foreground);
     font-size: 0.875rem;
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.card-title-sm {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.hstack {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.hstack-sm {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.hstack.wrap,
+.hstack-sm.wrap {
+    flex-wrap: wrap;
+}
+
+.inline-hstack {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.form-inline {
+    display: flex;
+    gap: 0.5rem;
+    align-items: end;
+}
+
+.form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.field-grow {
+    flex: 1;
+}
+
+.input-block {
+    width: 100%;
+}
+
+.mt-sm {
+    margin-top: 0.75rem;
+}
+
+.prewrap {
+    white-space: pre-wrap;
+}
+
+.text-muted {
+    color: var(--color-muted-foreground);
+}
+
+.color-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.data-pre {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: var(--color-muted);
+    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    overflow: auto;
+    max-height: 32rem;
+}
+
+.cards-grid.cols-280 {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.theme-toggle {
+    min-width: 4.5rem;
 }
 
 @media (max-width: 768px) {

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, Stat, type Column } from '../components'
+import { parseFlash } from '../flash'
 import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -42,7 +43,12 @@ const KeysPage: FC<{
                         key: 'actions',
                         header: '',
                         cell: (r) => (
-                            <RowAction action={`/admin/weather/keys/${r.id}/revoke`} label='취소' variant='destructive' returnTo='/admin/weather/keys' />
+                            <RowAction
+                                action={`/admin/weather/keys/${r.id}/revoke`}
+                                label='취소'
+                                variant='destructive'
+                                returnTo='/admin/weather/keys'
+                            />
                         ),
                     },
                 ] as Column<KeyRow>[]
@@ -87,14 +93,22 @@ const LogsPage: FC<{
                     {
                         key: 'status',
                         header: 'Status',
-                        cell: (r) => <Badge kind={r.statusCode >= 500 ? 'destructive' : r.statusCode >= 400 ? 'outline' : 'success'}>{r.statusCode}</Badge>,
+                        cell: (r) => (
+                            <Badge kind={r.statusCode >= 500 ? 'destructive' : r.statusCode >= 400 ? 'outline' : 'success'}>{r.statusCode}</Badge>
+                        ),
                     },
                     { key: 'dur', header: 'ms', cell: (r) => r.durationMs ?? '-', className: 'num' },
                     { key: 'err', header: 'Error', cell: (r) => r.errorCode ?? '-' },
                 ] as Column<LogRow>[]
             }
         />
-        <Pagination page={page} pageSize={size} total={total} baseQuery={{ endpoint, status, userId, from, to, size }} basePath='/admin/weather/logs' />
+        <Pagination
+            page={page}
+            pageSize={size}
+            total={total}
+            baseQuery={{ endpoint, status, userId, from, to, size }}
+            basePath='/admin/weather/logs'
+        />
     </AdminShell>
 )
 
@@ -137,9 +151,6 @@ const CachePage: FC<{
     </AdminShell>
 )
 
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-
 export const createWeatherRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
     app.use('*', requireAdminPage(deps.getSession))
@@ -149,7 +160,7 @@ export const createWeatherRoute = (deps: { getSession: AdminGetSession; adminDb:
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listWeatherKeys({ page, size, q })
-        return c.html(<KeysPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flashFrom(c)} />)
+        return c.html(<KeysPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={parseFlash(c)} />)
     })
 
     app.post('/keys/:id/revoke', async (c) => {
@@ -176,7 +187,18 @@ export const createWeatherRoute = (deps: { getSession: AdminGetSession; adminDb:
             to: parseDateEnd(to),
         })
         return c.html(
-            <LogsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} status={status} endpoint={endpoint} userId={userId} from={from} to={to} />,
+            <LogsPage
+                user={c.get('adminUser')}
+                rows={rows}
+                total={total}
+                page={page}
+                size={size}
+                status={status}
+                endpoint={endpoint}
+                userId={userId}
+                from={from}
+                to={to}
+            />,
         )
     })
 

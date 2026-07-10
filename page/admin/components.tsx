@@ -1,6 +1,13 @@
 import type { Child, FC, PropsWithChildren } from 'hono/jsx'
 import { NAV, isActivePath, type NavItem } from './nav'
 import type { AdminSessionUser } from './guard'
+import { readAdminTheme, type ThemeMode } from './theme'
+import { ADMIN_CSRF_FIELD, readCsrfToken } from './csrf'
+import type { Flash } from './flash'
+
+const DEFAULT_DESTRUCTIVE_CONFIRM = '이 작업은 되돌릴 수 없습니다. 계속할까요?'
+
+export const ADMIN_CONFIRM_SCRIPT = `document.addEventListener('submit',function(e){var f=e.target;if(f&&f.getAttribute&&f.hasAttribute('data-confirm')&&!window.confirm(f.getAttribute('data-confirm')))e.preventDefault();},true);`
 
 type ShellProps = {
     title: string
@@ -8,38 +15,42 @@ type ShellProps = {
     user: AdminSessionUser
     currentPath: string
     breadcrumbs?: { href?: string; label: string }[]
-    flash?: { kind: 'ok' | 'err'; message: string } | null
+    flash?: Flash | null
 }
 
-export const AdminShell: FC<PropsWithChildren<ShellProps>> = ({ title, subtitle, user, currentPath, breadcrumbs, flash, children }) => (
-    <html lang='ko'>
-        <head>
-            <meta charset='UTF-8' />
-            <meta name='viewport' content='width=device-width, initial-scale=1.0' />
-            <meta name='robots' content='noindex,nofollow' />
-            <title>{title} · Admin</title>
-            <link rel='icon' href='/favicon.ico' />
-            <link rel='stylesheet' href='/admin/styles.css' />
-        </head>
-        <body>
-            <div class='app'>
-                <Sidebar currentPath={currentPath} />
-                <main class='main'>
-                    <Topbar title={title} user={user} />
-                    <section class='section'>
-                        {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
-                        <header class='section-head'>
-                            <h1 class='section-title'>{title}</h1>
-                            {subtitle && <p class='section-sub'>{subtitle}</p>}
-                        </header>
-                        {flash && <FlashBanner flash={flash} />}
-                        {children}
-                    </section>
-                </main>
-            </div>
-        </body>
-    </html>
-)
+export const AdminShell: FC<PropsWithChildren<ShellProps>> = ({ title, subtitle, user, currentPath, breadcrumbs, flash, children }) => {
+    const theme = readAdminTheme()
+    return (
+        <html lang='ko' data-theme={theme ?? undefined}>
+            <head>
+                <meta charset='UTF-8' />
+                <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+                <meta name='robots' content='noindex,nofollow' />
+                <title>{title} · Admin</title>
+                <link rel='icon' href='/favicon.ico' />
+                <link rel='stylesheet' href='/admin/styles.css' />
+            </head>
+            <body>
+                <div class='app'>
+                    <Sidebar currentPath={currentPath} />
+                    <main class='main'>
+                        <Topbar title={title} user={user} currentPath={currentPath} theme={theme} />
+                        <section class='section'>
+                            {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
+                            <header class='section-head'>
+                                <h1 class='section-title'>{title}</h1>
+                                {subtitle && <p class='section-sub'>{subtitle}</p>}
+                            </header>
+                            {flash && <FlashBanner flash={flash} />}
+                            {children}
+                        </section>
+                    </main>
+                </div>
+                <script dangerouslySetInnerHTML={{ __html: ADMIN_CONFIRM_SCRIPT }} />
+            </body>
+        </html>
+    )
+}
 
 const Sidebar: FC<{ currentPath: string }> = ({ currentPath }) => (
     <aside class='sidebar' aria-label='Admin navigation'>
@@ -63,15 +74,27 @@ const SidebarLink: FC<{ item: NavItem; currentPath: string }> = ({ item, current
     </a>
 )
 
-const Topbar: FC<{ title: string; user: AdminSessionUser }> = ({ title, user }) => (
-    <div class='topbar'>
-        <span class='topbar-title'>{title}</span>
-        <span class='topbar-user'>
-            <span>{user.email}</span>
-            <span class='badge destructive'>admin</span>
-        </span>
-    </div>
-)
+const Topbar: FC<{ title: string; user: AdminSessionUser; currentPath: string; theme: ThemeMode | null }> = ({ title, user, currentPath, theme }) => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    const toggleHref = `/admin/theme?to=${next}&returnTo=${encodeURIComponent(currentPath)}`
+    return (
+        <div class='topbar'>
+            <span class='topbar-title'>{title}</span>
+            <span class='topbar-user'>
+                <a class='btn ghost sm theme-toggle' href={toggleHref} aria-label='테마 전환'>
+                    {next === 'dark' ? '다크 모드' : '라이트 모드'}
+                </a>
+                <span>{user.email}</span>
+                <span class='badge destructive'>admin</span>
+            </span>
+        </div>
+    )
+}
+
+export const CsrfField: FC = () => {
+    const token = readCsrfToken()
+    return token ? <input type='hidden' name={ADMIN_CSRF_FIELD} value={token} /> : <></>
+}
 
 const Breadcrumbs: FC<{ items: { href?: string; label: string }[] }> = ({ items }) => (
     <nav class='crumbs' aria-label='Breadcrumb'>
@@ -84,7 +107,7 @@ const Breadcrumbs: FC<{ items: { href?: string; label: string }[] }> = ({ items 
     </nav>
 )
 
-const FlashBanner: FC<{ flash: { kind: 'ok' | 'err'; message: string } }> = ({ flash }) => (
+const FlashBanner: FC<{ flash: Flash }> = ({ flash }) => (
     <div class={`banner ${flash.kind}`} role={flash.kind === 'err' ? 'alert' : 'status'}>
         {flash.message}
     </div>
@@ -143,7 +166,9 @@ export const DataTable = <T,>({ rows, columns, rowKey, empty = '데이터가 없
 
 type BadgeKind = 'default' | 'secondary' | 'outline' | 'success' | 'muted' | 'destructive'
 
-export const Badge: FC<PropsWithChildren<{ kind?: BadgeKind }>> = ({ kind = 'secondary', children }) => <span class={`badge ${kind}`}>{children}</span>
+export const Badge: FC<PropsWithChildren<{ kind?: BadgeKind }>> = ({ kind = 'secondary', children }) => (
+    <span class={`badge ${kind}`}>{children}</span>
+)
 
 type PaginationProps = {
     page: number
@@ -153,33 +178,78 @@ type PaginationProps = {
     basePath: string
 }
 
+const PAGE_SIZE_PRESETS = [20, 50, 100] as const
+const PAGE_WINDOW = 5
+
+const PageLink: FC<PropsWithChildren<{ href: string; disabled?: boolean; active?: boolean; label?: string }>> = ({
+    href,
+    disabled,
+    active,
+    label,
+    children,
+}) => (
+    <a
+        class={`btn sm ${active ? 'default' : 'outline'}${disabled ? ' disabled' : ''}`}
+        aria-disabled={disabled ? 'true' : undefined}
+        aria-current={active ? 'page' : undefined}
+        aria-label={label}
+        href={disabled ? '#' : href}>
+        {children}
+    </a>
+)
+
 export const Pagination: FC<PaginationProps> = ({ page, pageSize, total, baseQuery, basePath }) => {
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
-    const hasPrev = page > 1
-    const hasNext = page < totalPages
-    const buildHref = (p: number) => {
+    const current = Math.min(Math.max(page, 1), totalPages)
+    const buildHref = (overrides: Record<string, string | number>) => {
         const qs = new URLSearchParams()
-        for (const [k, v] of Object.entries(baseQuery)) {
+        for (const [k, v] of Object.entries({ ...baseQuery, ...overrides })) {
             if (v === undefined || v === '' || v === null) continue
             qs.set(k, String(v))
         }
-        qs.set('page', String(p))
         return `${basePath}?${qs.toString()}`
     }
-    const from = total === 0 ? 0 : (page - 1) * pageSize + 1
-    const to = Math.min(page * pageSize, total)
+    const pageHref = (p: number) => buildHref({ page: p })
+    const sizeHref = (size: number) => buildHref({ page: 1, size })
+    const windowStart = Math.max(1, Math.min(current - Math.floor(PAGE_WINDOW / 2), totalPages - PAGE_WINDOW + 1))
+    const start = Math.max(1, windowStart)
+    const end = Math.min(totalPages, start + PAGE_WINDOW - 1)
+    const pageNumbers = Array.from({ length: end - start + 1 }, (_, i) => start + i)
+    const from = total === 0 ? 0 : (current - 1) * pageSize + 1
+    const to = Math.min(current * pageSize, total)
     return (
         <div class='pagination'>
             <span class='summary'>
-                {from}–{to} / {total} (page {page} / {totalPages})
+                {from}–{to} / {total} (page {current} / {totalPages})
             </span>
+            <div class='page-size'>
+                <span class='page-size-label'>표시</span>
+                {PAGE_SIZE_PRESETS.map((size) => (
+                    <PageLink key={size} href={sizeHref(size)} active={size === pageSize} label={`페이지당 ${size}개`}>
+                        {size}
+                    </PageLink>
+                ))}
+            </div>
             <div class='nav'>
-                <a class={`btn outline sm${hasPrev ? '' : ' disabled'}`} aria-disabled={hasPrev ? undefined : 'true'} href={hasPrev ? buildHref(page - 1) : '#'}>
+                <PageLink href={pageHref(1)} disabled={current === 1} label='처음 페이지'>
+                    처음
+                </PageLink>
+                <PageLink href={pageHref(current - 1)} disabled={current === 1} label='이전 페이지'>
                     이전
-                </a>
-                <a class={`btn outline sm${hasNext ? '' : ' disabled'}`} aria-disabled={hasNext ? undefined : 'true'} href={hasNext ? buildHref(page + 1) : '#'}>
+                </PageLink>
+                {start > 1 && <span class='ellipsis'>…</span>}
+                {pageNumbers.map((p) => (
+                    <PageLink key={p} href={pageHref(p)} active={p === current} label={`${p} 페이지`}>
+                        {p}
+                    </PageLink>
+                ))}
+                {end < totalPages && <span class='ellipsis'>…</span>}
+                <PageLink href={pageHref(current + 1)} disabled={current === totalPages} label='다음 페이지'>
                     다음
-                </a>
+                </PageLink>
+                <PageLink href={pageHref(totalPages)} disabled={current === totalPages} label='마지막 페이지'>
+                    끝
+                </PageLink>
             </div>
         </div>
     )
@@ -197,20 +267,12 @@ export const FilterBar: FC<{ action: string; fields: FilterField[]; hidden?: Rec
     hidden,
 }) => (
     <form class='filter-bar' method='get' action={action}>
-        {hidden &&
-            Object.entries(hidden).map(([k, v]) => v !== undefined && v !== '' && <input key={k} type='hidden' name={k} value={String(v)} />)}
+        {hidden && Object.entries(hidden).map(([k, v]) => v !== undefined && v !== '' && <input key={k} type='hidden' name={k} value={String(v)} />)}
         {fields.map((f) => (
             <div class='field' key={f.name}>
                 <label for={`f-${f.name}`}>{f.label}</label>
                 {f.kind === 'text' && (
-                    <input
-                        id={`f-${f.name}`}
-                        class='input'
-                        type='text'
-                        name={f.name}
-                        value={f.value ?? ''}
-                        placeholder={f.placeholder ?? ''}
-                    />
+                    <input id={`f-${f.name}`} class='input' type='text' name={f.name} value={f.value ?? ''} placeholder={f.placeholder ?? ''} />
                 )}
                 {f.kind === 'number' && (
                     <input id={`f-${f.name}`} class='input' type='number' name={f.name} value={f.value !== undefined ? String(f.value) : ''} />
@@ -238,21 +300,24 @@ type RowActionProps = {
     action: string
     label: string
     variant?: 'default' | 'outline' | 'ghost' | 'destructive'
-    confirmText?: string
+    confirm?: string
     hidden?: Record<string, string | number>
     returnTo?: string
 }
 
-export const RowAction: FC<RowActionProps> = ({ method = 'post', action, label, variant = 'outline', confirmText, hidden, returnTo }) => (
-    <form method={method} action={action}>
-        {hidden && Object.entries(hidden).map(([k, v]) => <input key={k} type='hidden' name={k} value={String(v)} />)}
-        {returnTo && <input type='hidden' name='returnTo' value={returnTo} />}
-        {confirmText && <input type='hidden' name='confirm' value={confirmText} />}
-        <button class={`btn sm ${variant}`} type='submit'>
-            {label}
-        </button>
-    </form>
-)
+export const RowAction: FC<RowActionProps> = ({ method = 'post', action, label, variant = 'outline', confirm, hidden, returnTo }) => {
+    const confirmMessage = confirm ?? (variant === 'destructive' ? DEFAULT_DESTRUCTIVE_CONFIRM : undefined)
+    return (
+        <form method={method} action={action} data-confirm={confirmMessage}>
+            <CsrfField />
+            {hidden && Object.entries(hidden).map(([k, v]) => <input key={k} type='hidden' name={k} value={String(v)} />)}
+            {returnTo && <input type='hidden' name='returnTo' value={returnTo} />}
+            <button class={`btn sm ${variant}`} type='submit'>
+                {label}
+            </button>
+        </form>
+    )
+}
 
 export const Stat: FC<{ label: string; value: string | number; delta?: string }> = ({ label, value, delta }) => (
     <div class='card stat'>

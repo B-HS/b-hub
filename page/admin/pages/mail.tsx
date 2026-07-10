@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -50,7 +51,11 @@ const AccountsPage: FC<{
                         header: '',
                         cell: (r) => (
                             <div class='row-actions'>
-                                <RowAction action={`/admin/mail/accounts/${r.id}/toggle`} label={r.isActive ? '비활성' : '활성'} returnTo='/admin/mail/accounts' />
+                                <RowAction
+                                    action={`/admin/mail/accounts/${r.id}/toggle`}
+                                    label={r.isActive ? '비활성' : '활성'}
+                                    returnTo='/admin/mail/accounts'
+                                />
                                 <RowAction action={`/admin/mail/accounts/${r.id}/sync`} label='동기화' returnTo='/admin/mail/accounts' />
                             </div>
                         ),
@@ -92,7 +97,9 @@ const SyncLogsPage: FC<{
                         key: 'status',
                         header: 'Status',
                         cell: (r) => (
-                            <Badge kind={r.status === 'completed' ? 'success' : r.status === 'failed' ? 'destructive' : 'secondary'}>{r.status}</Badge>
+                            <Badge kind={r.status === 'completed' ? 'success' : r.status === 'failed' ? 'destructive' : 'secondary'}>
+                                {r.status}
+                            </Badge>
                         ),
                     },
                     { key: 'added', header: 'Added', cell: (r) => r.messagesAdded ?? 0, className: 'num' },
@@ -136,7 +143,9 @@ const SyncSessionsPage: FC<{
                         key: 'status',
                         header: 'Status',
                         cell: (r) => (
-                            <Badge kind={r.status === 'completed' ? 'success' : r.status === 'failed' ? 'destructive' : 'secondary'}>{r.status}</Badge>
+                            <Badge kind={r.status === 'completed' ? 'success' : r.status === 'failed' ? 'destructive' : 'secondary'}>
+                                {r.status}
+                            </Badge>
                         ),
                     },
                     { key: 'progress', header: 'Progress', cell: (r) => `${r.syncedCount ?? 0} / ${r.totalEstimate ?? '?'}` },
@@ -211,7 +220,7 @@ const MailMessagesPage: FC<{
                         key: 'flags',
                         header: 'Flags',
                         cell: (r) => (
-                            <div style='display:flex;gap:0.25rem;'>
+                            <div class='hstack-sm'>
                                 {r.isRead ? <Badge kind='muted'>read</Badge> : <Badge kind='success'>unread</Badge>}
                                 {r.hasAttachments && <Badge kind='outline'>attach</Badge>}
                             </div>
@@ -278,13 +287,6 @@ const UploadsPage: FC<{
     </AdminShell>
 )
 
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) => {
-    const flash = c.req.query('flash')
-    if (flash === 'ok') return { kind: 'ok' as const, message: '저장되었습니다.' }
-    if (flash === 'err') return { kind: 'err' as const, message: '작업에 실패했습니다.' }
-    return null
-}
-
 export type TriggerMailSync = (accountId: number) => Promise<void>
 
 export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb; triggerMailSync?: TriggerMailSync }) => {
@@ -296,7 +298,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listMailAccounts({ page, size, q })
-        return c.html(<AccountsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flashFrom(c)} />)
+        return c.html(<AccountsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={parseFlash(c)} />)
     })
 
     app.post('/accounts/:id/toggle', async (c) => {
@@ -311,7 +313,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
             try {
                 await deps.triggerMailSync(id)
             } catch {
-                return c.redirect('/admin/mail/accounts?flash=err', 303)
+                return c.redirect(flashPath('/admin/mail/accounts', 'err', 'sync'), 303)
             }
         }
         return c.redirect('/admin/mail/accounts?flash=ok', 303)
@@ -328,7 +330,9 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
             accountId: accountId ? parseIntOr(accountId, 0) || undefined : undefined,
             status,
         })
-        return c.html(<SyncLogsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} accountId={accountId} status={status} />)
+        return c.html(
+            <SyncLogsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} accountId={accountId} status={status} />,
+        )
     })
 
     app.get('/sync-sessions', async (c) => {
@@ -377,7 +381,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listMailUploads({ page, size, q })
-        return c.html(<UploadsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flashFrom(c)} />)
+        return c.html(<UploadsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={parseFlash(c)} />)
     })
 
     app.post('/uploads/:id/delete', async (c) => {

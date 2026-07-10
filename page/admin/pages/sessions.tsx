@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatDate, parseIntOr } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -43,7 +44,12 @@ const SessionsPage: FC<{
                             return (
                                 <div class='row-actions'>
                                     <RowAction action={`/admin/sessions/${r.id}/revoke`} label='강제 만료' variant='destructive' returnTo={back} />
-                                    <RowAction action={`/admin/sessions/user/${r.userId}/revoke-all`} label='전체 만료' variant='destructive' returnTo={back} />
+                                    <RowAction
+                                        action={`/admin/sessions/user/${r.userId}/revoke-all`}
+                                        label='전체 만료'
+                                        variant='destructive'
+                                        returnTo={back}
+                                    />
                                 </div>
                             )
                         },
@@ -69,7 +75,7 @@ export const createSessionsRoute = (deps: { getSession: AdminGetSession; adminDb
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listSessions({ page, size, q })
-        const flash = c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
+        const flash = parseFlash(c)
         return c.html(<SessionsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flash} />)
     })
 
@@ -78,7 +84,7 @@ export const createSessionsRoute = (deps: { getSession: AdminGetSession; adminDb
         const body = await c.req.parseBody<{ returnTo?: string }>()
         await deps.adminDb.revokeAllUserSessions(userId)
         const back = sanitizeReturn(body.returnTo, '/admin/sessions')
-        return c.redirect(back + (back.includes('?') ? '&' : '?') + 'flash=ok', 303)
+        return c.redirect(flashPath(back), 303)
     })
 
     app.post('/:id/revoke', async (c) => {
@@ -86,7 +92,7 @@ export const createSessionsRoute = (deps: { getSession: AdminGetSession; adminDb
         const body = await c.req.parseBody<{ returnTo?: string }>()
         await deps.adminDb.revokeSession(id)
         const back = sanitizeReturn(body.returnTo, '/admin/sessions')
-        return c.redirect(back + (back.includes('?') ? '&' : '?') + 'flash=ok', 303)
+        return c.redirect(flashPath(back), 303)
     })
 
     return app

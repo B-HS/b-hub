@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { parseFlash } from '../flash'
 import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -31,8 +32,8 @@ const GroupsPage: FC<{
                         key: 'color',
                         header: 'Color',
                         cell: (r) => (
-                            <span style='display:inline-flex;align-items:center;gap:0.5rem;'>
-                                <span style={`display:inline-block;width:12px;height:12px;border-radius:50%;background:${r.color};`} />
+                            <span class='inline-hstack'>
+                                <span class='color-dot' style={`background:${r.color}`} />
                                 <span class='mono'>{r.color}</span>
                             </span>
                         ),
@@ -137,7 +138,7 @@ const SubsPage: FC<{
                                     returnTo='/admin/calendar/subscriptions'
                                 />
                             ) : (
-                                <span class='mono' style='color:var(--color-muted-foreground);'>—</span>
+                                <span class='mono text-muted'>—</span>
                             ),
                     },
                 ] as Column<SubRow>[]
@@ -171,9 +172,6 @@ const DeletedPage: FC<{
     </AdminShell>
 )
 
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-
 export const createCalendarRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
     app.use('*', requireAdminPage(deps.getSession))
@@ -202,7 +200,7 @@ export const createCalendarRoute = (deps: { getSession: AdminGetSession; adminDb
         const page = parseIntOr(c.req.query('page'), 1)
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const { rows, total } = await deps.adminDb.listCalendarSubscriptions({ page, size })
-        return c.html(<SubsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} flash={flashFrom(c)} />)
+        return c.html(<SubsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} flash={parseFlash(c)} />)
     })
 
     app.post('/subscriptions/:id/revoke', async (c) => {

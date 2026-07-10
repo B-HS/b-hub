@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { parseFlash } from '../flash'
 import { formatDate, maskToken, parseIntOr } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -70,7 +71,12 @@ const KeysPage: FC<{
             rowKey={(r) => r.id}
             columns={
                 [
-                    { key: 'user', header: 'User', cell: (r) => <a href={`/admin/users/${r.userId}`}>{r.userId.slice(0, 12)}…</a>, className: 'mono' },
+                    {
+                        key: 'user',
+                        header: 'User',
+                        cell: (r) => <a href={`/admin/users/${r.userId}`}>{r.userId.slice(0, 12)}…</a>,
+                        className: 'mono',
+                    },
                     { key: 'account', header: 'Spotify Acc', cell: (r) => r.spotifyAccountId, className: 'num' },
                     { key: 'name', header: 'Name', cell: (r) => r.name ?? '-' },
                     { key: 'expires', header: 'Expires', cell: (r) => formatDate(r.expiresAt), className: 'nowrap' },
@@ -109,7 +115,12 @@ const WidgetsPage: FC<{
             columns={
                 [
                     { key: 'id', header: 'ID', cell: (r) => r.id, className: 'num' },
-                    { key: 'user', header: 'User ID', cell: (r) => <a href={`/admin/users/${r.userId}`}>{r.userId.slice(0, 12)}…</a>, className: 'mono' },
+                    {
+                        key: 'user',
+                        header: 'User ID',
+                        cell: (r) => <a href={`/admin/users/${r.userId}`}>{r.userId.slice(0, 12)}…</a>,
+                        className: 'mono',
+                    },
                     { key: 'account', header: 'Spotify Acc', cell: (r) => r.spotifyAccountId, className: 'num' },
                     { key: 'name', header: 'Name', cell: (r) => r.name ?? '-' },
                     { key: 'token', header: 'Token', cell: (r) => <span class='mono'>{maskToken(r.token)}</span> },
@@ -136,9 +147,6 @@ const WidgetsPage: FC<{
     </AdminShell>
 )
 
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-
 export const createSpotifyRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
     app.use('*', requireAdminPage(deps.getSession))
@@ -156,7 +164,7 @@ export const createSpotifyRoute = (deps: { getSession: AdminGetSession; adminDb:
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listSpotifyKeys({ page, size, q })
-        return c.html(<KeysPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flashFrom(c)} />)
+        return c.html(<KeysPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={parseFlash(c)} />)
     })
 
     app.post('/keys/:id/revoke', async (c) => {
@@ -169,7 +177,7 @@ export const createSpotifyRoute = (deps: { getSession: AdminGetSession; adminDb:
         const page = parseIntOr(c.req.query('page'), 1)
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const { rows, total } = await deps.adminDb.listSpotifyWidgetTokens({ page, size })
-        return c.html(<WidgetsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} flash={flashFrom(c)} />)
+        return c.html(<WidgetsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} flash={parseFlash(c)} />)
     })
 
     app.post('/widget-tokens/:id/toggle', async (c) => {

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { parseFlash } from '../flash'
 import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -160,9 +161,6 @@ const LogsPage: FC<{
     </AdminShell>
 )
 
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-
 export const createDriveRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
     app.use('*', requireAdminPage(deps.getSession))
@@ -176,7 +174,18 @@ export const createDriveRoute = (deps: { getSession: AdminGetSession; adminDb: A
         const userId = c.req.query('userId')
         const { rows, total } = await deps.adminDb.listDriveAssets({ page, size, q, tier, status, userId })
         return c.html(
-            <AssetsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} tier={tier} status={status} userId={userId} flash={flashFrom(c)} />,
+            <AssetsPage
+                user={c.get('adminUser')}
+                rows={rows}
+                total={total}
+                page={page}
+                size={size}
+                q={q}
+                tier={tier}
+                status={status}
+                userId={userId}
+                flash={parseFlash(c)}
+            />,
         )
     })
 

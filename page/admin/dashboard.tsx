@@ -39,7 +39,7 @@ const Dashboard: FC<{
         </div>
 
         <div class='card'>
-            <h2 style='font-size:1rem;font-weight:600;margin-bottom:0.75rem;'>최근 가입 사용자</h2>
+            <h2 class='card-title'>최근 가입 사용자</h2>
             <DataTable
                 rows={recentUsers}
                 rowKey={(r) => r.id}
@@ -55,7 +55,7 @@ const Dashboard: FC<{
         </div>
 
         <div class='card'>
-            <h2 style='font-size:1rem;font-weight:600;margin-bottom:0.75rem;'>최근 API 요청</h2>
+            <h2 class='card-title'>최근 API 요청</h2>
             <DataTable
                 rows={recentRequests}
                 rowKey={(r) => r.id}
@@ -73,7 +73,7 @@ const Dashboard: FC<{
         </div>
 
         <div class='card'>
-            <h2 style='font-size:1rem;font-weight:600;margin-bottom:0.75rem;'>최근 에러</h2>
+            <h2 class='card-title'>최근 에러</h2>
             <DataTable
                 rows={recentErrors}
                 rowKey={(r) => r.id}
@@ -91,7 +91,7 @@ const Dashboard: FC<{
         </div>
 
         <div class='card'>
-            <h2 style='font-size:1rem;font-weight:600;margin-bottom:0.75rem;'>최근 로그 이벤트 (ERROR+)</h2>
+            <h2 class='card-title'>최근 로그 이벤트 (ERROR+)</h2>
             <DataTable
                 rows={recentLogEvents}
                 rowKey={(r) => r.id}

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr, truncate } from '../format'
 
 const sanitizeReturn = (raw: unknown, fallback: string): string => {
@@ -8,7 +9,6 @@ const sanitizeReturn = (raw: unknown, fallback: string): string => {
     return v.startsWith('/admin') ? v : fallback
 }
 
-const appendFlash = (path: string): string => path + (path.includes('?') ? '&' : '?') + 'flash=ok'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -98,7 +98,9 @@ const LogsPage: FC<{
                     {
                         key: 'status',
                         header: 'Status',
-                        cell: (r) => <Badge kind={r.statusCode >= 500 ? 'destructive' : r.statusCode >= 400 ? 'outline' : 'success'}>{r.statusCode}</Badge>,
+                        cell: (r) => (
+                            <Badge kind={r.statusCode >= 500 ? 'destructive' : r.statusCode >= 400 ? 'outline' : 'success'}>{r.statusCode}</Badge>
+                        ),
                     },
                     { key: 'user', header: 'User', cell: (r) => (r.userId ? <a href={`/admin/users/${r.userId}`}>{r.userId.slice(0, 8)}…</a> : '-') },
                     { key: 'ip', header: 'IP', cell: (r) => r.ip ?? '-', className: 'mono nowrap' },
@@ -120,7 +122,7 @@ export const createApiTokensRoute = (deps: { getSession: AdminGetSession; adminD
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listApiTokens({ page, size, q })
-        const flash = c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
+        const flash = parseFlash(c)
         return c.html(<TokensPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flash} />)
     })
 
@@ -128,7 +130,7 @@ export const createApiTokensRoute = (deps: { getSession: AdminGetSession; adminD
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.revokeApiToken(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/api/tokens')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/api/tokens')), 303)
     })
 
     return app
@@ -156,7 +158,18 @@ export const createApiLogsRoute = (deps: { getSession: AdminGetSession; adminDb:
             to: parseDateEnd(to),
         })
         return c.html(
-            <LogsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} status={status} path={path} userId={userId} from={from} to={to} />,
+            <LogsPage
+                user={c.get('adminUser')}
+                rows={rows}
+                total={total}
+                page={page}
+                size={size}
+                status={status}
+                path={path}
+                userId={userId}
+                from={from}
+                to={to}
+            />,
         )
     })
 

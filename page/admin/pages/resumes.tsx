@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatDate, parseIntOr } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -51,12 +52,7 @@ const ListPage: FC<{
                                     label={r.isPublic ? '비공개로' : '공개로'}
                                     returnTo='/admin/resumes'
                                 />
-                                <RowAction
-                                    action={`/admin/resumes/${r.id}/delete`}
-                                    label='delete'
-                                    variant='destructive'
-                                    returnTo='/admin/resumes'
-                                />
+                                <RowAction action={`/admin/resumes/${r.id}/delete`} label='delete' variant='destructive' returnTo='/admin/resumes' />
                             </div>
                         ),
                     },
@@ -73,11 +69,7 @@ const DetailPage: FC<{ user: import('../guard').AdminSessionUser; target: Detail
         subtitle='Resume detail (JSON)'
         user={user}
         currentPath='/admin/resumes'
-        breadcrumbs={[
-            { href: '/admin', label: 'Admin' },
-            { href: '/admin/resumes', label: 'Resumes' },
-            { label: target.title },
-        ]}>
+        breadcrumbs={[{ href: '/admin', label: 'Admin' }, { href: '/admin/resumes', label: 'Resumes' }, { label: target.title }]}>
         <div class='card'>
             <dl class='kv'>
                 <dt>ID</dt>
@@ -97,24 +89,16 @@ const DetailPage: FC<{ user: import('../guard').AdminSessionUser; target: Detail
             </dl>
         </div>
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>Data</h3>
-            <pre
-                style='font-family:var(--font-mono);font-size:0.75rem;background:var(--color-muted);padding:0.75rem;border-radius:var(--radius-md);overflow:auto;max-height:32rem;'>
-                {JSON.stringify(target.data, null, 2)}
-            </pre>
+            <h3 class='card-title-sm'>Data</h3>
+            <pre class='data-pre'>{JSON.stringify(target.data, null, 2)}</pre>
         </div>
     </AdminShell>
 )
-
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
 
 const sanitizeReturn = (raw: unknown, fallback: string): string => {
     const v = typeof raw === 'string' ? raw : ''
     return v.startsWith('/admin') ? v : fallback
 }
-
-const appendFlash = (path: string): string => path + (path.includes('?') ? '&' : '?') + 'flash=ok'
 
 export const createResumesRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
@@ -125,7 +109,7 @@ export const createResumesRoute = (deps: { getSession: AdminGetSession; adminDb:
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listResumes({ page, size, q })
-        return c.html(<ListPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flashFrom(c)} />)
+        return c.html(<ListPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={parseFlash(c)} />)
     })
 
     app.get('/:id', async (c) => {
@@ -140,14 +124,14 @@ export const createResumesRoute = (deps: { getSession: AdminGetSession; adminDb:
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.toggleResumeVisibility(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/resumes')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/resumes')), 303)
     })
 
     app.post('/:id/delete', async (c) => {
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.deleteResume(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/resumes')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/resumes')), 303)
     })
 
     return app

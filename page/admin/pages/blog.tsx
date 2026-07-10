@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import type { FC } from 'hono/jsx'
-import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { AdminShell, Badge, CsrfField, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -17,8 +18,6 @@ const sanitizeReturn = (raw: unknown, fallback: string): string => {
     const v = typeof raw === 'string' ? raw : ''
     return v.startsWith('/admin') ? v : fallback
 }
-
-const appendFlash = (path: string, status: 'ok' | 'err' = 'ok'): string => path + (path.includes('?') ? '&' : '?') + `flash=${status}`
 
 const PostsPage: FC<{
     user: import('../guard').AdminSessionUser
@@ -90,7 +89,7 @@ const PostsPage: FC<{
                         key: 'flags',
                         header: 'Flags',
                         cell: (r) => (
-                            <div style='display:flex;gap:0.25rem;flex-wrap:wrap;'>
+                            <div class='hstack-sm wrap'>
                                 {r.isPublished ? <Badge kind='success'>published</Badge> : <Badge kind='muted'>draft</Badge>}
                                 {r.isHide && <Badge kind='destructive'>hidden</Badge>}
                                 {r.isNotice && <Badge kind='outline'>notice</Badge>}
@@ -106,10 +105,18 @@ const PostsPage: FC<{
                             const back = `/admin/blog/posts?page=${page}&size=${size}${q ? `&q=${encodeURIComponent(q)}` : ''}`
                             return (
                                 <div class='row-actions'>
-                                    <RowAction action={`/admin/blog/posts/${r.postId}/publish`} label={r.isPublished ? 'unpublish' : 'publish'} returnTo={back} />
+                                    <RowAction
+                                        action={`/admin/blog/posts/${r.postId}/publish`}
+                                        label={r.isPublished ? 'unpublish' : 'publish'}
+                                        returnTo={back}
+                                    />
                                     <RowAction action={`/admin/blog/posts/${r.postId}/hide`} label={r.isHide ? 'show' : 'hide'} returnTo={back} />
                                     <RowAction action={`/admin/blog/posts/${r.postId}/notice`} label={r.isNotice ? 'unpin' : 'pin'} returnTo={back} />
-                                    <RowAction action={`/admin/blog/posts/${r.postId}/comments`} label={r.isComment ? 'lock' : 'unlock'} returnTo={back} />
+                                    <RowAction
+                                        action={`/admin/blog/posts/${r.postId}/comments`}
+                                        label={r.isComment ? 'lock' : 'unlock'}
+                                        returnTo={back}
+                                    />
                                     <RowAction action={`/admin/blog/posts/${r.postId}/delete`} label='delete' variant='destructive' returnTo={back} />
                                 </div>
                             )
@@ -118,7 +125,13 @@ const PostsPage: FC<{
                 ] as Column<PostRow>[]
             }
         />
-        <Pagination page={page} pageSize={size} total={total} baseQuery={{ q, categoryId, tagId, published, hidden, notice, size }} basePath='/admin/blog/posts' />
+        <Pagination
+            page={page}
+            pageSize={size}
+            total={total}
+            baseQuery={{ q, categoryId, tagId, published, hidden, notice, size }}
+            basePath='/admin/blog/posts'
+        />
     </AdminShell>
 )
 
@@ -163,7 +176,12 @@ const CommentsPage: FC<{
                     { key: 'id', header: 'ID', cell: (r) => r.commentId, className: 'num' },
                     { key: 'post', header: 'Post', cell: (r) => <span class='truncate'>{truncate(r.postTitle ?? `#${r.postId}`, 40)}</span> },
                     { key: 'user', header: 'User', cell: (r) => r.userEmail ?? r.userId },
-                    { key: 'comment', header: 'Comment', cell: (r) => <span class='truncate'>{truncate(r.comment, 80)}</span>, className: 'truncate' },
+                    {
+                        key: 'comment',
+                        header: 'Comment',
+                        cell: (r) => <span class='truncate'>{truncate(r.comment, 80)}</span>,
+                        className: 'truncate',
+                    },
                     {
                         key: 'state',
                         header: 'State',
@@ -177,8 +195,17 @@ const CommentsPage: FC<{
                             const back = `/admin/blog/comments?page=${page}&size=${size}`
                             return (
                                 <div class='row-actions'>
-                                    <RowAction action={`/admin/blog/comments/${r.commentId}/hide`} label={r.isHide ? 'show' : 'hide'} returnTo={back} />
-                                    <RowAction action={`/admin/blog/comments/${r.commentId}/delete`} label='delete' variant='destructive' returnTo={back} />
+                                    <RowAction
+                                        action={`/admin/blog/comments/${r.commentId}/hide`}
+                                        label={r.isHide ? 'show' : 'hide'}
+                                        returnTo={back}
+                                    />
+                                    <RowAction
+                                        action={`/admin/blog/comments/${r.commentId}/delete`}
+                                        label='delete'
+                                        variant='destructive'
+                                        returnTo={back}
+                                    />
                                 </div>
                             )
                         },
@@ -197,11 +224,12 @@ const CategoriesPage: FC<{
 }> = ({ user, rows, flash }) => (
     <AdminShell title='Categories' subtitle='블로그 카테고리 관리' user={user} currentPath='/admin/blog/categories' flash={flash}>
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>새 카테고리</h3>
-            <form method='post' action='/admin/blog/categories' style='display:flex;gap:0.5rem;align-items:end;'>
-                <div class='field' style='flex:1;'>
+            <h3 class='card-title-sm'>새 카테고리</h3>
+            <form method='post' action='/admin/blog/categories' class='form-inline'>
+                <CsrfField />
+                <div class='field field-grow'>
                     <label>이름</label>
-                    <input class='input' name='name' required style='width:100%;' />
+                    <input class='input input-block' name='name' required />
                 </div>
                 <button class='btn' type='submit'>
                     추가
@@ -215,7 +243,11 @@ const CategoriesPage: FC<{
                 [
                     { key: 'id', header: 'ID', cell: (r) => r.categoryId, className: 'num' },
                     { key: 'name', header: 'Name', cell: (r) => r.category },
-                    { key: 'hidden', header: 'Hidden', cell: (r) => (r.isHide ? <Badge kind='destructive'>hidden</Badge> : <Badge kind='success'>visible</Badge>) },
+                    {
+                        key: 'hidden',
+                        header: 'Hidden',
+                        cell: (r) => (r.isHide ? <Badge kind='destructive'>hidden</Badge> : <Badge kind='success'>visible</Badge>),
+                    },
                     {
                         key: 'actions',
                         header: '',
@@ -240,11 +272,12 @@ const TagsPage: FC<{
 }> = ({ user, rows, flash }) => (
     <AdminShell title='Tags' subtitle='블로그 태그 관리' user={user} currentPath='/admin/blog/tags' flash={flash}>
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>새 태그</h3>
-            <form method='post' action='/admin/blog/tags' style='display:flex;gap:0.5rem;align-items:end;'>
-                <div class='field' style='flex:1;'>
+            <h3 class='card-title-sm'>새 태그</h3>
+            <form method='post' action='/admin/blog/tags' class='form-inline'>
+                <CsrfField />
+                <div class='field field-grow'>
                     <label>태그</label>
-                    <input class='input' name='tag' required style='width:100%;' />
+                    <input class='input input-block' name='tag' required />
                 </div>
                 <button class='btn' type='submit'>
                     추가
@@ -329,9 +362,6 @@ const ImagesPage: FC<{
     </AdminShell>
 )
 
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
-
 export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
     app.use('*', requireAdminPage(deps.getSession))
@@ -369,7 +399,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
                 published={published}
                 hidden={hidden}
                 notice={notice}
-                flash={flashFrom(c)}
+                flash={parseFlash(c)}
             />,
         )
     })
@@ -378,7 +408,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.togglePostFlag(id, flag)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/blog/posts')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/blog/posts')), 303)
     }
     app.post('/posts/:id/publish', togglePost('isPublished'))
     app.post('/posts/:id/hide', togglePost('isHide'))
@@ -388,7 +418,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.deletePost(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/blog/posts')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/blog/posts')), 303)
     })
 
     // Comments
@@ -408,7 +438,18 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
             hidden: hidden as 'y' | 'n' | undefined,
         })
         return c.html(
-            <CommentsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} postId={postId} userId={userId} hidden={hidden} flash={flashFrom(c)} />,
+            <CommentsPage
+                user={c.get('adminUser')}
+                rows={rows}
+                total={total}
+                page={page}
+                size={size}
+                q={q}
+                postId={postId}
+                userId={userId}
+                hidden={hidden}
+                flash={parseFlash(c)}
+            />,
         )
     })
 
@@ -416,20 +457,20 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.toggleCommentHide(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/blog/comments')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/blog/comments')), 303)
     })
 
     app.post('/comments/:id/delete', async (c) => {
         const id = parseIntOr(c.req.param('id'), 0)
         const body = await c.req.parseBody<{ returnTo?: string }>()
         if (id > 0) await deps.adminDb.deleteComment(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/blog/comments')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/blog/comments')), 303)
     })
 
     // Categories
     app.get('/categories', async (c) => {
         const rows = await deps.adminDb.listCategories()
-        return c.html(<CategoriesPage user={c.get('adminUser')} rows={rows} flash={flashFrom(c)} />)
+        return c.html(<CategoriesPage user={c.get('adminUser')} rows={rows} flash={parseFlash(c)} />)
     })
 
     app.post('/categories', async (c) => {
@@ -448,7 +489,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
     // Tags
     app.get('/tags', async (c) => {
         const rows = await deps.adminDb.listTags()
-        return c.html(<TagsPage user={c.get('adminUser')} rows={rows} flash={flashFrom(c)} />)
+        return c.html(<TagsPage user={c.get('adminUser')} rows={rows} flash={parseFlash(c)} />)
     })
 
     app.post('/tags', async (c) => {
@@ -470,14 +511,14 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listImageAssets({ page, size, q })
-        return c.html(<ImagesPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={flashFrom(c)} />)
+        return c.html(<ImagesPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} flash={parseFlash(c)} />)
     })
 
     app.post('/images/:id/delete', async (c) => {
         const id = c.req.param('id')
         const body = await c.req.parseBody<{ returnTo?: string }>()
         await deps.adminDb.deleteImageAsset(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/blog/images')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/blog/images')), 303)
     })
 
     return app

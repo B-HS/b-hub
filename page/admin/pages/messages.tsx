@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
+import { flashPath, parseFlash } from '../flash'
 import { formatDate, parseIntOr, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
@@ -17,8 +18,6 @@ const sanitizeReturn = (raw: unknown, fallback: string): string => {
     const v = typeof raw === 'string' ? raw : ''
     return v.startsWith('/admin') ? v : fallback
 }
-
-const appendFlash = (path: string): string => path + (path.includes('?') ? '&' : '?') + 'flash=ok'
 
 const MessagesPage: FC<{
     user: import('../guard').AdminSessionUser
@@ -57,12 +56,17 @@ const MessagesPage: FC<{
                 [
                     { key: 'time', header: 'Time', cell: (r) => formatDate(r.createdAt), className: 'nowrap' },
                     { key: 'user', header: 'User', cell: (r) => r.userEmail ?? r.userId },
-                    { key: 'body', header: 'Body', cell: (r) => <a href={`/admin/messages/${r.id}`}>{truncate(r.body, 120)}</a>, className: 'truncate' },
+                    {
+                        key: 'body',
+                        header: 'Body',
+                        cell: (r) => <a href={`/admin/messages/${r.id}`}>{truncate(r.body, 120)}</a>,
+                        className: 'truncate',
+                    },
                     {
                         key: 'kind',
                         header: 'Kind',
                         cell: (r) => (
-                            <div style='display:flex;gap:0.25rem;'>
+                            <div class='hstack-sm'>
                                 {r.replyToId && <Badge kind='outline'>reply</Badge>}
                                 {r.retweetOfId && <Badge kind='outline'>retweet</Badge>}
                                 {!r.replyToId && !r.retweetOfId && <Badge kind='muted'>post</Badge>}
@@ -108,8 +112,18 @@ const FollowsPage: FC<{
             rowKey={(r) => `${r.followerId}:${r.followingId}`}
             columns={
                 [
-                    { key: 'follower', header: 'Follower', cell: (r) => <a href={`/admin/users/${r.followerId}`}>{r.followerId.slice(0, 12)}…</a>, className: 'mono' },
-                    { key: 'following', header: 'Following', cell: (r) => <a href={`/admin/users/${r.followingId}`}>{r.followingId.slice(0, 12)}…</a>, className: 'mono' },
+                    {
+                        key: 'follower',
+                        header: 'Follower',
+                        cell: (r) => <a href={`/admin/users/${r.followerId}`}>{r.followerId.slice(0, 12)}…</a>,
+                        className: 'mono',
+                    },
+                    {
+                        key: 'following',
+                        header: 'Following',
+                        cell: (r) => <a href={`/admin/users/${r.followingId}`}>{r.followingId.slice(0, 12)}…</a>,
+                        className: 'mono',
+                    },
                     { key: 'created', header: 'Since', cell: (r) => formatDate(r.createdAt), className: 'nowrap' },
                 ] as Column<FollowRow>[]
             }
@@ -130,11 +144,7 @@ const MessageDetailPage: FC<{
         subtitle={target.userEmail ?? target.userId}
         user={user}
         currentPath='/admin/messages'
-        breadcrumbs={[
-            { href: '/admin', label: 'Admin' },
-            { href: '/admin/messages', label: 'Messages' },
-            { label: target.id },
-        ]}>
+        breadcrumbs={[{ href: '/admin', label: 'Admin' }, { href: '/admin/messages', label: 'Messages' }, { label: target.id }]}>
         <div class='card'>
             <dl class='kv'>
                 <dt>ID</dt>
@@ -150,11 +160,11 @@ const MessageDetailPage: FC<{
                 <dt>Created</dt>
                 <dd>{formatDate(target.createdAt)}</dd>
             </dl>
-            <div style='margin-top:0.75rem;white-space:pre-wrap;'>{target.body}</div>
+            <div class='mt-sm prewrap'>{target.body}</div>
         </div>
 
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>첨부 이미지 ({images.length})</h3>
+            <h3 class='card-title-sm'>첨부 이미지 ({images.length})</h3>
             <DataTable
                 rows={images}
                 rowKey={(r) => r.imageId}
@@ -170,7 +180,7 @@ const MessageDetailPage: FC<{
         </div>
 
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>좋아요 ({likes.length})</h3>
+            <h3 class='card-title-sm'>좋아요 ({likes.length})</h3>
             <DataTable
                 rows={likes}
                 rowKey={(r) => r.userId}
@@ -185,7 +195,7 @@ const MessageDetailPage: FC<{
         </div>
 
         <div class='card'>
-            <h3 style='font-weight:600;margin-bottom:0.5rem;'>북마크 ({bookmarks.length})</h3>
+            <h3 class='card-title-sm'>북마크 ({bookmarks.length})</h3>
             <DataTable
                 rows={bookmarks}
                 rowKey={(r) => r.userId}
@@ -200,9 +210,6 @@ const MessageDetailPage: FC<{
         </div>
     </AdminShell>
 )
-
-const flashFrom = (c: { req: { query: (k: string) => string | undefined } }) =>
-    c.req.query('flash') === 'ok' ? { kind: 'ok' as const, message: '저장되었습니다.' } : null
 
 export const createMessagesRoute = (deps: { getSession: AdminGetSession; adminDb: AdminDb }) => {
     const app = new Hono<AdminContext>()
@@ -221,21 +228,33 @@ export const createMessagesRoute = (deps: { getSession: AdminGetSession; adminDb
             userId,
             includeDeleted: includeDeleted as 'y' | 'n' | undefined,
         })
-        return c.html(<MessagesPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} q={q} userId={userId} includeDeleted={includeDeleted} flash={flashFrom(c)} />)
+        return c.html(
+            <MessagesPage
+                user={c.get('adminUser')}
+                rows={rows}
+                total={total}
+                page={page}
+                size={size}
+                q={q}
+                userId={userId}
+                includeDeleted={includeDeleted}
+                flash={parseFlash(c)}
+            />,
+        )
     })
 
     app.post('/:id/delete', async (c) => {
         const id = c.req.param('id')
         const body = await c.req.parseBody<{ returnTo?: string }>()
         await deps.adminDb.softDeleteMessage(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/messages')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/messages')), 303)
     })
 
     app.post('/:id/restore', async (c) => {
         const id = c.req.param('id')
         const body = await c.req.parseBody<{ returnTo?: string }>()
         await deps.adminDb.restoreMessage(id)
-        return c.redirect(appendFlash(sanitizeReturn(body.returnTo, '/admin/messages')), 303)
+        return c.redirect(flashPath(sanitizeReturn(body.returnTo, '/admin/messages')), 303)
     })
 
     app.get('/follows', async (c) => {

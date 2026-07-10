@@ -6,6 +6,7 @@ import { createMiddleware } from './middleware'
 import { createPage } from './page'
 import { createRouter } from './route/index'
 import { compose } from './compose'
+import { getEnv } from './lib/env'
 import { getDb } from './db'
 import { mailAccounts } from './db/schema'
 import type { AuthContext } from './lib/hono-types'
@@ -29,7 +30,7 @@ createMiddleware(app, {
 app.route(
     '',
     createPage({
-        admin: { getSession: composed.getSession, db: getDb(), auth: composed.auth, triggerMailSync },
+        admin: { getSession: composed.getSession, db: getDb(), auth: composed.auth, triggerMailSync, csrfSecret: getEnv().BETTER_AUTH_SECRET },
     }),
 )
 app.route('/api', api)
