@@ -7,12 +7,12 @@ import type { R2Client } from './r2-client'
 import type { GdriveClient } from './gdrive-client'
 import type { LocalClient } from './local-client'
 
-
 type UploadHandlerDeps = {
     r2: R2Client
     gdrive: GdriveClient
     local: LocalClient
     hubBaseUrl: string
+    uploadServerSecret: string
     generateId: () => string
     l1MaxFileSize: number
     tmpDir: string
@@ -57,6 +57,8 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries: number): Promise<T
 export const createUploadHandler = (deps: UploadHandlerDeps) => {
     mkdirSync(deps.tmpDir, { recursive: true })
 
+    const hubHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deps.uploadServerSecret}` }
+
     return {
         handle: async (file: File, assetId: number, s3Key: string, uploadToken: string): Promise<{ success: boolean; message: string }> => {
             const startTime = Date.now()
@@ -70,7 +72,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
 
                 await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/status`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: hubHeaders,
                     body: JSON.stringify({ uploadToken, status: 'uploading' }),
                 }).catch(() => {})
 
@@ -97,7 +99,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
 
                 const tokenRes = await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/gdrive-token`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: hubHeaders,
                     body: JSON.stringify({ uploadToken }),
                 })
 
@@ -109,7 +111,10 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                             const result = await deps.gdrive.upload(accessToken, rootFolderId, s3Key, tmpPath, file.type)
                             if (!result.success) throw new Error(result.error)
                             return result
-                        }, 2).catch((error) => ({ success: false as const, error: error instanceof Error ? error.message : 'Google Drive upload failed' }))
+                        }, 2).catch((error) => ({
+                            success: false as const,
+                            error: error instanceof Error ? error.message : 'Google Drive upload failed',
+                        }))
 
                         if (gdriveResult.success) {
                             tiers.push('L3')
@@ -156,7 +161,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
 
                 const completeRes = await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/complete`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: hubHeaders,
                     body: JSON.stringify({
                         uploadToken,
                         fileHash,

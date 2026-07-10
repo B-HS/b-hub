@@ -10,6 +10,7 @@ import { createBlogImageHandler } from './blog-image-handler'
 const env = {
     PORT: Number(process.env.PORT ?? 4100),
     HUB_BASE_URL: process.env.HUB_BASE_URL ?? 'https://api.gumyo.net',
+    UPLOAD_SERVER_SECRET: process.env.UPLOAD_SERVER_SECRET ?? '',
     ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS ?? 'https://gumyo.net,https://hyns.dev').split(','),
     MAX_UPLOAD_SIZE_BYTES: Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 10 * 1024 * 1024 * 1024),
 
@@ -17,7 +18,6 @@ const env = {
     R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? '',
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? '',
     R2_BUCKET: process.env.R2_BUCKET ?? 'blog-cloud',
-
 }
 
 const L1_MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -50,6 +50,7 @@ const handler = createUploadHandler({
     gdrive,
     local,
     hubBaseUrl: env.HUB_BASE_URL,
+    uploadServerSecret: env.UPLOAD_SERVER_SECRET,
     generateId: () => crypto.randomUUID(),
     l1MaxFileSize: L1_MAX_FILE_SIZE,
     tmpDir: '/tmp/uploads',

@@ -13,6 +13,13 @@ type DriveAssetRouteDeps = {
     getSession: (c: { req: { raw: { headers: Headers } } }) => Promise<{ user: { id: string; role: string | null } } | null>
     getGdriveAccessToken: () => Promise<string | null>
     gdriveRootFolderId: string
+    uploadServerSecret: string
+}
+
+const requireUploadServer = (c: { req: { header: (name: string) => string | undefined } }, secret: string) => {
+    if (!secret) return
+    const provided = c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.header('x-upload-server-secret')
+    if (!provided || provided !== secret) throw createAppError('UNAUTHORIZED')
 }
 
 export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
@@ -72,6 +79,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         '/assets/:assetId/status',
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
             await deps.driveAssetService.updateUploadStatus(assetId, body.uploadToken, body.status)
@@ -91,6 +99,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         }),
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
 
@@ -117,6 +126,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         }),
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
 

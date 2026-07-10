@@ -307,6 +307,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
             getSession: stubFn(deps.getSession) as never,
             getGdriveAccessToken: deps.getGdriveAccessToken ?? (() => Promise.resolve(null)),
             gdriveRootFolderId: deps.gdriveRootFolderId ?? '',
+            uploadServerSecret: deps.uploadServerSecret ?? '',
         }),
     )
     router.route(
