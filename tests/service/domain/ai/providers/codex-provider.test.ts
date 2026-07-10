@@ -42,11 +42,26 @@ describe('createCodexProvider.listModels', () => {
         expect(String(callOf(fetchFn, 0)[0])).toContain('/models?client_version=1.2.3')
     })
 
-    test('빈 목록이면 fallback 3종을 반환한다', async () => {
+    test('빈 목록이면 현행 Codex 라인업 전체를 fallback 으로 반환한다', async () => {
         const fetchFn = queuedFetch([jsonOk({ models: [] })])
         const provider = createCodexProvider({ getAccessToken: getAccessTokenOk(), fetchFn })
         const models = await provider.listModels()
-        expect(models.map((m) => m.modelId)).toEqual(['gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max'])
+        expect(models.map((m) => m.modelId)).toEqual([
+            'gpt-5.6-sol',
+            'gpt-5.6-terra',
+            'gpt-5.6-luna',
+            'gpt-5.5',
+            'gpt-5.4',
+            'gpt-5.4-mini',
+            'gpt-5.3-codex-spark',
+        ])
+    })
+
+    test('clientVersion 미지정 시 최신 Codex CLI 버전을 client_version으로 보낸다', async () => {
+        const fetchFn = queuedFetch([jsonOk({ models: [{ slug: 'gpt-5.6-sol' }] })])
+        const provider = createCodexProvider({ getAccessToken: getAccessTokenOk(), fetchFn })
+        await provider.listModels()
+        expect(String(callOf(fetchFn, 0)[0])).toContain('/models?client_version=0.144.1')
     })
 
     test('응답이 실패하면 AI_MODEL_FETCH_FAILED를 던진다', async () => {

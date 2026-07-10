@@ -17,14 +17,12 @@ type AiModelDeps = {
     connectionService: AiConnectionService
 }
 
-export const createAiModelService = ({ db, connectionService }: AiModelDeps) => {
-    const listCached = async (userId: string, provider: string) => {
-        const { row } = await connectionService.resolveClient(userId, provider)
-        return db.listByProvider(row.id)
-    }
+type ResolvedClient = Awaited<ReturnType<AiConnectionService['resolveClient']>>
 
-    const refresh = async (userId: string, provider: string) => {
-        const { row, client } = await connectionService.resolveClient(userId, provider)
+const MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+export const createAiModelService = ({ db, connectionService }: AiModelDeps) => {
+    const fetchAndStore = async ({ row, client }: ResolvedClient) => {
         const models = await client.listModels()
         await db.replaceForProvider(
             row.id,
@@ -32,6 +30,24 @@ export const createAiModelService = ({ db, connectionService }: AiModelDeps) => 
         )
         await connectionService.touchModelsFetched(row.id)
         return db.listByProvider(row.id)
+    }
+
+    const listCached = async (userId: string, provider: string) => {
+        const resolved = await connectionService.resolveClient(userId, provider)
+        const cached = await db.listByProvider(resolved.row.id)
+        const fetchedAt = resolved.row.modelsFetchedAt
+        const isFresh = !!fetchedAt && Date.now() - fetchedAt.getTime() < MODELS_CACHE_TTL_MS
+        if (isFresh && cached.length > 0) return cached
+        try {
+            return await fetchAndStore(resolved)
+        } catch {
+            return cached
+        }
+    }
+
+    const refresh = async (userId: string, provider: string) => {
+        const resolved = await connectionService.resolveClient(userId, provider)
+        return fetchAndStore(resolved)
     }
 
     return { listCached, refresh }

@@ -12,6 +12,15 @@
 
 > 조화 이력 요약: [history/2026-07-10-local-remote-harmonize.md](./history/2026-07-10-local-remote-harmonize.md) · 사용자 셀프서비스 페이지: [manage-features.md](./manage-features.md) · AI 도메인: [domains/ai.md](./domains/ai.md)
 
+### codex 모델 목록 최신화 + 모델 캐시 TTL 자동 갱신 (2026-07-10)
+
+> 배경: mail·bcalendar 모델 선택에 GPT-5.1 Codex 계열만 노출. 원인 2중 — ① codex `/models` 의 `client_version=0.50.0` 이 1년 이상 구버전이라 최신 모델(gpt-5.6 계열, 2026-07-09 GA)이 목록에서 제외, ② fallback 상수도 gpt-5.1 계열, ③ 캐시(`ai_models`)는 수동 refresh 전까지 영구 stale. 웹 조사로 확정: 현행 Codex 모델 = gpt-5.6-sol(기본)/terra/luna(+gpt-5.5·gpt-5.4 계열), Codex CLI 최신 = 0.144.1(2026-07-09, github.com/openai/codex releases).
+
+- [x] a. codex-provider — `DEFAULT_CLIENT_VERSION` 0.50.0 → 0.144.1, `CODEX_FALLBACK_MODELS` gpt-5.1 계열 → 현행 Codex 라인업 전체 7종(gpt-5.6-sol/terra/luna·gpt-5.5·gpt-5.4·gpt-5.4-mini·gpt-5.3-codex-spark). 기본 조회는 API 응답 전체를 필터 없이 매핑(정본은 API)
+- [x] b. ai-model — `listCached` 에 24h TTL 자동 갱신(빈 캐시·`modelsFetchedAt` 경과 시 fetch, 실패 시 기존 캐시 반환). refresh 와 fetch-저장 로직 `fetchAndStore` 로 공통화(`Awaited<ReturnType<...['resolveClient']>>` 유도 타입)
+- [x] c. 테스트 — ai-model 6건(신선 캐시 short-circuit·빈 fetchedAt 갱신·TTL 경과 갱신·갱신 실패 캐시 폴백·refresh 강제·refresh 실패 throw), codex-provider fallback 기대값 + 기본 client_version 어서션
+- [x] d. 검증 — bunx tsc --noEmit 0 · bun test 2480 pass / 0 fail (204 파일) · prettier 통과 · docs(domains/ai·reference/api-endpoints) 갱신
+
 ### codex 인증 access token 단독 방식 병행 지원 (2026-07-10)
 
 > 배경: codex 프로바이더 인증이 OAuth JSON(idToken+accessToken+refreshToken 3필드, refresh 자동 갱신)만 지원. 발급받은 access token 단독(refresh 없음)으로도 등록·사용 가능해야 한다. 공식 근거: codex-rs 가 personal access token(`at-` 접두사, refresh 없음) 인증을 지원하며, OAuth access_token JWT 에도 `https://api.openai.com/auth`.chatgpt_account_id claim 이 있다.

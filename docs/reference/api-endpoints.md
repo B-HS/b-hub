@@ -327,7 +327,7 @@
 | POST | `/api/ai/providers` | 세션 | 연결(등록·재인증) — 저장 전 verify | `route/ai/connection.ts` |
 | PATCH | `/api/ai/providers/:providerId` | 세션 | 연결 수정(displayName/status) | `route/ai/connection.ts` |
 | DELETE | `/api/ai/providers/:providerId` | 세션 | 연결 삭제 | `route/ai/connection.ts` |
-| GET | `/api/ai/:provider/models` | 세션 | 캐시된 모델 목록 | `route/ai/model.ts` |
+| GET | `/api/ai/:provider/models` | 세션 | 캐시된 모델 목록(빈 캐시·24h TTL 경과 시 자동 갱신) | `route/ai/model.ts` |
 | POST | `/api/ai/:provider/models/refresh` | 세션 | 모델 fetch 후 캐시 교체 | `route/ai/model.ts` |
 | GET | `/api/ai/prompts` | 세션 | 프롬프트 템플릿 목록 | `route/ai/prompt.ts` |
 | POST | `/api/ai/prompts` | 세션 | 프롬프트 생성 | `route/ai/prompt.ts` |

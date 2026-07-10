@@ -13,7 +13,7 @@ type CodexProviderDeps = {
 
 const CODEX_BASE = 'https://chatgpt.com/backend-api/codex'
 const CODEX_WHOAMI_URL = 'https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami'
-const DEFAULT_CLIENT_VERSION = '0.50.0'
+const DEFAULT_CLIENT_VERSION = '0.144.1'
 
 export const CODEX_ACCESS_TOKEN_PREFIX = 'at-'
 
@@ -27,9 +27,13 @@ export const fetchCodexAccountId = async (accessToken: string, fetchFn: typeof f
     return parsed.data.chatgpt_account_id
 }
 const CODEX_FALLBACK_MODELS: AiModelInfo[] = [
-    { modelId: 'gpt-5.1-codex', displayName: 'GPT-5.1 Codex', metadata: null },
-    { modelId: 'gpt-5.1-codex-mini', displayName: 'GPT-5.1 Codex Mini', metadata: null },
-    { modelId: 'gpt-5.1-codex-max', displayName: 'GPT-5.1 Codex Max', metadata: null },
+    { modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', metadata: null },
+    { modelId: 'gpt-5.6-terra', displayName: 'GPT-5.6 Terra', metadata: null },
+    { modelId: 'gpt-5.6-luna', displayName: 'GPT-5.6 Luna', metadata: null },
+    { modelId: 'gpt-5.5', displayName: 'GPT-5.5', metadata: null },
+    { modelId: 'gpt-5.4', displayName: 'GPT-5.4', metadata: null },
+    { modelId: 'gpt-5.4-mini', displayName: 'GPT-5.4 Mini', metadata: null },
+    { modelId: 'gpt-5.3-codex-spark', displayName: 'GPT-5.3 Codex Spark', metadata: null },
 ]
 
 const buildInput = (messages: AiChatMessage[]) =>
