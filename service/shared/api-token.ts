@@ -43,9 +43,13 @@ export const createApiTokenService = (deps: ApiTokenDeps) => {
         await deps.db.delete(apiToken).where(and(eq(apiToken.userId, userId), eq(apiToken.token, tokenHash)))
     }
 
+    const revokeById = async (userId: string, id: number) => {
+        await deps.db.delete(apiToken).where(and(eq(apiToken.userId, userId), eq(apiToken.id, id)))
+    }
+
     const listByUser = async (userId: string) => deps.db.select().from(apiToken).where(eq(apiToken.userId, userId))
 
-    return { create, validate, revoke, listByUser }
+    return { create, validate, revoke, revokeById, listByUser }
 }
 
 export type ApiTokenService = ReturnType<typeof createApiTokenService>

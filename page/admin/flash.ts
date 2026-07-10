@@ -11,6 +11,9 @@ export const FLASH_ERROR_MESSAGE: Record<string, string> = {
     forbidden: '권한이 없습니다.',
     validation: '입력값이 올바르지 않습니다.',
     conflict: '이미 존재하거나 충돌하는 값입니다.',
+    ai_key_limit: 'AI 키는 최대 20개까지 등록할 수 있습니다.',
+    ai_encryption_failed: 'AI 키 암호화에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+    not_configured: '해당 기능이 아직 구성되지 않았습니다.',
     unknown: DEFAULT_ERR_MESSAGE,
 }
 

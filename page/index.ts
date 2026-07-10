@@ -3,9 +3,11 @@ import { homeRoute } from './home'
 import { policyRoute } from './policy'
 import { wellKnownRoute } from './well-known'
 import { createAdminRoute, type AdminRouteDeps } from './admin'
+import { createManageRoute, type ManageRouteDeps } from './manage'
 
 export type PageDeps = {
     admin?: AdminRouteDeps
+    manage?: ManageRouteDeps
 }
 
 export const createPage = (deps: PageDeps = {}) => {
@@ -15,6 +17,7 @@ export const createPage = (deps: PageDeps = {}) => {
     page.route('/policy', policyRoute)
     page.route('', wellKnownRoute)
     if (deps.admin) page.route('/admin', createAdminRoute(deps.admin))
+    if (deps.manage) page.route('/manage', createManageRoute(deps.manage))
 
     return page
 }

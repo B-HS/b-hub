@@ -24,13 +24,22 @@ createMiddleware(app, {
     allowedDomains: ['gumyo.net', 'hyns.dev'],
     securityExcludePaths: ['/api/spotify/playing', '/caldav/', '/.well-known/caldav'],
     securityExcludeExactPaths: ['/', '/policy'],
-    securityHtmlPaths: ['/admin'],
+    securityHtmlPaths: ['/admin', '/manage'],
     logEventService: composed.logEventService,
 })
 app.route(
     '',
     createPage({
         admin: { getSession: composed.getSession, db: getDb(), auth: composed.auth, triggerMailSync, csrfSecret: getEnv().BETTER_AUTH_SECRET },
+        manage: {
+            getSession: composed.getSession,
+            apiTokenService: composed.apiTokenService,
+            weatherApiKeyService: composed.weatherApiKeyService,
+            aiService: composed.aiService,
+            mailAccountService: composed.mailAccountService,
+            auth: composed.auth,
+            csrfSecret: getEnv().BETTER_AUTH_SECRET,
+        },
     }),
 )
 app.route('/api', api)
