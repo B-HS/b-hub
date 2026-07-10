@@ -19,7 +19,7 @@
 | 새 도메인 추가 | [guidelines/add-domain.md](./guidelines/add-domain.md) | [architecture.md](./architecture.md) · [reference/db-schema.md](./reference/db-schema.md) |
 | 엔드포인트 추가/변경 | [guidelines/add-endpoint.md](./guidelines/add-endpoint.md) | [quality-assurance/endpoint-qa.md](./quality-assurance/endpoint-qa.md) · [reference/api-endpoints.md](./reference/api-endpoints.md) |
 | DB 스키마 변경 | [guidelines/db-schema-change.md](./guidelines/db-schema-change.md) | [reference/db-schema.md](./reference/db-schema.md) |
-| 어드민 페이지 | [guidelines/admin-page.md](./guidelines/admin-page.md) | [hono-reference.md](./hono-reference.md) · [admin-features.md](./admin-features.md) |
+| 어드민 페이지 | [guidelines/admin-page.md](./guidelines/admin-page.md) | [hono-reference.md](./hono-reference.md) · [admin-features.md](./admin-features.md) · [manage-features.md](./manage-features.md) |
 | 외부 API 연동 | [guidelines/external-api-integration.md](./guidelines/external-api-integration.md) | [reference/shared-services.md](./reference/shared-services.md) |
 | 에러코드·로깅 | [guidelines/error-handling-and-logging.md](./guidelines/error-handling-and-logging.md) | [logging.md](./logging.md) |
 | 테스트 작성 | [testing.md](./testing.md) | — |
@@ -36,6 +36,7 @@
 | [deploy.md](./deploy.md) | Vercel 단일 함수(빌드·rewrite·crons), 로컬 개발, db:push, `deploy/caldav-proxy`·`deploy/upload-server` Docker 서비스 |
 | [testing.md](./testing.md) | tests/ 구조(소스 미러), 실행 명령, ServiceDb mock·route·admin 테스트 패턴, 현행 스위트 규모 |
 | [admin-features.md](./admin-features.md) | 어드민 SSR 전 페이지·컬럼·필터·액션(form POST) 매핑 + `page/admin/` 파일 맵 |
+| [manage-features.md](./manage-features.md) | 사용자 셀프서비스 페이지(`/manage`) — 세션 인증·본인 리소스 CRUD, `/admin` 과의 인가·데이터 접근 차이 |
 | [logging.md](./logging.md) | `log_events` 중앙 로깅 상세 설계(스키마·수집·자동 캡처·알림·리텐션) |
 | [firmware-logging-contract.md](./firmware-logging-contract.md) | ESP32 등 디바이스가 지켜야 할 로그 수집 계약 |
 | [hono-reference.md](./hono-reference.md) | Hono JSX SSR 어드민 작성용 프레임워크 레퍼런스 |

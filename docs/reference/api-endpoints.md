@@ -66,7 +66,7 @@
 
 ## weather
 
-마운트: `/weather/keys`(key), `/weather/mock`(mock), `/weather`(weather), `/weather/locations`(location).
+마운트: `/weather/keys`(key), `/weather/mock`(mock — **`NODE_ENV !== 'production'` 일 때만 마운트**), `/weather`(weather), `/weather/locations`(location).
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
@@ -81,7 +81,7 @@
 | POST | `/api/weather/keys` | 세션 | Weather API 키 발급 | `route/weather/key.ts` |
 | DELETE | `/api/weather/keys/:id` | 세션 | Weather API 키 삭제 | `route/weather/key.ts` |
 | PATCH | `/api/weather/keys/:id/limit` | 어드민 | 키 일일 한도 수정 | `route/weather/key.ts` |
-| GET | `/api/weather/mock/current` | weather-key | 현재 날씨 Mock(요청 로깅 없음) | `route/weather/mock.ts` |
+| GET | `/api/weather/mock/current` | weather-key | 현재 날씨 Mock(요청 로깅 없음, 비프로덕션 전용) | `route/weather/mock.ts` |
 | GET | `/api/weather/mock/ultra-short` | weather-key | 초단기예보 Mock | `route/weather/mock.ts` |
 | GET | `/api/weather/mock/short-term` | weather-key | 단기예보 Mock | `route/weather/mock.ts` |
 | GET | `/api/weather/mock/version` | weather-key | 예보 버전 Mock | `route/weather/mock.ts` |
@@ -278,7 +278,7 @@
 | POST | `/api/drive/assets/prepare` | 세션 | 업로드 사전 등록(preparing) | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/:assetId/status` | 업로드토큰 | 업로드 상태 갱신(upload-server) | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/:assetId/complete` | 업로드토큰 | 업로드 완료 콜백(Lightsail→hyun-hub) | `route/drive/asset.ts` |
-| POST | `/api/drive/assets/:assetId/gdrive-token` | 업로드토큰 | Google Drive access token 발급(upload-server) | `route/drive/asset.ts` |
+| POST | `/api/drive/assets/:assetId/gdrive-token` | upload-server secret + 업로드토큰 | Google Drive access token 발급(upload-server, `requireUploadServer` 게이트) | `route/drive/asset.ts` |
 | GET | `/api/drive/assets` | 세션 | 파일 목록(페이지네이션) | `route/drive/asset.ts` |
 | GET | `/api/drive/assets/:assetId` | 세션 | 파일 상세 + 다운로드 URL | `route/drive/asset.ts` |
 | PATCH | `/api/drive/assets/:assetId` | 세션 | 파일 수정(공개설정/폴더이동) | `route/drive/asset.ts` |

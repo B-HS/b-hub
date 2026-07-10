@@ -4,7 +4,7 @@
 
 ## 무엇인가
 
-Bun + Hono 로 만든 개인 허브 백엔드 단일 서비스. 도메인: blog(블로그 API) · mail(멀티계정 메일) · calendar(일정+CalDAV) · drive(개인 클라우드) · spotify · weather(KMA+ESP32) · resume · badge(동적 이미지) · logs(중앙 로깅) · ai(멀티 프로바이더 AI — codex/anthropic/ollama) + Hono JSX SSR 어드민. MySQL(Drizzle) · better-auth · Vercel 단일 함수 배포 + `deploy/` 하위 Docker 서비스 2개.
+Bun + Hono 로 만든 개인 허브 백엔드 단일 서비스. 도메인: blog(블로그 API) · mail(멀티계정 메일) · calendar(일정+CalDAV) · drive(개인 클라우드) · spotify · weather(KMA+ESP32) · resume · badge(동적 이미지) · logs(중앙 로깅) · ai(멀티 프로바이더 AI — codex/anthropic/ollama) + Hono JSX SSR 어드민(`/admin`) 및 사용자 셀프서비스 페이지(`/manage`). MySQL(Drizzle) · better-auth · Vercel 단일 함수 배포 + `deploy/` 하위 Docker 서비스 2개.
 
 ## 명령어
 
@@ -36,5 +36,5 @@ Bun + Hono 로 만든 개인 허브 백엔드 단일 서비스. 도메인: blog(
 - 진입점·읽기 순서: [docs/index.md](./docs/index.md)
 - 아키텍처: [docs/architecture.md](./docs/architecture.md) · 배포: [docs/deploy.md](./docs/deploy.md) · 테스트: [docs/testing.md](./docs/testing.md)
 - 도메인별: [docs/domains/](./docs/domains/) · 전수 레퍼런스(스키마·엔드포인트·env·lib·shared): [docs/reference/](./docs/reference/)
-- 어드민 기능: [docs/admin-features.md](./docs/admin-features.md) · 로깅: [docs/logging.md](./docs/logging.md) · 펌웨어 계약: [docs/firmware-logging-contract.md](./docs/firmware-logging-contract.md)
+- 어드민 기능: [docs/admin-features.md](./docs/admin-features.md) · 사용자 셀프서비스(`/manage`): [docs/manage-features.md](./docs/manage-features.md) · 로깅: [docs/logging.md](./docs/logging.md) · 펌웨어 계약: [docs/firmware-logging-contract.md](./docs/firmware-logging-contract.md)
 - 기록: memory(불변 사실) · history(완료 이력) · bug · acknowledge(합의) · feedback(교정) · utils — 전부 docs/ 하위.

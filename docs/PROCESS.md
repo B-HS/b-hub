@@ -5,6 +5,13 @@
 
 ## 현재 진행 중 작업
 
+- **레포 내 진행 중 작업 없음.** 아래 2026-07-10 세션 작업은 전부 완료(검증 통과)됐다.
+- **후속(레포 외)**: 클라이언트 FE(mail·calendar·rirekisyo)를 원격 AI 계약(providers + `completions/stream` SSE)으로 재작업 — 이 레포가 아닌 소비자 프론트에서 진행. 배경: [history/2026-07-10-local-remote-harmonize.md](./history/2026-07-10-local-remote-harmonize.md).
+
+## 최근 완료 작업 — 2026-07-10 세션 (상세 체크리스트)
+
+> 조화 이력 요약: [history/2026-07-10-local-remote-harmonize.md](./history/2026-07-10-local-remote-harmonize.md) · 사용자 셀프서비스 페이지: [manage-features.md](./manage-features.md) · AI 도메인: [domains/ai.md](./domains/ai.md)
+
 ### codex 인증 access token 단독 방식 병행 지원 (2026-07-10)
 
 > 배경: codex 프로바이더 인증이 OAuth JSON(idToken+accessToken+refreshToken 3필드, refresh 자동 갱신)만 지원. 발급받은 access token 단독(refresh 없음)으로도 등록·사용 가능해야 한다. 공식 근거: codex-rs 가 personal access token(`at-` 접두사, refresh 없음) 인증을 지원하며, OAuth access_token JWT 에도 `https://api.openai.com/auth`.chatgpt_account_id claim 이 있다.
@@ -39,6 +46,8 @@
 - [x] f. nav.ts AI 항목 /manage/ai/providers·Providers 로 변경, flash(ai_credentials_invalid·ai_reauth_required)·util(errorToFlashCode AI 매핑, aiProviderStatusBadgeKind) 갱신
 - [x] g. 테스트 갱신 — tests/page/manage/{helpers,ai.test,overview.test,index.test} 를 aiConnectionService 스텁 기준으로 (자격증명 미노출 어서션 포함)
 - [x] h. 검증 — bunx tsc --noEmit 0 에러 · bun test 2410 pass / 0 fail (203 파일) · prettier --check 통과
+
+## 완료 작업 — 2026-07-02 세션 (상세 체크리스트)
 
 ### 의존성 최신화 (2026-07-02, 브랜치 `chore/deps-update`) — 결정: [acknowledge/2026-07-02-deps-upgrade.md](./acknowledge/2026-07-02-deps-upgrade.md) · 이력: [history/2026-07-deps-upgrade.md](./history/2026-07-deps-upgrade.md)
 

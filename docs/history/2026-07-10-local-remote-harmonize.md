@@ -26,6 +26,7 @@ origin/dev(21커밋)를 base 로 채택. 로컬 17커밋을 3분류. 백업 back
 typecheck 0 · test 2450 pass (원격 2410 + SSE 40 신규).
 
 ## 후속
-- 클라이언트 AI(mail·calendar·rirekisyo)를 원격 계약(providers + completions/stream SSE)으로 재작업.
-- weather 배포 B안(framework null + JS 셔임 + 자가번들) 적용.
+- (진행 예정, 레포 외) 클라이언트 AI(mail·calendar·rirekisyo)를 원격 계약(providers + completions/stream SSE)으로 재작업.
+- (완료) weather 배포 B안(framework null + JS 셔임 + 자가번들)은 원격 base 에 이미 적용돼 있었고 production 검증까지 종결됨 — [../deploy.md](../deploy.md) · [../bug/2026-07-09-vercel-hono-detection-crash.md](../bug/2026-07-09-vercel-hono-detection-crash.md).
+- (완료, 이 세션 이후 추가) codex 인증 access token 단독 방식 병행 지원(`3637ac1`·`098a071`) — refresh 없는 access token/personal access token 으로도 등록·사용. [../domains/ai.md](../domains/ai.md).
 - salvage 미채택: withAuthOrApiToken HOF·OpenAI-compat(omlx) 어댑터는 원격 AI 가 세션 전용이라 지금 소비처 없음 — 백업 브랜치에 보존.

@@ -21,7 +21,7 @@
 | `dto/weather/weather-api-key.ts` | 키 발급/한도수정/응답 스키마 (`createWeatherKeyBodySchema`, `updateWeatherKeyLimitBodySchema`, `weatherKeyResponseSchema`) |
 | `route/weather/weather.ts` | 실데이터 조회 라우트(`/current`·`/ultra-short`·`/short-term`·`/version`). `requireWeatherKey` 적용 |
 | `route/weather/location.ts` | 위치 목록/검색/좌표변환 라우트(`/`·`/convert`·`/:keyword`). `requireWeatherKey` 적용 |
-| `route/weather/mock.ts` | 실데이터와 동일 인터페이스의 Mock 라우트. `requireWeatherKeyNoLog` 적용(로그·한도 없음) |
+| `route/weather/mock.ts` | 실데이터와 동일 인터페이스의 Mock 라우트. `requireWeatherKeyNoLog` 적용(로그·한도 없음). **`route/index.ts` 가 `NODE_ENV !== 'production'` 일 때만 `/weather/mock` 을 마운트** — 프로덕션에는 존재하지 않는다(2026-07-10 보안 게이트) |
 | `route/weather/key.ts` | Weather API 키 CRUD 라우트. 세션(`withAuth`)/관리자(`withAdmin`) 인증 |
 | `service/domain/weather/kma-api.ts` | KMA API 호출·재시도·에러매핑·base time 계산·Redis 캐싱 (`createKmaApiService`) |
 | `service/domain/weather/mock-kma-api.ts` | `KmaApiService` 인터페이스를 만족하는 난수 Mock (`createMockKmaApiService`) |
@@ -65,10 +65,10 @@
 | GET | `/api/weather/locations` | `X-Weather-Key`(로그·한도) | 전체 위치 목록 |
 | GET | `/api/weather/locations/convert` | `X-Weather-Key`(로그·한도) | 좌표 변환(`lat`+`lon` 또는 `gridX`+`gridY`) |
 | GET | `/api/weather/locations/:keyword` | `X-Weather-Key`(로그·한도) | 위치 검색(level1/2/3 부분일치) |
-| GET | `/api/weather/mock/current` | `X-Weather-Key`(무로그·무한도) | 현재 날씨 Mock |
-| GET | `/api/weather/mock/ultra-short` | `X-Weather-Key`(무로그·무한도) | 초단기예보 Mock |
-| GET | `/api/weather/mock/short-term` | `X-Weather-Key`(무로그·무한도) | 단기예보 Mock |
-| GET | `/api/weather/mock/version` | `X-Weather-Key`(무로그·무한도) | 예보 버전 Mock |
+| GET | `/api/weather/mock/current` | `X-Weather-Key`(무로그·무한도) | 현재 날씨 Mock (비프로덕션 전용) |
+| GET | `/api/weather/mock/ultra-short` | `X-Weather-Key`(무로그·무한도) | 초단기예보 Mock (비프로덕션 전용) |
+| GET | `/api/weather/mock/short-term` | `X-Weather-Key`(무로그·무한도) | 단기예보 Mock (비프로덕션 전용) |
+| GET | `/api/weather/mock/version` | `X-Weather-Key`(무로그·무한도) | 예보 버전 Mock (비프로덕션 전용) |
 | GET | `/api/weather/keys` | 세션(`withAuth`) | 본인 키 목록(+24h 사용량) |
 | POST | `/api/weather/keys` | 세션(`withAuth`) | 키 발급, **평문 키 1회만 반환** |
 | DELETE | `/api/weather/keys/:id` | 세션(`withAuth`) | 본인 키 삭제(user_id 스코프) |

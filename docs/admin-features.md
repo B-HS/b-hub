@@ -203,7 +203,9 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
     - `GET /admin/login/social/:provider`(`google`|`github`) — better-auth `signInSocial`, set-cookie 포워딩 후 302.
     - `GET /admin/login/logout` — `signOut`.
 - **Static**: `GET /admin/styles.css` — `ADMIN_DESIGN_TOKENS_CSS`(`styles.ts`) + 캐시 헤더. guard 밖.
-- 루트 배선(`index.ts`): `createPage({ admin: { getSession, db, auth, triggerMailSync } })`, `securityHtmlPaths: ['/admin']`.
+- **CSRF**: `app.use('*', createAdminCsrfGuard({ getSession, secret: csrfSecret }))`(`csrf.ts`) — 모든 폼 POST 를 CSRF 토큰으로 보호. `contextStorage()` 이후 배선. `csrfSecret` 은 `BETTER_AUTH_SECRET`.
+- **테마(다크모드)**: `GET /admin/theme?to=...&returnTo=...` — `ADMIN_THEME_COOKIE`(`theme.ts` `sanitizeTheme`) 설정 후 303. guard 밖. 라이트/다크 토큰은 `styles.ts`.
+- 루트 배선(`index.ts`): `createPage({ admin: { getSession, db, auth, triggerMailSync, csrfSecret: BETTER_AUTH_SECRET } })`, `securityHtmlPaths: ['/admin', '/manage']`. 사용자 셀프서비스 `/manage` 는 [manage-features.md](./manage-features.md).
 
 ---
 
@@ -283,7 +285,7 @@ GET  /admin                                → dashboard
 | `Pagination` | `page`·`pageSize`·`total`·`baseQuery`·`basePath` — query 보존 이전/다음. |
 | `FilterBar` | `action`·`fields`(text/select/number/date)·`hidden` — query string ↔ GET 폼. |
 | `Badge` | 상태 표시. kind: `default`/`secondary`/`outline`/`success`/`muted`/`destructive`(어드민 전용 컴포넌트 — 토큰은 `page/admin/styles.ts` 의 `.badge.*`, [hono-reference.md](./hono-reference.md) 어드민 CSS 소유. 소비자 프론트 [DESIGN.md](./DESIGN.md) 의 shadcn Badge 4종과 별개). |
-| `RowAction` | 단건 POST 폼(`action`·`label`·`variant`·`confirmText`·`hidden`·`returnTo`). |
+| `RowAction` | 단건 POST 폼(`action`·`label`·`variant`·`confirm`·`hidden`·`returnTo`). `confirm`(또는 `variant='destructive'` 의 기본 문구)은 `data-confirm` 속성으로 렌더되고, `ADMIN_CONFIRM_SCRIPT`(submit 이벤트 인터셉트 → `window.confirm`)가 확인창을 띄운다. |
 | `Stat` | 대시보드 카드(`label`·`value`·`delta`). |
 
 ---
@@ -295,6 +297,8 @@ GET  /admin                                → dashboard
 | `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. |
 | `nav.ts` | 사이드바 `NAV`(10개 그룹) + `isActivePath`. |
 | `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`. |
+| `csrf.ts` | `createAdminCsrfGuard` — 폼 POST CSRF 토큰 검증(가드). `/manage` 도 공유. |
+| `theme.ts` | `ADMIN_THEME_COOKIE`·`THEME_COOKIE_MAX_AGE`·`sanitizeTheme` — 라이트/다크 테마 쿠키. |
 | `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수). |
 | `components.tsx` | 공통 JSX 컴포넌트(§17). |
 | `dashboard.tsx` | `createDashboardRoute` — Stat 14 + 최근 4 테이블. |

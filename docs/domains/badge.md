@@ -97,7 +97,7 @@
 ### 아이콘 로드 (`icon-loader.ts`)
 
 - 로컬(`loadLocal`): 이름이 `^[a-zA-Z0-9_-]+$`(`SAFE_ICON_NAME`) 통과해야 함(경로 탐색 방지). `public/icon/{name}.svg` → 없으면 `.png` 순으로 읽어 base64 data URL 반환.
-- 원격(`loadFromUrl`): `isPublicUrl` 통과해야 함(SSRF 방어). 8초 AbortController 타임아웃 fetch. 매직 바이트로 MIME 판별, ICO 는 `parseICO`(주입 시)로 최대 크기 프레임 선택. SVG 는 `sanitizeSvg`(xml/doctype/script/`on*` 핸들러/외부 `xlink:href`/`javascript:` 등 제거, `xmlns`·`viewBox` 보정) 후 data URL. 결과는 `iconCache` Map 캐시.
+- 원격(`loadFromUrl`): `isPublicUrl` 통과해야 함(SSRF 방어). 8초 AbortController 타임아웃 fetch. **리다이렉트는 `redirect: 'manual'` 로 직접 따라가며 매 홉의 `Location` 을 `isPublicUrl` 로 재검증**한다(`MAX_REDIRECT_HOPS` 초과·`Location` 없음·사설 URL 이면 중단, 2026-07-10 SSRF 게이트 — 공개 URL 이 사설 IP 로 리다이렉트하는 우회 차단). 매직 바이트로 MIME 판별, ICO 는 `parseICO`(주입 시)로 최대 크기 프레임 선택. SVG 는 `sanitizeSvg`(xml/doctype/script/`on*` 핸들러/외부 `xlink:href`/`javascript:` 등 제거, `xmlns`·`viewBox` 보정) 후 data URL. 결과는 `iconCache` Map 캐시.
 
 ## 환경변수
 

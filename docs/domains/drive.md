@@ -79,7 +79,7 @@
 
 ## API 엔드포인트
 
-mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/drive`, 폴더를 `/drive/folders`, lifecycle을 `/drive/lifecycle`에 마운트. 전체 경로는 아래와 같다. 인증 열: **session** = `getSession`(better-auth 세션/API 토큰), **uploadToken** = 요청 body의 `uploadToken`이 자산 행의 `upload_token`과 일치, **cron secret** = `Authorization: Bearer <secret>` 또는 `x-cron-secret` 헤더가 `UPLOAD_SERVER_SECRET`과 일치.
+mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/drive`, 폴더를 `/drive/folders`, lifecycle을 `/drive/lifecycle`에 마운트. 전체 경로는 아래와 같다. 인증 열: **session** = `getSession`(better-auth 세션/API 토큰), **uploadToken** = 요청 body의 `uploadToken`이 자산 행의 `upload_token`과 일치, **upload-server secret** = `requireUploadServer` — `Authorization: Bearer <secret>` 또는 `x-upload-server-secret` 헤더가 `UPLOAD_SERVER_SECRET`과 일치(`UPLOAD_SERVER_SECRET` 미설정 시 게이트 skip), **cron secret** = lifecycle cron 의 `Authorization: Bearer <secret>` 또는 `x-cron-secret` 이 `UPLOAD_SERVER_SECRET`과 일치.
 
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
@@ -87,7 +87,7 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 | POST | `/api/drive/assets/prepare` | session | 업로드 사전 등록(메타만 저장, `preparing`, `uploadToken` 발급) |
 | POST | `/api/drive/assets/:assetId/status` | uploadToken | 상태를 `uploading`으로 전이(upload-server) |
 | POST | `/api/drive/assets/:assetId/complete` | uploadToken | 업로드 완료 콜백(티어/gdriveFileId/localPath/썸네일 반영) |
-| POST | `/api/drive/assets/:assetId/gdrive-token` | uploadToken | Google Drive access token + root folder ID 발급(upload-server 전용) |
+| POST | `/api/drive/assets/:assetId/gdrive-token` | upload-server secret + uploadToken | Google Drive access token + root folder ID 발급(upload-server 전용). `requireUploadServer`(UPLOAD_SERVER_SECRET) 게이트 후 body `uploadToken` 검증(2026-07-10 보안 게이트 — status/complete 는 uploadToken 만) |
 | GET | `/api/drive/assets` | session | 자산 목록(페이지네이션, mimeType/folderId 필터, 정렬) |
 | GET | `/api/drive/assets/:assetId` | session | 상세 + 다운로드 URL(티어별) |
 | PATCH | `/api/drive/assets/:assetId` | session | 이름/공개여부/폴더 이동 |
@@ -125,7 +125,7 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 
 1. `prepare`(session): 클라이언트가 미리 계산한 `fileHash`로 MIME/폴더/중복/쿼터 검증. 기존 행이 `preparing`/`failed`면 삭제 후 재등록. `preparing` 행 insert + 랜덤 32바이트 `uploadToken` 발급 → `{ assetId, s3Key, uploadToken }` 반환.
 2. `status`(uploadToken): `preparing` → `uploading` 전이. 토큰 불일치 시 `UNAUTHORIZED`, 상태 부정합 시 `DRIVE_UPLOAD_EVENT_FAILED`.
-3. `gdrive-token`(uploadToken): `getAssetForTokenExchange`로 토큰·상태 검증 후 `getGdriveAccessToken()`(compose/shared) 호출 → Google access token + `GDRIVE_ROOT_FOLDER_ID` 반환. upload-server가 이 토큰으로 Google Drive에 직접 업로드.
+3. `gdrive-token`(upload-server secret + uploadToken): 먼저 `requireUploadServer`(`UPLOAD_SERVER_SECRET` 헤더) 게이트를 통과해야 하고, 이어 `getAssetForTokenExchange`로 uploadToken·상태 검증 후 `getGdriveAccessToken()`(compose/shared) 호출 → Google access token + `GDRIVE_ROOT_FOLDER_ID` 반환. upload-server가 이 토큰으로 Google Drive에 직접 업로드. (Google access token 유출 방어를 위해 이 콜백만 시크릿 게이트를 추가로 건다 — 2026-07-10.)
 4. `complete`(uploadToken): body의 `storageTiers`/`gdriveFileId`/`localPath`/`thumbnailBase64`를 반영. `storageTiers`가 있으면 `ready`, 없으면 `failed`로 마감하고 `uploadToken`을 null로 초기화.
 
 ### 3. 상세/다운로드 (티어 cascade)

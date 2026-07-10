@@ -62,8 +62,8 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 
 | Method | 전체 Path | 인증 | 설명 |
 |--------|-----------|------|------|
-| GET | `/api/calendar/events` | 세션 | 월 조회(`year`, `month` 0–11). 반복 이벤트는 마스터를 반환 |
-| GET | `/api/calendar/events/range` | 세션 | 기간 조회(`startDate`,`endDate`,`groupId?`). 최대 366일 |
+| GET | `/api/calendar/events` | 세션 | 월 조회(`year`, `month` 0–11). 반복 이벤트는 범위 내 각 발생 인스턴스로 전개 반환 |
+| GET | `/api/calendar/events/range` | 세션 | 기간 조회(`startDate`,`endDate`,`groupId?`). 최대 366일. 반복 이벤트는 발생 인스턴스로 전개 |
 | GET | `/api/calendar/events/detail/:uid` | 세션 | 단건 상세 |
 | POST | `/api/calendar/events` | 세션 | 생성(`createEventSchema` — `dtstart`/`dtend` datetime). 201 |
 | POST | `/api/calendar/events/create` | 세션 | 생성(`createEventBodySchema` — `startDate`/`startTime` 분리형, `toEventInput` 매핑). 201 |
@@ -109,9 +109,9 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 
 ### 범위 조회 + 반복 판정
 
-1. `GET /api/calendar/events/range` → `getEventsByDateRange`.
-2. compose 쿼리: `dtstart` 이 범위 내이거나 `rrule IS NOT NULL AND dtstart <= endDate` 인 행을 조회.
-3. 비반복 이벤트는 `dtstart` 범위 검사, 반복 이벤트는 `getRecurrenceOccurrences`(rrule.between)로 **범위 내 발생이 1개 이상이면 마스터 이벤트를 포함**한다(개별 인스턴스로 전개하지 않음).
+1. `GET /api/calendar/events/range` → `getEventsByDateRange` (월 조회 `GET /api/calendar/events` → `getEventsByMonthRange` 도 동일 로직).
+2. compose 쿼리는 **overlap** 조건이다(2026-07-10 수정 — 이전 dtstart-in-range 버그): `(dtstart <= endDate AND dtend >= startDate)` **또는** `(rrule IS NOT NULL AND dtstart <= endDate)` 인 행을 조회.
+3. `expandEventsInRange` 로 후처리한다 — 비반복 이벤트는 overlap(`dtstart <= endDate && dtend >= startDate`)이면 그대로 포함, 반복 이벤트는 `getRecurrenceOccurrences`(rrule.between)의 **각 발생을 개별 인스턴스**(`{...event, dtstart: occurrence, dtend: occurrence + duration}`)로 전개해 포함한다(마스터 1건 반환이 아님).
 
 ### CalDAV 동기(sync-collection)
 
