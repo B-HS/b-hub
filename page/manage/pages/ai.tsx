@@ -62,20 +62,20 @@ const ProvidersPage: FC<{ user: AdminSessionUser; rows: ProviderRow[]; flash?: F
                     <input id='ai-api-key' class='input input-block' type='password' name='apiKey' autocomplete='off' />
                 </div>
                 <div class='field'>
-                    <label for='ai-id-token'>ID Token (codex)</label>
-                    <input id='ai-id-token' class='input input-block' type='password' name='idToken' autocomplete='off' />
-                </div>
-                <div class='field'>
-                    <label for='ai-access-token'>Access Token (codex)</label>
+                    <label for='ai-access-token'>Access Token (codex 필수)</label>
                     <input id='ai-access-token' class='input input-block' type='password' name='accessToken' autocomplete='off' />
                 </div>
                 <div class='field'>
-                    <label for='ai-refresh-token'>Refresh Token (codex)</label>
-                    <input id='ai-refresh-token' class='input input-block' type='password' name='refreshToken' autocomplete='off' />
+                    <label for='ai-account-id'>Account ID (codex·at- 토큰은 필수)</label>
+                    <input id='ai-account-id' class='input input-block' name='accountId' maxlength={255} autocomplete='off' />
                 </div>
                 <div class='field'>
-                    <label for='ai-account-id'>Account ID (codex·선택)</label>
-                    <input id='ai-account-id' class='input input-block' name='accountId' maxlength={255} autocomplete='off' />
+                    <label for='ai-id-token'>ID Token (codex OAuth 방식만)</label>
+                    <input id='ai-id-token' class='input input-block' type='password' name='idToken' autocomplete='off' />
+                </div>
+                <div class='field'>
+                    <label for='ai-refresh-token'>Refresh Token (codex OAuth 방식만)</label>
+                    <input id='ai-refresh-token' class='input input-block' type='password' name='refreshToken' autocomplete='off' />
                 </div>
                 <div>
                     <button class='btn' type='submit'>
@@ -84,8 +84,9 @@ const ProvidersPage: FC<{ user: AdminSessionUser; rows: ProviderRow[]; flash?: F
                 </div>
             </form>
             <p class='text-muted mt-sm'>
-                codex 는 ID·Access·Refresh Token 3개를, anthropic·ollama 는 API Key 를 입력합니다. 등록 전 자격증명을 검증하며, 이미 연결된
-                프로바이더는 자격증명이 갱신(재인증)됩니다.
+                codex 는 두 방식 중 하나 — Access Token 단독(발급 토큰 하나, at- 접두사면 Account ID 필수, 만료 시 재등록) 또는 OAuth(Access + ID +
+                Refresh Token 3개, 자동 갱신). anthropic·ollama 는 API Key 를 입력합니다. 등록 전 자격증명을 검증하며, 이미 연결된 프로바이더는
+                자격증명이 갱신(재인증)됩니다.
             </p>
         </div>
 
