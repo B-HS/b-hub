@@ -195,6 +195,30 @@ const toCalendarEvent = (row: CalendarEventRow): CalendarEvent => ({
     lastModified: row.updatedAt,
 })
 
+const expandEventsInRange = (rows: CalendarEventRow[], startDate: Date, endDate: Date) => {
+    const result: CalendarEvent[] = []
+
+    for (const row of rows) {
+        const event = toCalendarEvent(row)
+
+        if (!event.rrule) {
+            if (event.dtstart <= endDate && event.dtend >= startDate) {
+                result.push(event)
+            }
+            continue
+        }
+
+        const durationMs = event.dtend.getTime() - event.dtstart.getTime()
+        const occurrences = getRecurrenceOccurrences(event.rrule, event.dtstart, startDate, endDate)
+
+        for (const occurrence of occurrences) {
+            result.push({ ...event, dtstart: occurrence, dtend: new Date(occurrence.getTime() + durationMs) })
+        }
+    }
+
+    return result
+}
+
 type CalendarServiceDeps = {
     db: CalendarServiceDb
 }
@@ -208,24 +232,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
 
         const rows = await db.getEventsByMonthRange(userId, startDate, endDate)
 
-        const result: CalendarEvent[] = []
-
-        for (const row of rows) {
-            const event = toCalendarEvent(row)
-
-            if (!event.rrule) {
-                if (event.dtstart >= startDate && event.dtstart <= endDate) {
-                    result.push(event)
-                }
-            } else {
-                const occurrences = getRecurrenceOccurrences(event.rrule, event.dtstart, startDate, endDate)
-                if (occurrences.length > 0) {
-                    result.push(event)
-                }
-            }
-        }
-
-        return result
+        return expandEventsInRange(rows, startDate, endDate)
     }
 
     const getAllEvents = async (userId: string): Promise<CalendarEvent[]> => {
@@ -396,24 +403,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
     const getEventsByDateRange = async (userId: string, startDate: Date, endDate: Date, groupId?: string): Promise<CalendarEvent[]> => {
         const rows = await db.getEventsByDateRange(userId, startDate, endDate, groupId)
 
-        const result: CalendarEvent[] = []
-
-        for (const row of rows) {
-            const event = toCalendarEvent(row)
-
-            if (!event.rrule) {
-                if (event.dtstart >= startDate && event.dtstart <= endDate) {
-                    result.push(event)
-                }
-            } else {
-                const occurrences = getRecurrenceOccurrences(event.rrule, event.dtstart, startDate, endDate)
-                if (occurrences.length > 0) {
-                    result.push(event)
-                }
-            }
-        }
-
-        return result
+        return expandEventsInRange(rows, startDate, endDate)
     }
 
     const getGroups = async (userId: string) => {

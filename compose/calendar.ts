@@ -15,7 +15,7 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
                         and(
                             eq(schema.calendarEvent.userId, userId),
                             or(
-                                and(gte(schema.calendarEvent.dtstart, startDate), lte(schema.calendarEvent.dtstart, endDate)),
+                                and(lte(schema.calendarEvent.dtstart, endDate), gte(schema.calendarEvent.dtend, startDate)),
                                 and(isNotNull(schema.calendarEvent.rrule), lte(schema.calendarEvent.dtstart, endDate)),
                             ),
                         ),
@@ -27,7 +27,7 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
                 const conditions = [
                     eq(schema.calendarEvent.userId, userId),
                     or(
-                        and(gte(schema.calendarEvent.dtstart, startDate), lte(schema.calendarEvent.dtstart, endDate)),
+                        and(lte(schema.calendarEvent.dtstart, endDate), gte(schema.calendarEvent.dtend, startDate)),
                         and(isNotNull(schema.calendarEvent.rrule), lte(schema.calendarEvent.dtstart, endDate)),
                     ),
                 ]

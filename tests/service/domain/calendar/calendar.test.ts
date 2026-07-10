@@ -31,6 +31,30 @@ const createMockDb = (): CalendarServiceDb => ({
     updateUserTimezone: mock(() => Promise.resolve()),
 })
 
+type CalendarEventRow = Awaited<ReturnType<CalendarServiceDb['getAllEvents']>>[number]
+
+const createEventRow = (overrides: Partial<CalendarEventRow> = {}): CalendarEventRow => ({
+    uid: 'uid-base@b-calendar',
+    summary: 'Base Event',
+    description: null,
+    location: null,
+    dtstart: new Date('2024-01-01T10:00:00Z'),
+    dtend: new Date('2024-01-01T11:00:00Z'),
+    isAllDay: false,
+    rrule: null,
+    exdate: null,
+    status: null,
+    transp: null,
+    priority: null,
+    categories: null,
+    color: null,
+    groupId: null,
+    sequence: 0,
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-01-01'),
+    ...overrides,
+})
+
 let mockDb: CalendarServiceDb
 
 describe('CalendarService', () => {
@@ -334,8 +358,10 @@ describe('CalendarService', () => {
 
             const events = await service.getEventsByMonth('user-123', 2024, 0)
 
-            expect(events.length).toBeGreaterThanOrEqual(1)
+            expect(events).toHaveLength(5)
+            expect(events.every((e) => e.uid === 'uid-recurring@b-calendar')).toBe(true)
             expect(events[0].rrule?.freq).toBe('WEEKLY')
+            expect(new Set(events.map((e) => e.dtstart.toISOString())).size).toBe(5)
         })
 
         test('반복 발생이 범위 밖이면 제외한다', async () => {
@@ -752,8 +778,10 @@ describe('CalendarService', () => {
             const endDate = new Date('2024-03-31T23:59:59')
             const events = await service.getEventsByDateRange('user-123', startDate, endDate)
 
-            expect(events.length).toBeGreaterThanOrEqual(1)
+            expect(events).toHaveLength(5)
+            expect(events.every((e) => e.uid === 'uid-recurring-range@b-calendar')).toBe(true)
             expect(events[0].rrule?.freq).toBe('WEEKLY')
+            expect(new Set(events.map((e) => e.dtstart.toISOString())).size).toBe(5)
         })
 
         test('범위 밖 비반복 이벤트는 제외한다', async () => {
@@ -948,6 +976,126 @@ describe('CalendarService', () => {
             const service = createCalendarService({ db: mockDb })
 
             expect(service.deleteGroup('user-123', 'non-existent')).rejects.toThrow()
+        })
+    })
+
+    describe('반복 일정 발생 전개 (BUG-1)', () => {
+        const RECURRING_START = new Date('2024-01-01T10:00:00Z')
+        const RECURRING_END = new Date('2024-01-01T11:00:00Z')
+        const expectedDurationMs = RECURRING_END.getTime() - RECURRING_START.getTime()
+
+        test('getEventsByMonth: 주간 반복을 각 발생일 인스턴스로 전개한다', async () => {
+            const mockRow = createEventRow({
+                uid: 'uid-weekly@b-calendar',
+                summary: 'Weekly Meeting',
+                dtstart: RECURRING_START,
+                dtend: RECURRING_END,
+                rrule: { freq: 'WEEKLY', interval: 1 },
+            })
+            ;(mockDb.getEventsByMonthRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByMonth('user-123', 2024, 0)
+
+            expect(events.map((e) => e.dtstart.toISOString())).toEqual([
+                '2024-01-01T10:00:00.000Z',
+                '2024-01-08T10:00:00.000Z',
+                '2024-01-15T10:00:00.000Z',
+                '2024-01-22T10:00:00.000Z',
+                '2024-01-29T10:00:00.000Z',
+            ])
+            expect(events.every((e) => e.uid === 'uid-weekly@b-calendar')).toBe(true)
+            expect(events.every((e) => e.dtend.getTime() - e.dtstart.getTime() === expectedDurationMs)).toBe(true)
+        })
+
+        test('getEventsByDateRange: 일간 반복(count 3)을 3개 인스턴스로 전개한다', async () => {
+            const dailyStart = new Date('2024-03-10T09:00:00Z')
+            const dailyEnd = new Date('2024-03-10T10:00:00Z')
+            const mockRow = createEventRow({
+                uid: 'uid-daily@b-calendar',
+                summary: 'Daily Standup',
+                dtstart: dailyStart,
+                dtend: dailyEnd,
+                rrule: { freq: 'DAILY', interval: 1, count: 3 },
+            })
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByDateRange('user-123', new Date('2024-03-01T00:00:00Z'), new Date('2024-03-31T23:59:59Z'))
+
+            expect(events.map((e) => e.dtstart.toISOString())).toEqual([
+                '2024-03-10T09:00:00.000Z',
+                '2024-03-11T09:00:00.000Z',
+                '2024-03-12T09:00:00.000Z',
+            ])
+            expect(events.every((e) => e.uid === 'uid-daily@b-calendar')).toBe(true)
+            const expectedDaily = dailyEnd.getTime() - dailyStart.getTime()
+            expect(events.every((e) => e.dtend.getTime() - e.dtstart.getTime() === expectedDaily)).toBe(true)
+        })
+    })
+
+    describe('범위 overlap 필터 (BUG-2)', () => {
+        test('getEventsByMonth: 범위 시작 전 시작해 범위 안으로 이어지는 다일 이벤트를 포함한다', async () => {
+            const mockRow = createEventRow({
+                uid: 'uid-multiday@b-calendar',
+                summary: 'Multi-day trip',
+                dtstart: new Date('2024-02-28T10:00:00Z'),
+                dtend: new Date('2024-03-05T11:00:00Z'),
+            })
+            ;(mockDb.getEventsByMonthRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByMonth('user-123', 2024, 2)
+
+            expect(events).toHaveLength(1)
+            expect(events[0].uid).toBe('uid-multiday@b-calendar')
+        })
+
+        test('getEventsByDateRange: 범위 시작 전 시작해 범위 안으로 이어지는 다일 이벤트를 포함한다', async () => {
+            const mockRow = createEventRow({
+                uid: 'uid-multiday-range@b-calendar',
+                summary: 'Multi-day trip',
+                dtstart: new Date('2024-02-25T10:00:00Z'),
+                dtend: new Date('2024-03-03T11:00:00Z'),
+            })
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByDateRange('user-123', new Date('2024-03-01T00:00:00Z'), new Date('2024-03-31T23:59:59Z'))
+
+            expect(events).toHaveLength(1)
+            expect(events[0].uid).toBe('uid-multiday-range@b-calendar')
+        })
+
+        test('getEventsByDateRange: 범위 전체를 감싸는 이벤트를 포함한다', async () => {
+            const mockRow = createEventRow({
+                uid: 'uid-spanning@b-calendar',
+                summary: 'Spanning',
+                dtstart: new Date('2024-02-01T00:00:00Z'),
+                dtend: new Date('2024-04-30T00:00:00Z'),
+            })
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByDateRange('user-123', new Date('2024-03-01T00:00:00Z'), new Date('2024-03-31T23:59:59Z'))
+
+            expect(events).toHaveLength(1)
+            expect(events[0].uid).toBe('uid-spanning@b-calendar')
+        })
+
+        test('getEventsByDateRange: 범위와 전혀 겹치지 않는 이벤트는 제외한다', async () => {
+            const mockRow = createEventRow({
+                uid: 'uid-nooverlap@b-calendar',
+                summary: 'No overlap',
+                dtstart: new Date('2024-01-05T10:00:00Z'),
+                dtend: new Date('2024-01-05T11:00:00Z'),
+            })
+            ;(mockDb.getEventsByDateRange as ReturnType<typeof mock>).mockResolvedValue([mockRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByDateRange('user-123', new Date('2024-03-01T00:00:00Z'), new Date('2024-03-31T23:59:59Z'))
+
+            expect(events).toHaveLength(0)
         })
     })
 })
