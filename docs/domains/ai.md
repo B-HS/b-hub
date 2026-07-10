@@ -52,7 +52,7 @@
 | `service/domain/ai/providers/codex-provider.ts` | Codex 구현(`/models`·`/responses` **SSE 파싱**, fallback 모델. `complete` 는 `completeStream` 드레인) |
 | `service/domain/ai/ai-provider-factory.ts` | 복호화 + provider별 client 생성. codex oauth 자동 갱신(회전 저장·reauth 마킹) / token 단독은 refresh skip + 만료·401 시 reauth 마킹, `createFromStored`(등록 검증용), `getCodexAccountId`(id_token·access_token claim) |
 | `service/domain/ai/ai-connection.ts` | 연결 CRUD — 등록 전 `verify()` ping, codex accountId 보강(oauth=id_token, token=access_token claim), authType(oauth/token/apikey) 확정·재등록 시 갱신, 소유권, `resolveClient`(status 가드) |
-| `service/domain/ai/ai-model.ts` | 모델 fetch·캐시 replace(새로고침 시 전체 교체)·`modelsFetchedAt` 기록. `listCached` 는 캐시가 비었거나 `modelsFetchedAt` 24h 경과 시 자동 refresh(실패 시 기존 캐시 반환) |
+| `service/domain/ai/ai-model.ts` | 모델 fetch·캐시 replace(새로고침 시 전체 교체)·`modelsFetchedAt` 기록. `listCached` 는 캐시 전용(자동 갱신 없음 — 갱신은 refresh 엔드포인트로만, 2026-07-10 사용자 결정) |
 | `service/domain/ai/ai-prompt.ts` | 사용자별 프롬프트 템플릿 CRUD + `resolveOwned`(챗 조립용) |
 | `service/domain/ai/ai-session.ts` | 세션·메시지 CRUD, `listRecentMessages`(history) |
 | `service/domain/ai/ai-attachment.ts` | 이미지 업로드(MIME·magic bytes·20MB)·R2 영구화·`resolveImages`(vision base64)·메시지 연결 |
@@ -88,8 +88,8 @@
 | POST | `/api/ai/providers` | 세션 | 연결(등록·재인증) — 저장 전 `verify()` 검증, 있으면 자격 갱신 |
 | PATCH | `/api/ai/providers/:providerId` | 세션 | displayName/status(active·disabled) 수정 |
 | DELETE | `/api/ai/providers/:providerId` | 세션 | 연결 삭제 |
-| GET | `/api/ai/:provider/models` | 세션 | 캐시된 모델 목록(빈 캐시·24h TTL 경과 시 자동 갱신, 갱신 실패 시 기존 캐시) |
-| POST | `/api/ai/:provider/models/refresh` | 세션 | 모델 fetch 후 캐시 교체(강제, 실패 시 `AI_MODEL_FETCH_FAILED`) |
+| GET | `/api/ai/:provider/models` | 세션 | 캐시된 모델 목록(캐시 전용, 자동 갱신 없음) |
+| POST | `/api/ai/:provider/models/refresh` | 세션 | 모델 fetch 후 캐시 교체(실패 시 `AI_MODEL_FETCH_FAILED`) |
 | GET | `/api/ai/prompts` | 세션 | 프롬프트 목록(featureKey/stage 필터) |
 | POST | `/api/ai/prompts` | 세션 | 프롬프트 생성 |
 | PATCH | `/api/ai/prompts/:promptId` | 세션 | 프롬프트 수정 |
@@ -159,7 +159,7 @@
 - **연결은 사용자당 provider 1개**(unique). 재등록(재인증)은 기존 행 자격 갱신 + status 복구로 처리(`AI_PROVIDER_ALREADY_EXISTS` 는 예약, 현재 throw 안 함).
 - **자격증명 비노출**: API 응답 매핑(`toResponse`)·어드민 select 모두 `credentials` 를 제외한다. 신규 조회 경로 추가 시 이 컬럼을 넣지 말 것.
 - **모델 새로고침은 전체 교체**: `replaceForProvider` 가 트랜잭션으로 delete-then-insert 한다(캐시 스냅샷). 부분 병합 아님.
-- **codex `client_version` 이 모델 세대를 결정(2026-07-10)**: 구버전 client_version 으로 `/models` 를 부르면 최신 모델(gpt-5.6 계열)이 목록에서 빠진다. 신모델 출시에도 목록이 갱신되지 않으면 `DEFAULT_CLIENT_VERSION`(codex-provider.ts) 을 최신 Codex CLI 릴리스 버전으로 올릴 것. 캐시 staleness 는 `listCached` 의 24h TTL 자동 갱신이 흡수한다.
+- **codex `client_version` 이 모델 세대를 결정(2026-07-10)**: 구버전 client_version 으로 `/models` 를 부르면 최신 모델(gpt-5.6 계열)이 목록에서 빠진다. 신모델 출시에도 목록이 갱신되지 않으면 `DEFAULT_CLIENT_VERSION`(codex-provider.ts) 을 최신 Codex CLI 릴리스 버전으로 올릴 것. 모델 캐시는 자동 갱신되지 않으므로(사용자 결정: [../acknowledge/2026-07-10-ai-model-cache-decision.md](../acknowledge/2026-07-10-ai-model-cache-decision.md)) 버전 상향 배포 후 refresh 엔드포인트(프론트 "모델 새로고침")로 캐시를 교체해야 반영된다.
 - **첨부는 이미지 전용**(vision): MIME 화이트리스트 + magic bytes + 20MB. 텍스트/기타 파일은 거부.
 - **AI_ENCRYPTION_KEY graceful**: mail(fail-fast)과 달리 AI 는 키 없으면 앱은 정상 부팅하고 AI 라우트만 503. → [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md)
 - **codex 는 temperature/maxTokens 미적용**: `/responses` body 에 이 두 파라미터를 넣지 않는다(Responses API 지원 필드 미확정). anthropic/ollama 세션에선 반영되지만 codex 세션에선 사용자 설정이 무시된다. anthropic 은 temperature 를 0–1 로 클램프(DTO 는 0–2 허용).
