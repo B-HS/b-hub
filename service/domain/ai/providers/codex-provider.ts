@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { AiProviderClient, AiChatMessage, AiCompletionRequest, AiCompletionResult, AiModelInfo, AiStreamEvent } from '../ai-provider'
 import { providerErrorMessage } from '../ai-provider'
 import { iterateStreamLines } from '../ai-sse'
@@ -11,7 +12,20 @@ type CodexProviderDeps = {
 }
 
 const CODEX_BASE = 'https://chatgpt.com/backend-api/codex'
+const CODEX_WHOAMI_URL = 'https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami'
 const DEFAULT_CLIENT_VERSION = '0.50.0'
+
+export const CODEX_ACCESS_TOKEN_PREFIX = 'at-'
+
+const codexWhoamiSchema = z.object({ chatgpt_account_id: z.string().min(1) })
+
+export const fetchCodexAccountId = async (accessToken: string, fetchFn: typeof fetch = fetch): Promise<string> => {
+    const res = await fetchFn(CODEX_WHOAMI_URL, { headers: { authorization: `Bearer ${accessToken}` } })
+    if (!res.ok) throw createAppError('AI_CREDENTIALS_INVALID', { status: res.status, detail: 'whoami rejected access token' })
+    const parsed = codexWhoamiSchema.safeParse(await res.json())
+    if (!parsed.success) throw createAppError('AI_CREDENTIALS_INVALID', { detail: 'whoami missing chatgpt_account_id' })
+    return parsed.data.chatgpt_account_id
+}
 const CODEX_FALLBACK_MODELS: AiModelInfo[] = [
     { modelId: 'gpt-5.1-codex', displayName: 'GPT-5.1 Codex', metadata: null },
     { modelId: 'gpt-5.1-codex-mini', displayName: 'GPT-5.1 Codex Mini', metadata: null },

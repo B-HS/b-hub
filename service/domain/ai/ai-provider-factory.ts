@@ -4,7 +4,7 @@ import type { AiProviderClient } from './ai-provider'
 import { providerErrorMessage } from './ai-provider'
 import { createAnthropicProvider } from './providers/anthropic-provider'
 import { createOllamaProvider } from './providers/ollama-provider'
-import { createCodexProvider } from './providers/codex-provider'
+import { createCodexProvider, fetchCodexAccountId, CODEX_ACCESS_TOKEN_PREFIX } from './providers/codex-provider'
 import { createAppError, isAppError } from '../../../lib/error'
 import { decodeJwtPayloadUnverified, getJwtExpiryMs } from '../../../lib/jwt-decode'
 
@@ -161,7 +161,15 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
     const createFromStored = (provider: string, stored: StoredCodexCredentials | StoredApiKeyCredentials): AiProviderClient =>
         buildClient(provider, stored, {})
 
-    return { create, createFromStored }
+    const resolveCodexAccountId = async (accessToken: string, providedAccountId?: string): Promise<string | null> => {
+        if (providedAccountId) return providedAccountId
+        const claim = getCodexAccountId(accessToken)
+        if (claim) return claim
+        if (accessToken.startsWith(CODEX_ACCESS_TOKEN_PREFIX)) return fetchCodexAccountId(accessToken, deps.fetchFn ?? fetch)
+        return null
+    }
+
+    return { create, createFromStored, resolveCodexAccountId }
 }
 
 export type AiProviderFactory = ReturnType<typeof createAiProviderFactory>

@@ -78,6 +78,45 @@ const buildFactory = (overrides: Partial<Parameters<typeof createAiProviderFacto
         ...overrides,
     })
 
+describe('createAiProviderFactory.resolveCodexAccountId', () => {
+    const whoamiOk = (accountId: string) => mock(() => Promise.resolve(jsonOk({ chatgpt_account_id: accountId })))
+
+    test('입력 accountId가 있으면 그대로 쓰고 whoami를 호출하지 않는다(입력 우선)', async () => {
+        const fetchFn = whoamiOk('acct-whoami')
+        const factory = buildFactory({ fetchFn })
+        expect(await factory.resolveCodexAccountId('at-opaque', 'acct-input')).toBe('acct-input')
+        expect(fetchFn).not.toHaveBeenCalled()
+    })
+
+    test('JWT access_token이면 claim에서 accountId를 확정하고 whoami를 호출하지 않는다', async () => {
+        const fetchFn = whoamiOk('acct-whoami')
+        const factory = buildFactory({ fetchFn })
+        const accessToken = buildJwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-claim' } })
+        expect(await factory.resolveCodexAccountId(accessToken)).toBe('acct-claim')
+        expect(fetchFn).not.toHaveBeenCalled()
+    })
+
+    test('at- opaque 토큰이면 whoami로 chatgpt_account_id를 조회한다', async () => {
+        const fetchFn = whoamiOk('acct-whoami')
+        const factory = buildFactory({ fetchFn })
+        expect(await factory.resolveCodexAccountId('at-opaque-token')).toBe('acct-whoami')
+        expect(fetchFn).toHaveBeenCalledTimes(1)
+        expect(String((fetchFn.mock.calls[0] as unknown as [string])[0])).toContain('/whoami')
+    })
+
+    test('whoami가 401이면 AI_CREDENTIALS_INVALID를 던진다', async () => {
+        const factory = buildFactory({ fetchFn: mock(() => Promise.resolve(httpErr(401))) })
+        await expect(factory.resolveCodexAccountId('at-bad-token')).rejects.toMatchObject({ code: 'AI_CREDENTIALS_INVALID' })
+    })
+
+    test('at- 접두사가 아니고 claim도 없으면 null을 반환한다(whoami 미호출)', async () => {
+        const fetchFn = whoamiOk('acct-whoami')
+        const factory = buildFactory({ fetchFn })
+        expect(await factory.resolveCodexAccountId('opaque-no-prefix')).toBeNull()
+        expect(fetchFn).not.toHaveBeenCalled()
+    })
+})
+
 describe('createAiProviderFactory.createFromStored', () => {
     test('anthropic은 apiKey가 있으면 클라이언트를 만든다', () => {
         const client = buildFactory().createFromStored('anthropic', { apiKey: 'sk-123' })

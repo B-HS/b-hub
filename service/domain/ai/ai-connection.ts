@@ -37,10 +37,10 @@ type AiConnectionDeps = {
 
 type BuiltCredentials = { stored: StoredCodexCredentials | StoredApiKeyCredentials; authType: string }
 
-const buildStored = (input: AiProviderCreate): BuiltCredentials => {
+const buildStored = async (input: AiProviderCreate, factory: AiProviderFactory): Promise<BuiltCredentials> => {
     if (input.provider === 'codex') {
         if (!('refreshToken' in input.credentials)) {
-            const accountId = input.credentials.accountId ?? getCodexAccountId(input.credentials.accessToken) ?? undefined
+            const accountId = await factory.resolveCodexAccountId(input.credentials.accessToken, input.credentials.accountId)
             if (!accountId)
                 throw createAppError('AI_CREDENTIALS_INVALID', { detail: 'accountId not resolvable from access_token, provide accountId' })
             return { stored: { accessToken: input.credentials.accessToken, accountId }, authType: 'token' }
@@ -71,7 +71,7 @@ export const createAiConnectionService = ({ db, crypto, factory }: AiConnectionD
     }
 
     const connect = async (userId: string, input: AiProviderCreate) => {
-        const { stored, authType } = buildStored(input)
+        const { stored, authType } = await buildStored(input, factory)
         const encrypted = crypto.encrypt(JSON.stringify(stored))
 
         const client = factory.createFromStored(input.provider, stored)

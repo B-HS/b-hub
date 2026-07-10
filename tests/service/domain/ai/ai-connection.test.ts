@@ -3,6 +3,7 @@ import { createAiConnectionService } from '../../../../service/domain/ai/ai-conn
 import type { AiConnectionInsert } from '../../../../service/domain/ai/ai-connection'
 import type { StoredCodexCredentials, StoredApiKeyCredentials } from '../../../../service/domain/ai/ai-provider-factory'
 import { createCredentialCrypto } from '../../../../lib/credential-crypto'
+import { createAppError } from '../../../../lib/error'
 import type { AiProvider } from '../../../../db/schema'
 
 const crypto = createCredentialCrypto('0'.repeat(32))
@@ -47,9 +48,13 @@ const createMockDb = () => ({
     remove: mock(async (_id: number) => {}),
 })
 
-const createFactory = (client: ReturnType<typeof createClient>) => ({
+const createFactory = (
+    client: ReturnType<typeof createClient>,
+    resolveCodexAccountId: (accessToken: string, providedAccountId?: string) => Promise<string | null> = async () => null,
+) => ({
     createFromStored: mock((_provider: string, _stored: StoredCodexCredentials | StoredApiKeyCredentials) => client),
     create: mock((_row: AiProvider) => client),
+    resolveCodexAccountId: mock(resolveCodexAccountId),
 })
 
 describe('createAiConnectionService', () => {
@@ -129,28 +134,58 @@ describe('createAiConnectionService', () => {
             expect(stored.accountId).toBe('acct-id')
         })
 
-        test('codex access token 단독은 accessToken claim으로 accountId를 확정해 authType token으로 insert한다', async () => {
+        test('codex access token 단독은 factory.resolveCodexAccountId로 accountId를 확정해 authType token으로 insert한다', async () => {
             const db = createMockDb()
             const client = createClient({ ok: true })
-            const factory = createFactory(client)
+            const factory = createFactory(client, async () => 'acct-at')
             const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
             const accessToken = buildJwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-at' } })
 
             await service.connect('user-1', { provider: 'codex', credentials: { accessToken } })
 
+            expect(factory.resolveCodexAccountId).toHaveBeenCalledWith(accessToken, undefined)
             expect(client.verify).toHaveBeenCalled()
             const insertArg = db.insert.mock.calls[0][0]
             expect(insertArg.authType).toBe('token')
             expect(JSON.parse(crypto.decrypt(insertArg.credentials))).toEqual({ accessToken, accountId: 'acct-at' })
         })
 
-        test('codex access token 단독에서 accountId도 없고 claim 파싱도 못 하면 AI_CREDENTIALS_INVALID을 throw한다', async () => {
+        test('codex at- opaque 토큰은 whoami(resolveCodexAccountId)로 accountId를 확정해 token으로 insert한다', async () => {
             const db = createMockDb()
             const client = createClient({ ok: true })
-            const factory = createFactory(client)
+            const factory = createFactory(client, async () => 'acct-whoami')
             const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
 
-            await expect(service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-opaque' } })).rejects.toMatchObject({
+            await service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-opaque-token' } })
+
+            expect(factory.resolveCodexAccountId).toHaveBeenCalledWith('at-opaque-token', undefined)
+            const insertArg = db.insert.mock.calls[0][0]
+            expect(insertArg.authType).toBe('token')
+            expect(JSON.parse(crypto.decrypt(insertArg.credentials))).toEqual({ accessToken: 'at-opaque-token', accountId: 'acct-whoami' })
+        })
+
+        test('codex at- opaque 토큰의 whoami가 실패(AI_CREDENTIALS_INVALID)하면 그대로 throw하고 insert하지 않는다', async () => {
+            const db = createMockDb()
+            const client = createClient({ ok: true })
+            const factory = createFactory(client, async () => {
+                throw createAppError('AI_CREDENTIALS_INVALID', { status: 401 })
+            })
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+
+            await expect(service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-bad-token' } })).rejects.toMatchObject({
+                code: 'AI_CREDENTIALS_INVALID',
+            })
+            expect(db.insert).not.toHaveBeenCalled()
+            expect(factory.createFromStored).not.toHaveBeenCalled()
+        })
+
+        test('codex access token 단독에서 resolveCodexAccountId가 null이면 AI_CREDENTIALS_INVALID을 throw한다', async () => {
+            const db = createMockDb()
+            const client = createClient({ ok: true })
+            const factory = createFactory(client, async () => null)
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+
+            await expect(service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'opaque' } })).rejects.toMatchObject({
                 code: 'AI_CREDENTIALS_INVALID',
             })
             expect(factory.createFromStored).not.toHaveBeenCalled()
@@ -162,7 +197,7 @@ describe('createAiConnectionService', () => {
                 buildProvider({ id: 7, provider: 'codex', authType: 'oauth' }),
             )
             const client = createClient({ ok: true })
-            const factory = createFactory(client)
+            const factory = createFactory(client, async (_at, provided) => provided ?? null)
             const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
 
             await service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-opaque', accountId: 'acct-9' } })

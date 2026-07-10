@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from 'bun:test'
-import { createCodexProvider } from '../../../../../service/domain/ai/providers/codex-provider'
+import { createCodexProvider, fetchCodexAccountId, CODEX_ACCESS_TOKEN_PREFIX } from '../../../../../service/domain/ai/providers/codex-provider'
 
 type FetchCall = [string | URL, RequestInit]
 
@@ -150,6 +150,30 @@ describe('createCodexProvider.completeStream', () => {
         await expect(provider.completeStream({ modelId: 'gpt-5.1-codex', messages: [{ role: 'user', content: 'hi' }] })).rejects.toMatchObject({
             code: 'AI_COMPLETION_FAILED',
         })
+    })
+})
+
+describe('fetchCodexAccountId (whoami)', () => {
+    test('at- 접두사 상수는 at-이다', () => {
+        expect(CODEX_ACCESS_TOKEN_PREFIX).toBe('at-')
+    })
+
+    test('whoami 200 응답에서 chatgpt_account_id를 반환하고 Authorization 헤더를 보낸다', async () => {
+        const fetchFn = queuedFetch([jsonOk({ chatgpt_account_id: '9b9487cb-team', chatgpt_plan_type: 'team' })])
+        const accountId = await fetchCodexAccountId('at-opaque-token', fetchFn)
+        expect(accountId).toBe('9b9487cb-team')
+        expect(String(callOf(fetchFn, 0)[0])).toBe('https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami')
+        expect(headersOf(fetchFn, 0).authorization).toBe('Bearer at-opaque-token')
+    })
+
+    test('whoami 401이면 AI_CREDENTIALS_INVALID를 던진다', async () => {
+        const fetchFn = queuedFetch([httpErr(401, 'unauthorized')])
+        await expect(fetchCodexAccountId('at-bad-token', fetchFn)).rejects.toMatchObject({ code: 'AI_CREDENTIALS_INVALID' })
+    })
+
+    test('whoami 응답에 chatgpt_account_id가 없으면 AI_CREDENTIALS_INVALID를 던진다', async () => {
+        const fetchFn = queuedFetch([jsonOk({ chatgpt_plan_type: 'team' })])
+        await expect(fetchCodexAccountId('at-token', fetchFn)).rejects.toMatchObject({ code: 'AI_CREDENTIALS_INVALID' })
     })
 })
 
