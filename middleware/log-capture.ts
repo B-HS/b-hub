@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono'
 import { captureException } from '../lib/sentry'
 import { ERROR_MESSAGE } from '../lib/error-message'
 import { serviceNameFromPath, severityFromStatus, errorCodeFromStatus } from '../lib/log-service-name'
+import { maskSensitivePath } from '../lib/mask-sensitive-path'
 import type { ErrorCode } from '../lib/error-code'
 import type { LogEventService } from '../service/domain/logs/log-event'
 
@@ -39,7 +40,7 @@ export const logCapture = (deps: LogCaptureDeps) => async (c: Context, next: Nex
                 correlationId: c.req.header('x-correlation-id') ?? undefined,
                 ingestIp: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined,
                 source: 'server',
-                details: { path: c.req.path, method: c.req.method, status, durationMs: Date.now() - start },
+                details: { path: maskSensitivePath(c.req.path), method: c.req.method, status, durationMs: Date.now() - start },
             })
             .catch((e) => captureException(e))
     } catch (e) {

@@ -56,6 +56,16 @@ describe('POST /drive/folders', () => {
         })
         expect(res.status).toBe(401)
     })
+
+    test('잘못된 입력은 400을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/drive/folders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: '' }),
+        })
+        expect(res.status).toBe(400)
+    })
 })
 
 describe('GET /drive/folders', () => {

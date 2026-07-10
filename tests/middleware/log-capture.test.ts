@@ -54,4 +54,21 @@ describe('logCapture middleware', () => {
         const res = await createApp(capture).request('/api/mail/boom')
         expect(res.status).toBe(502)
     })
+
+    test('토큰이 담긴 경로는 details.path를 마스킹해 저장한다', async () => {
+        const capture = mock(async (_e: CaptureArg) => {})
+        const app = new Hono()
+        app.use('*', logCapture({ logEventService: { captureServerError: capture } as never }))
+        app.get('/caldav/:token', (c) => c.json({ e: 1 }, 401))
+        await app.request('/caldav/super-secret-token')
+        const arg = capture.mock.calls[0][0] as { details: { path: string } }
+        expect(arg.details.path).toBe('/caldav/[REDACTED]')
+    })
+
+    test('토큰이 없는 경로는 details.path를 그대로 저장한다', async () => {
+        const capture = mock(async (_e: CaptureArg) => {})
+        await createApp(capture).request('/api/mail/notfound')
+        const arg = capture.mock.calls[0][0] as { details: { path: string } }
+        expect(arg.details.path).toBe('/api/mail/notfound')
+    })
 })

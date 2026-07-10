@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { describeRoute } from 'hono-openapi'
+import { describeRoute, validator } from 'hono-openapi'
+import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
 import { successResponse } from '../../lib/api-response'
@@ -25,11 +26,12 @@ export const createDriveFolderRoute = (deps: DriveFolderRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_FOLDER_NOT_FOUND', 'DRIVE_FOLDER_NAME_DUPLICATE']),
             },
         }),
+        validator('json', driveFolderCreateSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const data = driveFolderCreateSchema.parse(await c.req.json())
+            const data = c.req.valid('json' as never) as z.infer<typeof driveFolderCreateSchema>
             const result = await deps.driveFolderService.create(session.user.id, data)
             return c.json(successResponse(result), 201)
         }),
@@ -45,11 +47,12 @@ export const createDriveFolderRoute = (deps: DriveFolderRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED']),
             },
         }),
+        validator('query', driveFolderListQuerySchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { parentId } = driveFolderListQuerySchema.parse(c.req.query())
+            const { parentId } = c.req.valid('query' as never) as z.infer<typeof driveFolderListQuerySchema>
             const folders = await deps.driveFolderService.list(session.user.id, parentId)
             return c.json(successResponse(folders))
         }),
@@ -65,11 +68,12 @@ export const createDriveFolderRoute = (deps: DriveFolderRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_FOLDER_NOT_FOUND', 'DRIVE_FOLDER_NOT_FOUND']),
             },
         }),
+        validator('param', driveFolderParamSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { folderId } = driveFolderParamSchema.parse(c.req.param())
+            const { folderId } = c.req.valid('param' as never) as z.infer<typeof driveFolderParamSchema>
             const result = await deps.driveFolderService.getDetail(folderId, session.user.id)
             return c.json(successResponse(result))
         }),
@@ -91,12 +95,14 @@ export const createDriveFolderRoute = (deps: DriveFolderRouteDeps) => {
                 ]),
             },
         }),
+        validator('param', driveFolderParamSchema),
+        validator('json', driveFolderUpdateSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { folderId } = driveFolderParamSchema.parse(c.req.param())
-            const data = driveFolderUpdateSchema.parse(await c.req.json())
+            const { folderId } = c.req.valid('param' as never) as z.infer<typeof driveFolderParamSchema>
+            const data = c.req.valid('json' as never) as z.infer<typeof driveFolderUpdateSchema>
             const result = await deps.driveFolderService.update(folderId, session.user.id, data)
             return c.json(successResponse(result))
         }),
@@ -112,11 +118,12 @@ export const createDriveFolderRoute = (deps: DriveFolderRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_FOLDER_NOT_FOUND', 'DRIVE_FOLDER_NOT_FOUND']),
             },
         }),
+        validator('param', driveFolderParamSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { folderId } = driveFolderParamSchema.parse(c.req.param())
+            const { folderId } = c.req.valid('param' as never) as z.infer<typeof driveFolderParamSchema>
             const result = await deps.driveFolderService.remove(folderId, session.user.id)
             return c.json(successResponse(result))
         }),

@@ -135,6 +135,12 @@ describe('GET /drive/assets/:assetId', () => {
         const res = await app.request('/drive/assets/999')
         expect(res.status).toBe(404)
     })
+
+    test('숫자가 아닌 assetId는 400을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/drive/assets/not-a-number')
+        expect(res.status).toBe(400)
+    })
 })
 
 describe('PATCH /drive/assets/:assetId', () => {

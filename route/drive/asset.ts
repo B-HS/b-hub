@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
-import { describeRoute } from 'hono-openapi'
+import { describeRoute, validator } from 'hono-openapi'
+import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
 import { successResponse, paginatedResponse } from '../../lib/api-response'
@@ -69,8 +70,9 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
 
     route.post(
         '/assets/:assetId/status',
+        validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
             await deps.driveAssetService.updateUploadStatus(assetId, body.uploadToken, body.status)
             return c.json(successResponse({ id: assetId, uploadStatus: body.status }))
@@ -87,8 +89,9 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_UPLOAD_EVENT_FAILED']),
             },
         }),
+        validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
 
             const result = await deps.driveAssetService.complete(assetId, body.uploadToken, {
@@ -112,8 +115,9 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND']),
             },
         }),
+        validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
 
             const asset = await deps.driveAssetService.getAssetForTokenExchange(assetId, body.uploadToken)
@@ -136,11 +140,12 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED']),
             },
         }),
+        validator('query', driveAssetListQuerySchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const query = driveAssetListQuerySchema.parse(c.req.query())
+            const query = c.req.valid('query' as never) as z.infer<typeof driveAssetListQuerySchema>
             const result = await deps.driveAssetService.list(session.user.id, query)
             return c.json(paginatedResponse(result.data, { page: result.page, limit: result.limit, total: result.total }))
         }),
@@ -156,11 +161,12 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_ASSET_NOT_FOUND']),
             },
         }),
+        validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const result = await deps.driveAssetService.getDetail(assetId, session.user.id)
             return c.json(successResponse(result))
         }),
@@ -176,12 +182,14 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_FOLDER_NOT_FOUND']),
             },
         }),
+        validator('param', driveAssetParamSchema),
+        validator('json', driveAssetUpdateSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
-            const data = driveAssetUpdateSchema.parse(await c.req.json())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
+            const data = c.req.valid('json' as never) as z.infer<typeof driveAssetUpdateSchema>
             const result = await deps.driveAssetService.update(assetId, session.user.id, data)
             return c.json(successResponse(result))
         }),
@@ -197,11 +205,12 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_ASSET_NOT_FOUND']),
             },
         }),
+        validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const result = await deps.driveAssetService.remove(assetId, session.user.id)
             return c.json(successResponse(result))
         }),
@@ -217,11 +226,12 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_ALL_TIERS_FAILED']),
             },
         }),
+        validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const { assetId } = driveAssetParamSchema.parse(c.req.param())
+            const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const { stream, mimeType, originalName, sizeBytes } = await deps.driveAssetService.download(assetId, session.user.id)
 
             return new Response(stream, {

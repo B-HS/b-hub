@@ -44,6 +44,7 @@ import { createAiChatRoute } from './ai/chat'
 import { createAiAttachmentRoute } from './ai/attachment'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
+import { getEnv } from '../lib/env'
 
 type RouterDeps = Partial<ReturnType<typeof compose>>
 
@@ -92,14 +93,16 @@ export const createRouter = (deps: RouterDeps = {}) => {
             getSession: stubFn(deps.getSession) as never,
         }),
     )
-    router.route(
-        '/weather/mock',
-        createWeatherMockRoute({
-            mockKmaApi: stub(deps.mockKmaApi),
-            locationService: stub(deps.locationService),
-            weatherApiKeyService: stub(deps.weatherApiKeyService),
-        }),
-    )
+    if (getEnv().NODE_ENV !== 'production') {
+        router.route(
+            '/weather/mock',
+            createWeatherMockRoute({
+                mockKmaApi: stub(deps.mockKmaApi),
+                locationService: stub(deps.locationService),
+                weatherApiKeyService: stub(deps.weatherApiKeyService),
+            }),
+        )
+    }
     router.route(
         '/weather',
         createWeatherRoute({
