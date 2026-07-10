@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { createManageOverviewRoute } from '../../../page/manage/pages/overview'
-import { mockUser, sessionOf, stubAiService, stubApiTokenService, stubMailAccountService, stubWeatherApiKeyService } from './helpers'
+import { mockUser, sessionOf, stubAiConnectionService, stubApiTokenService, stubMailAccountService, stubWeatherApiKeyService } from './helpers'
 
 const createApp = (opts: Parameters<typeof createManageOverviewRoute>[0]) => {
     const app = new Hono()
@@ -15,7 +15,7 @@ describe('GET /manage (Overview)', () => {
             getSession: sessionOf(mockUser),
             apiTokenService: stubApiTokenService(),
             weatherApiKeyService: stubWeatherApiKeyService(),
-            aiService: stubAiService(),
+            aiConnectionService: stubAiConnectionService(),
             mailAccountService: stubMailAccountService(),
         })
         const res = await app.request('/manage')
@@ -31,11 +31,11 @@ describe('GET /manage (Overview)', () => {
             getSession: sessionOf(mockUser),
             apiTokenService: stubApiTokenService({ listByUser: () => Promise.resolve([{ id: 1 } as never, { id: 2 } as never]) }),
             weatherApiKeyService: stubWeatherApiKeyService({ listByUser: () => Promise.resolve([{ id: 1 } as never]) }),
-            aiService: stubAiService({
-                getStatus: () =>
+            aiConnectionService: stubAiConnectionService({
+                list: () =>
                     Promise.resolve([
-                        { provider: 'openai', connected: true, keyCount: 1 },
-                        { provider: 'omlx', connected: false, keyCount: 0 },
+                        { provider: 'anthropic', status: 'active' } as never,
+                        { provider: 'codex', status: 'reauth_required' } as never,
                     ]),
             }),
             mailAccountService: stubMailAccountService({ list: () => Promise.resolve([{ id: 1 } as never]) }),
@@ -46,7 +46,7 @@ describe('GET /manage (Overview)', () => {
         expect(html).toContain('AI Providers Connected')
     })
 
-    test('aiService 미구성이면 안내 문구를 보여준다', async () => {
+    test('aiConnectionService 미구성이면 안내 문구를 보여준다', async () => {
         const app = createApp({
             getSession: sessionOf(mockUser),
             apiTokenService: stubApiTokenService(),

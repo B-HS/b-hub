@@ -1,6 +1,6 @@
 import { mock } from 'bun:test'
 import type { AdminGetSession, AdminSessionUser } from '../../../page/admin/guard'
-import type { AiService } from '../../../service/domain/ai/ai'
+import type { AiConnectionService } from '../../../service/domain/ai/ai-connection'
 import type { ApiTokenService } from '../../../service/shared/api-token'
 import type { WeatherApiKeyService } from '../../../service/domain/weather/weather-api-key'
 import type { MailAccountService } from '../../../service/domain/mail/mail-account'
@@ -24,21 +24,18 @@ export const sessionOf = (user: AdminSessionUser | null): AdminGetSession => moc
 const ok = () => Promise.resolve()
 const emptyArr = <T>() => Promise.resolve([] as T[])
 
-export const stubAiService = (overrides: Partial<AiService> = {}): AiService =>
+export const stubAiConnectionService = (overrides: Partial<AiConnectionService> = {}): AiConnectionService =>
     ({
-        listKeys: () => emptyArr(),
-        getStatus: () =>
-            Promise.resolve([
-                { provider: 'omlx', connected: false, keyCount: 0 },
-                { provider: 'openai', connected: false, keyCount: 0 },
-                { provider: 'ollama_cloud', connected: false, keyCount: 0 },
-                { provider: 'anthropic', connected: false, keyCount: 0 },
-            ]),
-        addKey: () => Promise.reject(new Error('not stubbed')),
-        deleteKey: () => Promise.resolve({ deleted: true }),
-        chatStream: () => Promise.reject(new Error('not stubbed')),
+        list: () => emptyArr(),
+        getOwned: () => Promise.reject(new Error('not stubbed')),
+        connect: () => Promise.reject(new Error('not stubbed')),
+        update: () => Promise.reject(new Error('not stubbed')),
+        remove: () => ok(),
+        resolveClient: () => Promise.reject(new Error('not stubbed')),
+        touchUsed: () => ok(),
+        touchModelsFetched: () => ok(),
         ...overrides,
-    }) as unknown as AiService
+    }) as unknown as AiConnectionService
 
 export const stubApiTokenService = (overrides: Partial<ApiTokenService> = {}): ApiTokenService =>
     ({

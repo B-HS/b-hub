@@ -96,7 +96,7 @@ const ProvidersPage: FC<{
                                     action={`/admin/ai/providers/${r.id}/delete`}
                                     label='삭제'
                                     variant='destructive'
-                                    confirmText='이 연결을 삭제할까요?'
+                                    confirm='이 연결을 삭제할까요?'
                                     returnTo={`/admin/ai/providers?page=${page}&size=${size}`}
                                 />
                             </>

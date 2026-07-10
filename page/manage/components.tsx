@@ -1,9 +1,11 @@
 import type { FC, PropsWithChildren } from 'hono/jsx'
-import { ADMIN_CONFIRM_SCRIPT } from '../admin/components'
+import { ADMIN_CONFIRM_SCRIPT, Badge } from '../admin/components'
 import type { AdminSessionUser } from '../admin/guard'
 import type { Flash } from '../admin/flash'
+import { AI_PROVIDER } from '../../dto/ai/provider'
 import { MANAGE_NAV, isActiveManagePath, type ManageNavItem } from './nav'
 import { readManageTheme, type ThemeMode } from './theme'
+import { aiProviderStatusBadgeKind } from './util'
 
 type ManageShellProps = {
     title: string
@@ -102,5 +104,19 @@ export const RevealBanner: FC<{ label: string; value: string; note: string }> = 
         <div class='card-title-sm'>{label}</div>
         <div class='mono prewrap'>{value}</div>
         <div class='text-muted mt-sm'>{note}</div>
+    </div>
+)
+
+export const AiProviderStatusList: FC<{ rows: { provider: string; status: string }[] }> = ({ rows }) => (
+    <div class='hstack wrap'>
+        {Object.values(AI_PROVIDER).map((name) => {
+            const row = rows.find((r) => r.provider === name)
+            return (
+                <span key={name} class='inline-hstack'>
+                    <Badge kind={row ? aiProviderStatusBadgeKind(row.status) : 'muted'}>{name}</Badge>
+                    <span class='text-muted'>{row ? row.status : '미연동'}</span>
+                </span>
+            )
+        })}
     </div>
 )

@@ -6,7 +6,7 @@ import {
     mockAdmin,
     mockUser,
     sessionOf,
-    stubAiService,
+    stubAiConnectionService,
     stubApiTokenService,
     stubCalendarService,
     stubDriveAssetService,
@@ -33,7 +33,7 @@ const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null, csrfS
             getSession: sessionOf(sessionUser),
             apiTokenService: stubApiTokenService(),
             weatherApiKeyService: stubWeatherApiKeyService(),
-            aiService: stubAiService(),
+            aiConnectionService: stubAiConnectionService(),
             mailAccountService: stubMailAccountService(),
             mailMessageService: stubMailMessageService(),
             mailSyncService: stubMailSyncService(),
@@ -55,7 +55,7 @@ const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null, csrfS
 
 const manageRoutes = [
     '/manage',
-    '/manage/ai/keys',
+    '/manage/ai/providers',
     '/manage/tokens',
     '/manage/weather/keys',
     '/manage/mail/accounts',

@@ -1,27 +1,27 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
-import { ManageShell } from '../components'
-import { Badge, Stat } from '../../admin/components'
+import { AiProviderStatusList, ManageShell } from '../components'
+import { Stat } from '../../admin/components'
 import type { AdminSessionUser } from '../../admin/guard'
 import type { ManageContext, ManageGetSession } from '../guard'
 import { requireSessionPage } from '../guard'
-import type { AiService } from '../../../service/domain/ai/ai'
+import type { AiConnectionService } from '../../../service/domain/ai/ai-connection'
 import type { ApiTokenService } from '../../../service/shared/api-token'
 import type { WeatherApiKeyService } from '../../../service/domain/weather/weather-api-key'
 import type { MailAccountService } from '../../../service/domain/mail/mail-account'
 
 type ManageOverviewDeps = {
     getSession: ManageGetSession
-    aiService?: AiService
+    aiConnectionService?: AiConnectionService
     apiTokenService: ApiTokenService
     weatherApiKeyService: WeatherApiKeyService
     mailAccountService?: MailAccountService
 }
 
-type AiStatus = Awaited<ReturnType<AiService['getStatus']>>
+type AiProviderRow = Awaited<ReturnType<AiConnectionService['list']>>[number]
 
 type OverviewSummary = {
-    aiStatus: AiStatus
+    aiProviders: AiProviderRow[]
     aiConfigured: boolean
     tokenCount: number
     weatherKeyCount: number
@@ -43,23 +43,16 @@ const OverviewPage: FC<{ user: AdminSessionUser; summary: OverviewSummary }> = (
         </div>
 
         <div class='cards-grid'>
-            <Stat label='AI Providers Connected' value={summary.aiStatus.filter((s) => s.connected).length} />
+            <Stat label='AI Providers Connected' value={summary.aiProviders.length} />
             <Stat label='API Tokens' value={summary.tokenCount} />
             <Stat label='Weather Keys' value={summary.weatherKeyCount} />
             <Stat label='Mail Accounts' value={summary.mailAccountCount} />
         </div>
 
         <div class='card'>
-            <h2 class='card-title'>AI 프로바이더 연동</h2>
+            <h2 class='card-title'>AI 프로바이더 연결</h2>
             {summary.aiConfigured ? (
-                <div class='hstack wrap'>
-                    {summary.aiStatus.map((s) => (
-                        <span key={s.provider} class='inline-hstack'>
-                            <Badge kind={s.connected ? 'success' : 'muted'}>{s.provider}</Badge>
-                            <span class='text-muted'>{s.connected ? `${s.keyCount} key(s)` : '미연동'}</span>
-                        </span>
-                    ))}
-                </div>
+                <AiProviderStatusList rows={summary.aiProviders} />
             ) : (
                 <p class='text-muted'>AI 기능이 아직 구성되지 않았습니다.</p>
             )}
@@ -73,15 +66,15 @@ export const createManageOverviewRoute = (deps: ManageOverviewDeps) => {
 
     app.get('/', async (c) => {
         const user = c.get('manageUser')
-        const [aiStatus, tokens, weatherKeys, mailAccounts] = await Promise.all([
-            deps.aiService ? deps.aiService.getStatus(user.id) : Promise.resolve([] as AiStatus),
+        const [aiProviders, tokens, weatherKeys, mailAccounts] = await Promise.all([
+            deps.aiConnectionService ? deps.aiConnectionService.list(user.id) : Promise.resolve([] as AiProviderRow[]),
             deps.apiTokenService.listByUser(user.id),
             deps.weatherApiKeyService.listByUser(user.id),
             deps.mailAccountService ? deps.mailAccountService.list(user.id) : Promise.resolve([]),
         ])
         const summary: OverviewSummary = {
-            aiStatus,
-            aiConfigured: Boolean(deps.aiService),
+            aiProviders,
+            aiConfigured: Boolean(deps.aiConnectionService),
             tokenCount: tokens.length,
             weatherKeyCount: weatherKeys.length,
             mailAccountCount: mailAccounts.length,

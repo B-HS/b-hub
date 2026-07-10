@@ -43,7 +43,7 @@ export const MANAGE_NAV: readonly ManageNavGroup[] = [
     },
     {
         title: 'AI',
-        items: [{ href: '/manage/ai/keys', label: 'Provider Keys' }],
+        items: [{ href: '/manage/ai/providers', label: 'Providers' }],
     },
     {
         title: 'Access',

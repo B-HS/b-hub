@@ -35,7 +35,7 @@ app.route(
             getSession: composed.getSession,
             apiTokenService: composed.apiTokenService,
             weatherApiKeyService: composed.weatherApiKeyService,
-            aiService: composed.aiService,
+            aiConnectionService: composed.aiConnectionService,
             mailAccountService: composed.mailAccountService,
             mailMessageService: composed.mailMessageService,
             mailSyncService: composed.mailSyncService,

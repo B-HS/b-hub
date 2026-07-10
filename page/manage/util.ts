@@ -39,6 +39,14 @@ export const parseEmailList = (value: unknown): { name: string; address: string 
 const FLASH_CODE_BY_APP_ERROR: Record<string, string> = {
     FORBIDDEN: 'forbidden',
     VALIDATION_ERROR: 'validation',
+    AI_CREDENTIALS_INVALID: 'ai_credentials_invalid',
+    AI_REAUTH_REQUIRED: 'ai_reauth_required',
+}
+
+export const aiProviderStatusBadgeKind = (status: string) => {
+    if (status === 'active') return 'success'
+    if (status === 'reauth_required') return 'destructive'
+    return 'muted'
 }
 
 export const errorToFlashCode = (error: unknown): string => {
