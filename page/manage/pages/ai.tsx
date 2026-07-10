@@ -54,28 +54,35 @@ const ProvidersPage: FC<{ user: AdminSessionUser; rows: ProviderRow[]; flash?: F
                     </div>
                     <div class='field field-grow'>
                         <label for='ai-display-name'>Display name (선택)</label>
-                        <input id='ai-display-name' class='input input-block' name='displayName' maxlength={100} placeholder='예: 개인 Anthropic' />
+                        <input
+                            id='ai-display-name'
+                            class='input input-block'
+                            name='displayName'
+                            maxlength={100}
+                            placeholder='예: 개인 Anthropic'
+                            autocomplete='new-password'
+                        />
                     </div>
                 </div>
                 <div class='field'>
                     <label for='ai-api-key'>API Key (anthropic·ollama)</label>
-                    <input id='ai-api-key' class='input input-block' type='password' name='apiKey' autocomplete='off' />
+                    <input id='ai-api-key' class='input input-block' type='password' name='apiKey' autocomplete='new-password' />
                 </div>
                 <div class='field'>
                     <label for='ai-access-token'>Access Token (codex 필수)</label>
-                    <input id='ai-access-token' class='input input-block' type='password' name='accessToken' autocomplete='off' />
+                    <input id='ai-access-token' class='input input-block' type='password' name='accessToken' autocomplete='new-password' />
                 </div>
                 <div class='field'>
-                    <label for='ai-account-id'>Account ID (codex·at- 토큰은 필수)</label>
-                    <input id='ai-account-id' class='input input-block' name='accountId' maxlength={255} autocomplete='off' />
+                    <label for='ai-account-id'>Account ID (codex·선택 — 미입력 시 자동 조회)</label>
+                    <input id='ai-account-id' class='input input-block' name='accountId' maxlength={255} autocomplete='new-password' />
                 </div>
                 <div class='field'>
                     <label for='ai-id-token'>ID Token (codex OAuth 방식만)</label>
-                    <input id='ai-id-token' class='input input-block' type='password' name='idToken' autocomplete='off' />
+                    <input id='ai-id-token' class='input input-block' type='password' name='idToken' autocomplete='new-password' />
                 </div>
                 <div class='field'>
                     <label for='ai-refresh-token'>Refresh Token (codex OAuth 방식만)</label>
-                    <input id='ai-refresh-token' class='input input-block' type='password' name='refreshToken' autocomplete='off' />
+                    <input id='ai-refresh-token' class='input input-block' type='password' name='refreshToken' autocomplete='new-password' />
                 </div>
                 <div>
                     <button class='btn' type='submit'>
@@ -84,8 +91,8 @@ const ProvidersPage: FC<{ user: AdminSessionUser; rows: ProviderRow[]; flash?: F
                 </div>
             </form>
             <p class='text-muted mt-sm'>
-                codex 는 두 방식 중 하나 — Access Token 단독(발급 토큰 하나, at- 접두사면 Account ID 필수, 만료 시 재등록) 또는 OAuth(Access + ID +
-                Refresh Token 3개, 자동 갱신). anthropic·ollama 는 API Key 를 입력합니다. 등록 전 자격증명을 검증하며, 이미 연결된 프로바이더는
+                codex 는 두 방식 중 하나 — Access Token 단독(발급 토큰 하나만 붙여넣기, Account ID 는 자동 조회되며 만료 시 재등록) 또는 OAuth(Access
+                + ID + Refresh Token 3개, 자동 갱신). anthropic·ollama 는 API Key 를 입력합니다. 등록 전 자격증명을 검증하며, 이미 연결된 프로바이더는
                 자격증명이 갱신(재인증)됩니다.
             </p>
         </div>
