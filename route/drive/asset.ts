@@ -79,6 +79,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         '/assets/:assetId/status',
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
             await deps.driveAssetService.updateUploadStatus(assetId, body.uploadToken, body.status)
@@ -98,6 +99,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         }),
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
 
