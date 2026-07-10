@@ -56,7 +56,6 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
             if (!session) throw createAppError('UNAUTHORIZED')
 
             const body = await c.req.json()
-            console.log(`[prepare] userId=${session.user.id} sizeBytes=${body.sizeBytes}`)
             const result = await deps.driveAssetService.prepare(session.user.id, {
                 originalName: body.originalName,
                 mimeType: body.mimeType,

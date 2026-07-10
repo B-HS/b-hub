@@ -10,6 +10,8 @@ type IconLoaderDeps = {
 
 const basePath = process.env.VERCEL ? '/var/task' : process.cwd()
 const SAFE_ICON_NAME = /^[a-zA-Z0-9_-]+$/
+const FETCH_TIMEOUT_MS = 8000
+const MAX_REDIRECT_HOPS = 3
 
 export const createIconLoader = (deps: IconLoaderDeps = {}) => {
     const iconCache = new Map<string, string>()
@@ -106,12 +108,33 @@ export const createIconLoader = (deps: IconLoaderDeps = {}) => {
 
         try {
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 8000)
+            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-            const response = await fetchFn(url, {
-                signal: controller.signal,
-                headers: { 'User-Agent': 'Mozilla/5.0 Badge-Generator/1.0' },
-            })
+            const doFetch = (target: string) =>
+                fetchFn(target, {
+                    signal: controller.signal,
+                    redirect: 'manual',
+                    headers: { 'User-Agent': 'Mozilla/5.0 Badge-Generator/1.0' },
+                })
+
+            let currentUrl = url
+            let response = await doFetch(currentUrl)
+            let hop = 0
+            while (response.status >= 300 && response.status < 400) {
+                const location = response.headers.get('location')
+                if (!location || hop >= MAX_REDIRECT_HOPS) {
+                    clearTimeout(timeoutId)
+                    return null
+                }
+                const nextUrl = new URL(location, currentUrl).toString()
+                if (!isPublicUrl(nextUrl)) {
+                    clearTimeout(timeoutId)
+                    return null
+                }
+                currentUrl = nextUrl
+                hop += 1
+                response = await doFetch(currentUrl)
+            }
             clearTimeout(timeoutId)
 
             if (!response.ok) return null

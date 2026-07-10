@@ -275,7 +275,10 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         }
     },
 
-    prepare: async (userId: string, data: { originalName: string; mimeType: string; sizeBytes: number; folderId: string | null; fileHash: string }) => {
+    prepare: async (
+        userId: string,
+        data: { originalName: string; mimeType: string; sizeBytes: number; folderId: string | null; fileHash: string },
+    ) => {
         const safeName = sanitizeFilename(data.originalName)
         validateMimeAndExtension(safeName, data.mimeType)
 
@@ -297,7 +300,6 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
 
         const quotaBytes = await deps.getUserQuotaBytes(userId)
         const currentUsage = await deps.db.getTotalSizeByUser(userId)
-        console.log(`[prepare] quota=${quotaBytes} used=${currentUsage} fileSize=${data.sizeBytes} total=${currentUsage + data.sizeBytes}`)
         if (currentUsage + data.sizeBytes > quotaBytes) {
             throw createAppError('DRIVE_QUOTA_EXCEEDED')
         }
@@ -449,7 +451,10 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         }
     },
 
-    download: async (assetId: number, userId: string): Promise<{ stream: ReadableStream; mimeType: string; originalName: string; sizeBytes: number }> => {
+    download: async (
+        assetId: number,
+        userId: string,
+    ): Promise<{ stream: ReadableStream; mimeType: string; originalName: string; sizeBytes: number }> => {
         const asset = await deps.db.getById(assetId)
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
         if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
