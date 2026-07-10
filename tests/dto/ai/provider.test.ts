@@ -11,8 +11,23 @@ describe('aiProviderCreateSchema', () => {
         expect(r.credentials).toEqual({ idToken: 'id-tok', accessToken: 'acc-tok', refreshToken: 'ref-tok' })
     })
 
-    test('codex에 refreshToken이 없으면 실패한다', () => {
-        expect(() => aiProviderCreateSchema.parse({ provider: 'codex', credentials: { idToken: 'a', accessToken: 'b' } })).toThrow()
+    test('codex는 accessToken 단독(token 방식)을 파싱한다', () => {
+        const r = aiProviderCreateSchema.parse({ provider: 'codex', credentials: { accessToken: 'acc-tok' } })
+        expect(r.credentials).toEqual({ accessToken: 'acc-tok' })
+    })
+
+    test('codex는 accessToken+accountId(token 방식)를 파싱한다', () => {
+        const r = aiProviderCreateSchema.parse({ provider: 'codex', credentials: { accessToken: 'acc-tok', accountId: 'acct-1' } })
+        expect(r.credentials).toEqual({ accessToken: 'acc-tok', accountId: 'acct-1' })
+    })
+
+    test('codex에 refreshToken이 없으면 token 방식으로 파싱되고 idToken은 버려진다', () => {
+        const r = aiProviderCreateSchema.parse({ provider: 'codex', credentials: { idToken: 'a', accessToken: 'b' } })
+        expect(r.credentials).toEqual({ accessToken: 'b' })
+    })
+
+    test('codex에 accessToken이 없으면 실패한다', () => {
+        expect(() => aiProviderCreateSchema.parse({ provider: 'codex', credentials: { idToken: 'a', refreshToken: 'r' } })).toThrow()
     })
 
     test('codex에 apiKey만 주면 실패한다', () => {

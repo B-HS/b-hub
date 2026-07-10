@@ -70,8 +70,8 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
             const [res] = await db.insert(schema.aiProviders).values(data).$returningId()
             return { id: res.id }
         },
-        updateCredentials: async (id: number, encryptedCredentials: string) => {
-            await db.update(schema.aiProviders).set({ credentials: encryptedCredentials }).where(eq(schema.aiProviders.id, id))
+        updateCredentials: async (id: number, encryptedCredentials: string, authType: string) => {
+            await db.update(schema.aiProviders).set({ credentials: encryptedCredentials, authType }).where(eq(schema.aiProviders.id, id))
         },
         updateStatus: async (id: number, status: string, statusDetail: string | null) => {
             await db.update(schema.aiProviders).set({ status, statusDetail }).where(eq(schema.aiProviders.id, id))

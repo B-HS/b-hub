@@ -7,6 +7,10 @@ import type { AiProvider } from '../../../../db/schema'
 
 const crypto = createCredentialCrypto('0'.repeat(32))
 
+const base64url = (obj: Record<string, unknown>) => Buffer.from(JSON.stringify(obj)).toString('base64url')
+
+const buildJwt = (payload: Record<string, unknown>) => `${base64url({ alg: 'none', typ: 'JWT' })}.${base64url(payload)}.sig`
+
 const buildProvider = (over: Partial<AiProvider> = {}): AiProvider => ({
     id: 1,
     userId: 'user-1',
@@ -35,7 +39,7 @@ const createMockDb = () => ({
     getById: mock(async (id: number) => buildProvider({ id })),
     listByUser: mock(async (_userId: string) => [buildProvider()]),
     insert: mock(async (_data: AiConnectionInsert) => ({ id: 1 })),
-    updateCredentials: mock(async (_id: number, _encrypted: string) => {}),
+    updateCredentials: mock(async (_id: number, _encrypted: string, _authType: string) => {}),
     updateStatus: mock(async (_id: number, _status: string, _detail: string | null) => {}),
     updateDisplayName: mock(async (_id: number, _displayName: string | null) => {}),
     touchUsed: mock(async (_id: number) => {}),
@@ -107,6 +111,66 @@ describe('createAiConnectionService', () => {
                 }),
             ).rejects.toMatchObject({ code: 'AI_CREDENTIALS_INVALID' })
             expect(factory.createFromStored).not.toHaveBeenCalled()
+        })
+
+        test('codex oauth 3필드는 authType oauth로 insert하고 refreshToken을 저장한다', async () => {
+            const db = createMockDb()
+            const client = createClient({ ok: true })
+            const factory = createFactory(client)
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+            const idToken = buildJwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-id' } })
+
+            await service.connect('user-1', { provider: 'codex', credentials: { idToken, accessToken: 'at', refreshToken: 'rt' } })
+
+            const insertArg = db.insert.mock.calls[0][0]
+            expect(insertArg.authType).toBe('oauth')
+            const stored = JSON.parse(crypto.decrypt(insertArg.credentials)) as Record<string, unknown>
+            expect(stored.refreshToken).toBe('rt')
+            expect(stored.accountId).toBe('acct-id')
+        })
+
+        test('codex access token 단독은 accessToken claim으로 accountId를 확정해 authType token으로 insert한다', async () => {
+            const db = createMockDb()
+            const client = createClient({ ok: true })
+            const factory = createFactory(client)
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+            const accessToken = buildJwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-at' } })
+
+            await service.connect('user-1', { provider: 'codex', credentials: { accessToken } })
+
+            expect(client.verify).toHaveBeenCalled()
+            const insertArg = db.insert.mock.calls[0][0]
+            expect(insertArg.authType).toBe('token')
+            expect(JSON.parse(crypto.decrypt(insertArg.credentials))).toEqual({ accessToken, accountId: 'acct-at' })
+        })
+
+        test('codex access token 단독에서 accountId도 없고 claim 파싱도 못 하면 AI_CREDENTIALS_INVALID을 throw한다', async () => {
+            const db = createMockDb()
+            const client = createClient({ ok: true })
+            const factory = createFactory(client)
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+
+            await expect(service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-opaque' } })).rejects.toMatchObject({
+                code: 'AI_CREDENTIALS_INVALID',
+            })
+            expect(factory.createFromStored).not.toHaveBeenCalled()
+        })
+
+        test('codex access token 단독 재등록은 updateCredentials에 authType token을 함께 넘긴다', async () => {
+            const db = createMockDb()
+            db.getByUserAndProvider = mock(async (_userId: string, _provider: string) =>
+                buildProvider({ id: 7, provider: 'codex', authType: 'oauth' }),
+            )
+            const client = createClient({ ok: true })
+            const factory = createFactory(client)
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+
+            await service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-opaque', accountId: 'acct-9' } })
+
+            expect(db.updateCredentials.mock.calls[0][0]).toBe(7)
+            expect(db.updateCredentials.mock.calls[0][2]).toBe('token')
+            expect(db.updateStatus).toHaveBeenCalledWith(7, 'active', null)
+            expect(db.insert).not.toHaveBeenCalled()
         })
     })
 

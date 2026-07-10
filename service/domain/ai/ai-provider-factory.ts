@@ -5,15 +5,15 @@ import { providerErrorMessage } from './ai-provider'
 import { createAnthropicProvider } from './providers/anthropic-provider'
 import { createOllamaProvider } from './providers/ollama-provider'
 import { createCodexProvider } from './providers/codex-provider'
-import { createAppError } from '../../../lib/error'
+import { createAppError, isAppError } from '../../../lib/error'
 import { decodeJwtPayloadUnverified, getJwtExpiryMs } from '../../../lib/jwt-decode'
 
 const CODEX_REFRESH_WINDOW_MS = 5 * 60 * 1000
 
 export type StoredCodexCredentials = {
-    idToken: string
+    idToken?: string
     accessToken: string
-    refreshToken: string
+    refreshToken?: string
     accountId?: string
     lastRefresh?: string
 }
@@ -22,8 +22,8 @@ export type StoredApiKeyCredentials = {
     apiKey: string
 }
 
-export const getCodexAccountId = (idToken: string): string | null => {
-    const payload = decodeJwtPayloadUnverified(idToken)
+export const getCodexAccountId = (token: string): string | null => {
+    const payload = decodeJwtPayloadUnverified(token)
     const auth = payload?.['https://api.openai.com/auth']
     if (typeof auth !== 'object' || auth === null) return null
     const accountId = (auth as Record<string, unknown>).chatgpt_account_id
@@ -63,42 +63,72 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
     }
 
     const buildCodexClient = (stored: StoredCodexCredentials, opts: BuildOpts): AiProviderClient => {
-        if (!stored.accessToken || !stored.refreshToken) throw createAppError('AI_CREDENTIALS_INVALID')
+        if (!stored.accessToken) throw createAppError('AI_CREDENTIALS_INVALID')
         let current = stored
+
+        const markReauth = async (detail: string) => {
+            if (opts.onReauth) await opts.onReauth(detail).catch(() => {})
+            return createAppError('AI_REAUTH_REQUIRED')
+        }
 
         const getAccessToken = async () => {
             const expiryMs = getJwtExpiryMs(current.accessToken)
-            const needsRefresh = expiryMs === null || expiryMs - Date.now() < CODEX_REFRESH_WINDOW_MS
-            if (needsRefresh) {
-                let refreshed: CodexRefreshResult
-                try {
-                    refreshed = await refreshWithLock(opts.providerId, current.refreshToken)
-                } catch (error) {
-                    if (opts.onReauth) await opts.onReauth(providerErrorMessage(error)).catch(() => {})
-                    throw createAppError('AI_REAUTH_REQUIRED')
-                }
-                current = {
-                    ...current,
-                    accessToken: refreshed.accessToken,
-                    refreshToken: refreshed.refreshToken ?? current.refreshToken,
-                    idToken: refreshed.idToken ?? current.idToken,
-                    lastRefresh: new Date().toISOString(),
-                }
-                if (opts.onRefresh) {
+            const refreshToken = current.refreshToken
+            if (refreshToken) {
+                const needsRefresh = expiryMs === null || expiryMs - Date.now() < CODEX_REFRESH_WINDOW_MS
+                if (needsRefresh) {
+                    let refreshed: CodexRefreshResult
                     try {
-                        await opts.onRefresh(deps.crypto.encrypt(JSON.stringify(current)))
-                    } catch (persistError) {
-                        if (opts.onReauth)
-                            await opts.onReauth(`token rotated but persist failed: ${providerErrorMessage(persistError)}`).catch(() => {})
+                        refreshed = await refreshWithLock(opts.providerId, refreshToken)
+                    } catch (error) {
+                        throw await markReauth(providerErrorMessage(error))
+                    }
+                    current = {
+                        ...current,
+                        accessToken: refreshed.accessToken,
+                        refreshToken: refreshed.refreshToken ?? refreshToken,
+                        idToken: refreshed.idToken ?? current.idToken,
+                        lastRefresh: new Date().toISOString(),
+                    }
+                    if (opts.onRefresh) {
+                        try {
+                            await opts.onRefresh(deps.crypto.encrypt(JSON.stringify(current)))
+                        } catch (persistError) {
+                            if (opts.onReauth)
+                                await opts.onReauth(`token rotated but persist failed: ${providerErrorMessage(persistError)}`).catch(() => {})
+                        }
                     }
                 }
+            } else if (expiryMs !== null && expiryMs <= Date.now()) {
+                throw await markReauth('access token expired and no refresh token stored, re-register required')
             }
-            const accountId = current.accountId ?? getCodexAccountId(current.idToken) ?? ''
+            const accountId =
+                current.accountId ?? (current.idToken ? getCodexAccountId(current.idToken) : null) ?? getCodexAccountId(current.accessToken) ?? ''
             if (!accountId) throw createAppError('AI_CREDENTIALS_INVALID')
             return { accessToken: current.accessToken, accountId }
         }
 
-        return createCodexProvider({ getAccessToken, fetchFn: deps.fetchFn })
+        const client = createCodexProvider({ getAccessToken, fetchFn: deps.fetchFn })
+        if (stored.refreshToken) return client
+
+        const withReauthOn401 =
+            <Args extends unknown[], Result>(call: (...args: Args) => Promise<Result>) =>
+            async (...args: Args) => {
+                try {
+                    return await call(...args)
+                } catch (error) {
+                    if (isAppError(error) && error.details?.status === 401)
+                        throw await markReauth('provider rejected access token with 401, re-register required')
+                    throw error
+                }
+            }
+
+        return {
+            listModels: withReauthOn401(client.listModels),
+            complete: withReauthOn401(client.complete),
+            completeStream: withReauthOn401(client.completeStream),
+            verify: client.verify,
+        }
     }
 
     const buildClient = (provider: string, stored: StoredCodexCredentials | StoredApiKeyCredentials, opts: BuildOpts): AiProviderClient => {

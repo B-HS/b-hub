@@ -6,9 +6,10 @@
 
 > 출처: `github.com/openai/codex`(codex-rs 소스), platform.claude.com, docs.ollama.com. 조사 에이전트 검증 완료. "미확인" 표기 항목은 구현 시 실응답으로 확정한다.
 
-### codex (OpenAI ChatGPT OAuth — auth.json 등록 방식)
+### codex (OpenAI ChatGPT OAuth — auth.json 등록 방식 + access token 단독)
 
 - **auth.json 구조**: `{ "OPENAI_API_KEY": null, "tokens": { "id_token", "access_token", "refresh_token", "account_id" }, "last_refresh": "<RFC3339>" }` (+선택 `auth_mode`). 등록 시 `tokens` 3종 + `account_id` 를 받는다.
+- **access token 단독(2026-07-10 조사 확정)**: codex 공식(codex-rs)이 refresh 없는 access token 인증을 지원한다 — (a) personal access token(`at-` 접두사, opaque, `codex login --with-access-token`·`CODEX_ACCESS_TOKEN`, 만료 1~90일 또는 무기한, refresh 불가), (b) OAuth access_token(JWT) 단독. JWT access_token 에도 `https://api.openai.com/auth`.chatgpt_account_id claim 이 있어 account_id 파싱이 가능하고, opaque 토큰은 codex-rs 가 `GET https://auth.openai.com/api/accounts/v1/user-auth-credential/whoami`(Bearer) 로 메타데이터(chatgpt_account_id 포함)를 조회한다(본 서버는 whoami 미연동 — 등록 시 accountId 입력으로 대체). 챗/모델 호출은 두 방식 모두 동일 헤더(Bearer + ChatGPT-Account-Id).
 - **account_id**: 최초 로그인 id_token 의 JWT claim `payload["https://api.openai.com/auth"]["chatgpt_account_id"]`. **refresh 후 access_token 에는 빠질 수 있으므로 등록 시점에 영구 저장**해 재사용한다. 누락 시 백엔드 401/403.
 - **토큰 갱신**: `POST https://auth.openai.com/oauth/token`, `Content-Type: application/json`, body `{ "client_id": "app_EMoamEEZ73f0CkXaXp7hrann", "grant_type": "refresh_token", "refresh_token": "<rt>" }` (scope 없음). 응답 `{ id_token?, access_token?, refresh_token? }` — **회전형: 새 refresh_token 이 오면 반드시 교체 저장**(옛 토큰 재사용 시 `refresh_token_reused` 영구 실패). 영구 실패(`refresh_token_expired`/`reused`/`invalidated`, 401) → `reauth_required` 마킹 + 재등록 안내. 갱신 트리거: access_token JWT `exp` − 5분 경과 또는 `last_refresh` + 8일.
 - **챗**: `POST https://chatgpt.com/backend-api/codex/responses`. 헤더: `Authorization: Bearer <access_token>` · `ChatGPT-Account-ID: <account_id>` · `originator: codex_cli_rs` · `session_id: <uuid>` · UA. body 는 Responses API 형태 `{ model, instructions, input[], store:false, stream:true, tool_choice:'auto', include:[] }`. **SSE 전용(stream:true 강제)** — 서버가 SSE 를 소비해 `response.output_text.delta` 누적, `response.completed` 의 `usage.input_tokens`/`output_tokens` 취합, `response.failed`/`incomplete` 는 에러.
@@ -42,15 +43,15 @@
 
 | 파일 | 역할 |
 |------|------|
-| `dto/ai/provider.ts` | provider 등록(discriminated union: codex=token 3종 / anthropic·ollama=apiKey)·수정·응답 스키마, `AI_PROVIDER`·`AI_PROVIDER_STATUS` 상수 |
+| `dto/ai/provider.ts` | provider 등록(discriminated union: codex=oauth 3종 또는 accessToken 단독 union / anthropic·ollama=apiKey)·수정·응답 스키마, `AI_PROVIDER`·`AI_PROVIDER_STATUS` 상수 |
 | `dto/ai/model.ts`·`prompt.ts`·`session.ts`·`chat.ts`·`attachment.ts` | 모델·프롬프트(stage)·세션·챗(send/completion)·첨부 Zod 스키마 |
 | `service/domain/ai/ai-provider.ts` | `AiProviderClient` 인터페이스(`listModels`/`complete`/`completeStream`/`verify`) + 메시지·이미지·완성·스트림 이벤트 타입 |
 | `service/domain/ai/ai-sse.ts` | 스트림 파서 — 블록 SSE `parseSseBlock`·`iterateSseEvents`(anthropic) + 라인 `iterateStreamLines`(codex data 라인·ollama NDJSON) |
 | `service/domain/ai/providers/anthropic-provider.ts` | Anthropic 구현(`/v1/models`·`/v1/messages`, 이미지 base64 block, `completeStream`=stream:true SSE) |
 | `service/domain/ai/providers/ollama-provider.ts` | Ollama Cloud 구현(`/api/tags`·`/api/chat`, images 배열, `completeStream`=stream:true NDJSON) |
 | `service/domain/ai/providers/codex-provider.ts` | Codex 구현(`/models`·`/responses` **SSE 파싱**, fallback 모델. `complete` 는 `completeStream` 드레인) |
-| `service/domain/ai/ai-provider-factory.ts` | 복호화 + provider별 client 생성. codex OAuth 자동 갱신(회전 저장·reauth 마킹), `createFromStored`(등록 검증용), `getCodexAccountId`(id_token claim) |
-| `service/domain/ai/ai-connection.ts` | 연결 CRUD — 등록 전 `verify()` ping, codex accountId 보강, 소유권, `resolveClient`(status 가드) |
+| `service/domain/ai/ai-provider-factory.ts` | 복호화 + provider별 client 생성. codex oauth 자동 갱신(회전 저장·reauth 마킹) / token 단독은 refresh skip + 만료·401 시 reauth 마킹, `createFromStored`(등록 검증용), `getCodexAccountId`(id_token·access_token claim) |
+| `service/domain/ai/ai-connection.ts` | 연결 CRUD — 등록 전 `verify()` ping, codex accountId 보강(oauth=id_token, token=access_token claim), authType(oauth/token/apikey) 확정·재등록 시 갱신, 소유권, `resolveClient`(status 가드) |
 | `service/domain/ai/ai-model.ts` | 모델 fetch·캐시 replace(새로고침 시 전체 교체)·`modelsFetchedAt` 기록 |
 | `service/domain/ai/ai-prompt.ts` | 사용자별 프롬프트 템플릿 CRUD + `resolveOwned`(챗 조립용) |
 | `service/domain/ai/ai-session.ts` | 세션·메시지 CRUD, `listRecentMessages`(history) |
@@ -75,7 +76,7 @@
 | `ai_messages` | `id`(bigint PK)·`role`·`content`(longtext)·`model_id`·`input_tokens`·`output_tokens`·`duration_ms` | idx(session_id, created_at) | `session_id`→`ai_sessions`(cascade) |
 | `ai_attachments` | `message_id`(bigint 소프트)·`filename`·`mime_type`·`size_bytes`·`r2_key`(unique) | idx(user), idx(message) | `user_id`→`user`(cascade) |
 
-- **자격증명은 `credentials` 컬럼 하나에 암호화 JSON**으로만 저장한다(codex=token 4종+lastRefresh, apikey=`{apiKey}`). 평문·해시 별도 컬럼 없음. 어드민 조회·API 응답 어디에도 노출하지 않는다(select 에서 컬럼 제외).
+- **자격증명은 `credentials` 컬럼 하나에 암호화 JSON**으로만 저장한다(codex oauth=`{idToken,accessToken,refreshToken,accountId,lastRefresh}` · codex token 단독=`{accessToken,accountId}` · apikey=`{apiKey}`). `auth_type` 이 방식을 표시한다(`oauth`/`token`/`apikey`, 재등록 시 함께 갱신). 평문·해시 별도 컬럼 없음. 어드민 조회·API 응답 어디에도 노출하지 않는다(select 에서 컬럼 제외).
 
 ## API 엔드포인트
 
@@ -110,14 +111,19 @@
 ## 핵심 흐름
 
 ### 연결 등록·검증 (`ai-connection.connect`)
-1. DTO discriminated union 으로 provider별 자격 검증. codex 는 `buildStored` 가 accountId 를 입력값 또는 `getCodexAccountId(idToken)`(JWT claim `https://api.openai.com/auth`.chatgpt_account_id)로 확정 — 없으면 `AI_CREDENTIALS_INVALID`.
+1. DTO discriminated union 으로 provider별 자격 검증. codex credentials 는 union — oauth 3필드(`idToken`+`accessToken`+`refreshToken`) 또는 accessToken 단독(`accessToken`+선택 `accountId`). `buildStored` 가 accountId 를 입력값 ?? JWT claim(`https://api.openai.com/auth`.chatgpt_account_id — oauth 는 idToken 에서, token 단독은 accessToken 에서)으로 확정하고 authType(`oauth`/`token`)을 결정 — accountId 확정 불가면 `AI_CREDENTIALS_INVALID`(opaque `at-` 토큰은 accountId 입력 필수).
 2. `factory.createFromStored(provider, stored).verify()` 로 실제 프로바이더에 ping(anthropic/ollama=모델 목록 GET, codex=`/models`). 실패 시 `AI_CREDENTIALS_INVALID`(에러는 `maskProviderError` 마스킹).
 3. 검증 통과분만 `crypto.encrypt(JSON)` 로 `credentials` 저장. 같은 provider 연결이 이미 있으면 자격 갱신 + `status=active` 복구(재인증 흐름) — 없으면 insert.
 
-### codex OAuth 자동 갱신 (`ai-provider-factory`)
+### codex OAuth 자동 갱신 (`ai-provider-factory`) — refreshToken 이 있을 때만
 - 매 codex 호출 전 `getAccessToken()` 이 access_token JWT `exp` 를 확인해 **5분 이내 만료면** `refreshCodexToken`(`compose/ai.ts` 가 `POST https://auth.openai.com/oauth/token`, client_id `app_EMoamEEZ73f0CkXaXp7hrann`) 호출.
 - **회전 처리**: 응답에 새 refresh_token 이 오면 교체, 안 오면 기존 유지. 갱신분을 재암호화해 `persistCodexCredentials`(DB `credentials`+`last_refreshed_at`) 저장.
 - 갱신 실패(만료·재사용·네트워크) → `markReauthRequired`(status `reauth_required`+detail) 후 `AI_REAUTH_REQUIRED`(401). 사용자는 auth.json 재등록으로 복구.
+
+### codex access token 단독 (`ai-provider-factory`) — refreshToken 이 없을 때
+- refresh 를 시도하지 않고 저장된 accessToken 을 그대로 쓴다. accountId 는 저장값 ?? idToken claim ?? accessToken claim 순으로 확정(없으면 `AI_CREDENTIALS_INVALID`).
+- **만료 처리**: accessToken 이 JWT 이고 `exp` 가 지났으면 호출 전에 `markReauthRequired` 후 `AI_REAUTH_REQUIRED`. opaque(`at-`) 토큰은 exp 를 알 수 없어 선판정 없이 호출한다.
+- **업스트림 401**: listModels/complete/completeStream 이 status 401 인 `AppError` 로 실패하면 `markReauthRequired` 후 `AI_REAUTH_REQUIRED` 로 변환(새 토큰 재등록으로 복구). 401 외 실패는 기존 에러 그대로. `verify()` 는 변환하지 않는다(등록 검증은 `AI_CREDENTIALS_INVALID` 로 수렴).
 
 ### 채팅 (`ai-chat.send`)
 1. 세션 소유권 확인 → `resolveClient`(status reauth/disabled 가드) → 프롬프트(`session.promptIds`) 조립: stage system/context → system 텍스트, user/assistant → seed 메시지.
@@ -149,6 +155,7 @@
 
 - **codex 는 SSE 전용**: `/responses` 는 `stream:true` 고정이라 서버가 SSE 를 소비해 `response.output_text.delta` 누적 + `response.completed.usage` 취합 후 단일 응답으로 반환한다. 비스트리밍 JSON 을 기대하지 말 것.
 - **codex refresh_token 회전**: 갱신 응답의 새 refresh_token 을 저장하지 않으면 다음 갱신이 `refresh_token_reused` 로 영구 실패한다. `persistCodexCredentials` 가 원자적으로 교체 저장.
+- **codex 두 인증 방식 병행(2026-07-10)**: 저장 credentials 의 `refreshToken` 존재 여부가 분기 기준이다(있으면 oauth 자동 갱신, 없으면 token 단독). token 단독은 만료·401 시 자동 복구가 없고 `reauth_required` 로만 마킹되므로 사용자가 새 토큰을 재등록해야 한다. 만료된 토큰은 등록 시 `verify()` 실패로 거부된다. opaque `at-` 토큰은 accountId 입력이 필수(JWT claim 파싱 불가, whoami 미연동).
 - **연결은 사용자당 provider 1개**(unique). 재등록(재인증)은 기존 행 자격 갱신 + status 복구로 처리(`AI_PROVIDER_ALREADY_EXISTS` 는 예약, 현재 throw 안 함).
 - **자격증명 비노출**: API 응답 매핑(`toResponse`)·어드민 select 모두 `credentials` 를 제외한다. 신규 조회 경로 추가 시 이 컬럼을 넣지 말 것.
 - **모델 새로고침은 전체 교체**: `replaceForProvider` 가 트랜잭션으로 delete-then-insert 한다(캐시 스냅샷). 부분 병합 아님.

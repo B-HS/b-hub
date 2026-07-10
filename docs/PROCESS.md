@@ -5,6 +5,17 @@
 
 ## 현재 진행 중 작업
 
+### codex 인증 access token 단독 방식 병행 지원 (2026-07-10)
+
+> 배경: codex 프로바이더 인증이 OAuth JSON(idToken+accessToken+refreshToken 3필드, refresh 자동 갱신)만 지원. 발급받은 access token 단독(refresh 없음)으로도 등록·사용 가능해야 한다. 공식 근거: codex-rs 가 personal access token(`at-` 접두사, refresh 없음) 인증을 지원하며, OAuth access_token JWT 에도 `https://api.openai.com/auth`.chatgpt_account_id claim 이 있다.
+
+- [x] a. dto/ai/provider.ts — codex credentials 를 union 으로: oauth 3필드(기존) / token 단독 {accessToken, accountId?}
+- [x] b. ai-provider-factory — refreshToken 없으면 refresh skip, JWT 만료 시 reauth 마킹, upstream 401 시 reauth 마킹(token 방식 한정), accountId 를 idToken→accessToken claim 순으로 파싱
+- [x] c. ai-connection — buildStored 가 token 방식 저장(accountId 는 입력 ?? accessToken claim, 없으면 AI_CREDENTIALS_INVALID), authType 'token' 저장·재등록 시 갱신
+- [x] d. compose/ai.ts — updateCredentials 가 authType 도 함께 갱신
+- [x] e. 테스트 — dto union 파싱, factory(refresh skip·만료 reauth·401 reauth·accountId 파싱), connection(token 등록·verify·재등록 authType)
+- [x] f. 검증 — bunx tsc --noEmit 0 · bun test 전체 pass · docs(domains/ai) 갱신
+
 ### AI 채팅 SSE 스트리밍 엔드포인트 추가 (2026-07-10)
 
 > 배경: 원격 AI Provider 시스템의 chat/completions 는 upstream SSE 를 서버에서 소비·집계해 단일 JSON 반환. 클라이언트 채팅 패널의 토큰 타이핑 UX 를 위해 delta 를 SSE 로 relay 하는 엔드포인트 추가. usage 집계·세션 저장·rate limit·에러 체계는 유지.

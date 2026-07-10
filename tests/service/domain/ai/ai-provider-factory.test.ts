@@ -20,6 +20,9 @@ const nowSec = () => Math.floor(Date.now() / 1000)
 const jsonOk = (data: Record<string, unknown>) =>
     ({ ok: true, status: 200, json: () => Promise.resolve(data), text: () => Promise.resolve(JSON.stringify(data)) }) as unknown as Response
 
+const httpErr = (status: number, body = 'provider error') =>
+    ({ ok: false, status, json: () => Promise.resolve({}), text: () => Promise.resolve(body) }) as unknown as Response
+
 const buildRow = (overrides: Partial<AiProvider>): AiProvider => ({
     id: 42,
     userId: 'user-1',
@@ -240,5 +243,83 @@ describe('createAiProviderFactory.create (codex refresh 엣지케이스)', () =>
         const client = factory.create(codexRow(crypto, buildJwt({ sub: 'no-exp' })))
         await client.listModels()
         expect(refreshCodexToken).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('createAiProviderFactory.create (codex access token 단독)', () => {
+    const tokenOnlyRow = (crypto: ReturnType<typeof createCredentialCrypto>, stored: StoredCodexCredentials) =>
+        buildRow({ provider: 'codex', authType: 'token', credentials: crypto.encrypt(JSON.stringify(stored)) })
+
+    test('refreshToken이 없으면 refresh 없이 저장된 accessToken을 그대로 쓴다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const refreshCodexToken = mock(() => Promise.resolve<CodexRefreshResult>({ accessToken: '', refreshToken: null, idToken: null }))
+        const factory = buildFactory({ crypto, refreshCodexToken })
+        const client = factory.create(tokenOnlyRow(crypto, { accessToken: buildJwt({ exp: nowSec() + 3600 }), accountId: 'acct-1' }))
+        const models = await client.listModels()
+        expect(models.length).toBeGreaterThan(0)
+        expect(refreshCodexToken).not.toHaveBeenCalled()
+    })
+
+    test('accountId가 없으면 access_token JWT claim에서 파싱해 chatgpt-account-id 헤더에 쓴다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const fetchFn = mock(() => Promise.resolve(jsonOk({ models: [{ slug: 'gpt-5.1-codex' }] })))
+        const factory = buildFactory({ crypto, fetchFn })
+        const accessToken = buildJwt({ 'exp': nowSec() + 3600, 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-from-at' } })
+        const client = factory.create(tokenOnlyRow(crypto, { accessToken }))
+        await client.listModels()
+        const headers = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>
+        expect(headers['chatgpt-account-id']).toBe('acct-from-at')
+        expect(headers.authorization).toBe(`Bearer ${accessToken}`)
+    })
+
+    test('JWT가 아닌 opaque 토큰은 만료 선판정 없이 accountId와 함께 그대로 호출한다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const refreshCodexToken = mock(() => Promise.resolve<CodexRefreshResult>({ accessToken: '', refreshToken: null, idToken: null }))
+        const factory = buildFactory({ crypto, refreshCodexToken })
+        const client = factory.create(tokenOnlyRow(crypto, { accessToken: 'at-opaque-token', accountId: 'acct-1' }))
+        const models = await client.listModels()
+        expect(models.length).toBeGreaterThan(0)
+        expect(refreshCodexToken).not.toHaveBeenCalled()
+    })
+
+    test('accessToken JWT가 만료면 refresh 대신 reauth_required로 마킹하고 AI_REAUTH_REQUIRED를 던진다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const refreshCodexToken = mock(() => Promise.resolve<CodexRefreshResult>({ accessToken: '', refreshToken: null, idToken: null }))
+        const markReauthRequired = mock(async () => {})
+        const factory = buildFactory({ crypto, refreshCodexToken, markReauthRequired })
+        const row = tokenOnlyRow(crypto, { accessToken: buildJwt({ exp: nowSec() - 60 }), accountId: 'acct-1' })
+        const client = factory.create(row)
+        await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_REAUTH_REQUIRED' })
+        expect(refreshCodexToken).not.toHaveBeenCalled()
+        expect(markReauthRequired).toHaveBeenCalledTimes(1)
+        expect(markReauthRequired.mock.calls[0][0]).toBe(row.id)
+    })
+
+    test('업스트림이 401을 반환하면 reauth_required로 마킹하고 AI_REAUTH_REQUIRED를 던진다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const fetchFn = mock(() => Promise.resolve(httpErr(401)))
+        const factory = buildFactory({ crypto, markReauthRequired, fetchFn })
+        const row = tokenOnlyRow(crypto, { accessToken: buildJwt({ exp: nowSec() + 3600 }), accountId: 'acct-1' })
+        await expect(factory.create(row).listModels()).rejects.toMatchObject({ code: 'AI_REAUTH_REQUIRED' })
+        expect(markReauthRequired).toHaveBeenCalledTimes(1)
+        expect(markReauthRequired.mock.calls[0][0]).toBe(row.id)
+    })
+
+    test('업스트림 401이 아닌 실패는 reauth로 바꾸지 않는다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const fetchFn = mock(() => Promise.resolve(httpErr(500)))
+        const factory = buildFactory({ crypto, markReauthRequired, fetchFn })
+        const client = factory.create(tokenOnlyRow(crypto, { accessToken: buildJwt({ exp: nowSec() + 3600 }), accountId: 'acct-1' }))
+        await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_MODEL_FETCH_FAILED' })
+        expect(markReauthRequired).not.toHaveBeenCalled()
+    })
+
+    test('accountId도 없고 opaque 토큰이라 claim 파싱도 못 하면 AI_CREDENTIALS_INVALID를 던진다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const factory = buildFactory({ crypto })
+        const client = factory.create(tokenOnlyRow(crypto, { accessToken: 'at-opaque-token' }))
+        await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_CREDENTIALS_INVALID' })
     })
 })

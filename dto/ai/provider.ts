@@ -5,13 +5,20 @@ export const AI_PROVIDER_STATUS = { ACTIVE: 'active', REAUTH_REQUIRED: 'reauth_r
 
 export const aiProviderNameSchema = z.enum(['codex', 'anthropic', 'ollama'])
 
-const codexCredentialsSchema = z.object({
+const codexOauthCredentialsSchema = z.object({
     idToken: z.string().min(1).max(8192),
     accessToken: z.string().min(1).max(8192),
     refreshToken: z.string().min(1).max(8192),
     accountId: z.string().max(255).optional(),
     lastRefresh: z.string().max(64).optional(),
 })
+
+const codexTokenCredentialsSchema = z.object({
+    accessToken: z.string().min(1).max(8192),
+    accountId: z.string().max(255).optional(),
+})
+
+const codexCredentialsSchema = z.union([codexOauthCredentialsSchema, codexTokenCredentialsSchema])
 
 const apiKeyCredentialsSchema = z.object({
     apiKey: z.string().min(1).max(512),

@@ -21,7 +21,7 @@ export type AiConnectionServiceDb = {
     getById: (id: number) => Promise<AiProvider | null>
     listByUser: (userId: string) => Promise<AiProvider[]>
     insert: (data: AiConnectionInsert) => Promise<{ id: number }>
-    updateCredentials: (id: number, encryptedCredentials: string) => Promise<void>
+    updateCredentials: (id: number, encryptedCredentials: string, authType: string) => Promise<void>
     updateStatus: (id: number, status: string, statusDetail: string | null) => Promise<void>
     updateDisplayName: (id: number, displayName: string | null) => Promise<void>
     touchUsed: (id: number) => Promise<void>
@@ -35,19 +35,30 @@ type AiConnectionDeps = {
     factory: AiProviderFactory
 }
 
-const buildStored = (input: AiProviderCreate): StoredCodexCredentials | StoredApiKeyCredentials => {
+type BuiltCredentials = { stored: StoredCodexCredentials | StoredApiKeyCredentials; authType: string }
+
+const buildStored = (input: AiProviderCreate): BuiltCredentials => {
     if (input.provider === 'codex') {
+        if (!('refreshToken' in input.credentials)) {
+            const accountId = input.credentials.accountId ?? getCodexAccountId(input.credentials.accessToken) ?? undefined
+            if (!accountId)
+                throw createAppError('AI_CREDENTIALS_INVALID', { detail: 'accountId not resolvable from access_token, provide accountId' })
+            return { stored: { accessToken: input.credentials.accessToken, accountId }, authType: 'token' }
+        }
         const accountId = input.credentials.accountId ?? getCodexAccountId(input.credentials.idToken) ?? undefined
         if (!accountId) throw createAppError('AI_CREDENTIALS_INVALID', { detail: 'accountId not resolvable from id_token' })
         return {
-            idToken: input.credentials.idToken,
-            accessToken: input.credentials.accessToken,
-            refreshToken: input.credentials.refreshToken,
-            accountId,
-            lastRefresh: input.credentials.lastRefresh ?? new Date().toISOString(),
+            stored: {
+                idToken: input.credentials.idToken,
+                accessToken: input.credentials.accessToken,
+                refreshToken: input.credentials.refreshToken,
+                accountId,
+                lastRefresh: input.credentials.lastRefresh ?? new Date().toISOString(),
+            },
+            authType: 'oauth',
         }
     }
-    return { apiKey: input.credentials.apiKey }
+    return { stored: { apiKey: input.credentials.apiKey }, authType: 'apikey' }
 }
 
 export const createAiConnectionService = ({ db, crypto, factory }: AiConnectionDeps) => {
@@ -60,9 +71,8 @@ export const createAiConnectionService = ({ db, crypto, factory }: AiConnectionD
     }
 
     const connect = async (userId: string, input: AiProviderCreate) => {
-        const stored = buildStored(input)
+        const { stored, authType } = buildStored(input)
         const encrypted = crypto.encrypt(JSON.stringify(stored))
-        const authType = input.provider === 'codex' ? 'oauth' : 'apikey'
 
         const client = factory.createFromStored(input.provider, stored)
         const verified = await client.verify()
@@ -71,7 +81,7 @@ export const createAiConnectionService = ({ db, crypto, factory }: AiConnectionD
 
         const existing = await db.getByUserAndProvider(userId, input.provider)
         if (existing) {
-            await db.updateCredentials(existing.id, encrypted)
+            await db.updateCredentials(existing.id, encrypted, authType)
             await db.updateStatus(existing.id, 'active', null)
             if (input.displayName !== undefined) await db.updateDisplayName(existing.id, input.displayName ?? null)
             return getOwned(userId, existing.id)
