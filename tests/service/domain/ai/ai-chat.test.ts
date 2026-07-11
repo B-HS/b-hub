@@ -163,6 +163,27 @@ describe('createAiChatService', () => {
             expect(logged.errorCode).toBe('AI_CHAT_FAILED')
             expect(deps.sessionService.touchLastMessage).not.toHaveBeenCalled()
         })
+
+        test('context가 주어지면 프롬프트 systemText 뒤에 병합한다', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+
+            await service.send('user-1', 'sess-1', { content: 'hello world', context: '<MAIL_CONTEXT>mail body</MAIL_CONTEXT>' })
+
+            const req = deps.client.complete.mock.calls[0][0]
+            expect(req.system).toBe('You are helpful\n\n<MAIL_CONTEXT>mail body</MAIL_CONTEXT>')
+        })
+
+        test('프롬프트 systemText가 없고 context만 있으면 context가 system이 된다', async () => {
+            const deps = createDeps()
+            deps.promptService.resolveOwned = mock(async (_userId: string, _ids: number[]) => [])
+            const service = createAiChatService(deps as never)
+
+            await service.send('user-1', 'sess-1', { content: 'q', context: 'CTX' })
+
+            const req = deps.client.complete.mock.calls[0][0]
+            expect(req.system).toBe('CTX')
+        })
     })
 
     describe('complete', () => {

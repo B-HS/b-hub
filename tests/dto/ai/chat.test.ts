@@ -35,6 +35,14 @@ describe('aiChatSendSchema', () => {
     test('maxTokens가 최대값(32000)을 초과하면 실패한다', () => {
         expect(() => aiChatSendSchema.parse({ content: 'x', maxTokens: 40000 })).toThrow()
     })
+
+    test('context를 파싱한다', () => {
+        expect(aiChatSendSchema.parse({ content: 'x', context: 'mail body' }).context).toBe('mail body')
+    })
+
+    test('context 없이도 파싱된다(optional)', () => {
+        expect(aiChatSendSchema.parse({ content: 'x' }).context).toBeUndefined()
+    })
 })
 
 describe('aiCompletionSchema', () => {

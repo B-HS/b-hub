@@ -60,12 +60,13 @@ export const createAiChatService = ({ connectionService, promptService, sessionS
         const images = input.attachmentIds?.length ? await attachmentService.resolveImages(userId, input.attachmentIds) : []
 
         const modelId = input.modelId ?? session.modelId
+        const system = input.context ? mergeSystem(systemText, input.context) : systemText
         const messages: AiChatMessage[] = [
             ...seedMessages,
             ...history.map(toChatMessage),
             { role: 'user', content: input.content, images: images.length ? images : undefined },
         ]
-        return { session, row, client, modelId, system: systemText, messages }
+        return { session, row, client, modelId, system, messages }
     }
 
     const prepareCompletion = async (userId: string, input: AiCompletion) => {
