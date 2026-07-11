@@ -466,6 +466,7 @@ export const mailMessages = mysqlTable(
         index('idx_mail_messages_sent_at').on(table.sentAt),
         index('idx_mail_messages_thread').on(table.threadId),
         index('idx_mail_messages_account_read').on(table.accountId, table.isRead),
+        index('idx_mail_messages_account_starred_received').on(table.accountId, table.isStarred, table.receivedAt),
         index('idx_mail_messages_account_folder_received').on(table.accountId, table.folderId, table.receivedAt),
         index('idx_mail_messages_account_received').on(table.accountId, table.receivedAt),
     ],
