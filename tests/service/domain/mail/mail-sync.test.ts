@@ -392,6 +392,41 @@ describe('createMailSyncService', () => {
             expect(result.historicalSync!.progressPercent).toBeNull()
         })
 
+        test('30분 이상 무활동 세션은 error 로 만료시키고 historicalSync null 반환', async () => {
+            const accountService = createMockAccountService()
+            const staleDate = new Date(Date.now() - 31 * 60 * 1000)
+            const updateSession = mock(() => Promise.resolve())
+            const deps = createDeps({
+                accountService,
+                db: {
+                    getActiveSession: mock(() => Promise.resolve(mockSession({ status: 'paused', startedAt: staleDate, lastBatchAt: staleDate }))),
+                    updateSession,
+                },
+            })
+            const service = createMailSyncService(deps)
+            const result = await service.getSyncStatus(1, 'user-1')
+
+            expect(result.historicalSync).toBeNull()
+            expect(updateSession).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'error' }))
+        })
+
+        test('최근 활동한 세션은 만료시키지 않는다', async () => {
+            const accountService = createMockAccountService()
+            const updateSession = mock(() => Promise.resolve())
+            const deps = createDeps({
+                accountService,
+                db: {
+                    getActiveSession: mock(() => Promise.resolve(mockSession({ status: 'paused', lastBatchAt: new Date() }))),
+                    updateSession,
+                },
+            })
+            const service = createMailSyncService(deps)
+            const result = await service.getSyncStatus(1, 'user-1')
+
+            expect(result.historicalSync).not.toBeNull()
+            expect(updateSession).not.toHaveBeenCalled()
+        })
+
         test('세션 없으면 historicalSync null', async () => {
             const accountService = createMockAccountService()
             const deps = createDeps({ accountService })

@@ -94,6 +94,8 @@ type MailSyncServiceDeps = {
     accountService: MailAccountService
 }
 
+const SESSION_STALE_MS = 30 * 60 * 1000
+
 export const createMailSyncService = (deps: MailSyncServiceDeps) => {
     const yieldEventLoop = () => new Promise<void>((r) => setTimeout(r, 0))
 
@@ -390,7 +392,16 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
     const getSyncStatus = async (accountId: number, userId: string) => {
         const account = await deps.accountService.getById(accountId, userId)
         const latestLog = await deps.db.getLatestSyncLog(accountId)
-        const activeSession = await deps.db.getActiveSession(accountId)
+        let activeSession = await deps.db.getActiveSession(accountId)
+
+        if (activeSession) {
+            const lastActivity = activeSession.lastBatchAt ?? activeSession.startedAt
+            const isStale = !lastActivity || Date.now() - lastActivity.getTime() > SESSION_STALE_MS
+            if (isStale) {
+                await deps.db.updateSession(activeSession.id, { status: 'error', completedAt: new Date() })
+                activeSession = null
+            }
+        }
 
         const historicalSync = activeSession
             ? {
