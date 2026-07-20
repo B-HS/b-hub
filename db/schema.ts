@@ -376,6 +376,7 @@ export const mailAccounts = mysqlTable(
         provider: varchar('provider', { length: 20 }).notNull(),
         email: varchar('email', { length: 255 }).notNull(),
         displayName: varchar('display_name', { length: 100 }),
+        signature: text('signature'),
         credentials: text('credentials'),
         imapHost: varchar('imap_host', { length: 255 }),
         imapPort: int('imap_port'),

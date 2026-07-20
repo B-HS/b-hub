@@ -24,6 +24,7 @@ const formatAccount = (a: {
     provider: string
     email: string
     displayName: string | null
+    signature: string | null
     isActive: boolean
     lastSyncAt: Date | null
     lastSyncStatus: string | null
@@ -34,6 +35,7 @@ const formatAccount = (a: {
     provider: a.provider,
     email: a.email,
     displayName: a.displayName,
+    signature: a.signature,
     isActive: a.isActive,
     lastSyncAt: a.lastSyncAt?.toISOString() ?? null,
     lastSyncStatus: a.lastSyncStatus,

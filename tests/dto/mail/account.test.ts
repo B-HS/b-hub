@@ -102,6 +102,25 @@ describe('mailAccountCreateSchema', () => {
         ).toThrow()
     })
 
+    test('signature를 파싱한다', () => {
+        const result = mailAccountCreateSchema.parse({
+            provider: 'gmail',
+            email: 'test@gmail.com',
+            signature: '-- \nHyunseok',
+        })
+        expect(result.signature).toBe('-- \nHyunseok')
+    })
+
+    test('signature 최대 길이(10000)를 초과하면 실패한다', () => {
+        expect(() =>
+            mailAccountCreateSchema.parse({
+                provider: 'gmail',
+                email: 'test@gmail.com',
+                signature: 'a'.repeat(10001),
+            }),
+        ).toThrow()
+    })
+
     test('내부 IP imapHost를 차단한다', () => {
         expect(() =>
             mailAccountCreateSchema.parse({
@@ -195,5 +214,15 @@ describe('mailAccountUpdateSchema', () => {
         const result = mailAccountUpdateSchema.parse({})
         expect(result.displayName).toBeUndefined()
         expect(result.isActive).toBeUndefined()
+    })
+
+    test('signature를 업데이트한다', () => {
+        const result = mailAccountUpdateSchema.parse({ signature: '-- \nHyunseok' })
+        expect(result.signature).toBe('-- \nHyunseok')
+    })
+
+    test('signature를 null로 초기화할 수 있다', () => {
+        const result = mailAccountUpdateSchema.parse({ signature: null })
+        expect(result.signature).toBeNull()
     })
 })

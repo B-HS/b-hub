@@ -132,7 +132,7 @@
 
 ## mail
 
-마운트: `/mail/accounts`, `/mail/folders`, `/mail/messages`, `/mail/sync`, `/mail/uploads`. 전 경로 `세션`(`withAuth`).
+마운트: `/mail/accounts`, `/mail/folders`, `/mail/messages`, `/mail/drafts`, `/mail/sync`, `/mail/uploads`. 전 경로 `세션`(`withAuth`).
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
@@ -146,7 +146,7 @@
 | GET | `/api/mail/accounts/connect/google/callback` | 세션 | Gmail OAuth 콜백(302 리다이렉트) | `route/mail/account.ts` |
 | GET | `/api/mail/folders` | 세션 | 폴더 목록(accountId 쿼리) | `route/mail/folder.ts` |
 | GET | `/api/mail/messages` | 세션 | 메시지 목록(페이지네이션) | `route/mail/message.ts` |
-| GET | `/api/mail/messages/search` | 세션 | 메일 검색 | `route/mail/message.ts` |
+| GET | `/api/mail/messages/search` | 세션 | 메일 검색(제목·본문 + 구조화 필터·관련도 정렬). q optional, `from/toAddress`·`hasAttachment`·`isRead`·`isStarred`·`dateFrom/To`·`folderId`·`excludeJunk`(기본 true) | `route/mail/message.ts` |
 | GET | `/api/mail/messages/thread` | 세션 | 스레드 조회 | `route/mail/message.ts` |
 | GET | `/api/mail/messages/senders` | 세션 | 발신자 목록 | `route/mail/message.ts` |
 | GET | `/api/mail/messages/:messageId` | 세션 | 메시지 상세 | `route/mail/message.ts` |
@@ -161,13 +161,16 @@
 | POST | `/api/mail/messages/:messageId/reply` | 세션 | 답장 | `route/mail/message.ts` |
 | POST | `/api/mail/messages/:messageId/forward` | 세션 | 전달 | `route/mail/message.ts` |
 | GET | `/api/mail/messages/:messageId/attachments/:attachmentId` | 세션 | 첨부파일 다운로드 | `route/mail/message.ts` |
+| POST | `/api/mail/drafts` | 세션 | 임시보관 메일 생성(로컬 전용, `isDraft=true`, 계정 drafts 폴더에 저장) | `route/mail/draft.ts` |
+| PUT | `/api/mail/drafts/:id` | 세션 | 임시보관 메일 수정(부분 업데이트) | `route/mail/draft.ts` |
+| DELETE | `/api/mail/drafts/:id` | 세션 | 임시보관 메일 삭제(발송 후 정리 포함) | `route/mail/draft.ts` |
 | POST | `/api/mail/sync` | 세션 | Incremental 동기화(rate-limit) | `route/mail/sync.ts` |
 | POST | `/api/mail/sync/historical` | 세션 | Historical 배치 동기화 | `route/mail/sync.ts` |
 | GET | `/api/mail/sync/status` | 세션 | 동기화 상태 조회 | `route/mail/sync.ts` |
 | POST | `/api/mail/uploads` | 세션 | 첨부/인라인 이미지 업로드(multipart) | `route/mail/upload.ts` |
 | DELETE | `/api/mail/uploads/:uploadId` | 세션 | 업로드 파일 삭제 | `route/mail/upload.ts` |
 
-파일 카운트: `account.ts` = 8, `folder.ts` = 1, `message.ts` = 16, `sync.ts` = 3, `upload.ts` = 2. 상세: [../domains/mail.md](../domains/mail.md).
+파일 카운트: `account.ts` = 8, `folder.ts` = 1, `message.ts` = 16, `draft.ts` = 3, `sync.ts` = 3, `upload.ts` = 2. 상세: [../domains/mail.md](../domains/mail.md).
 
 ---
 
@@ -415,6 +418,6 @@
 | `route/drive/lifecycle.ts` | 3 | `route/ai/connection.ts` | 4 |
 | `route/ai/model.ts` | 2 | `route/ai/prompt.ts` | 4 |
 | `route/ai/session.ts` | 5 | `route/ai/chat.ts` | 2 |
-| `route/ai/attachment.ts` | 2 | | |
+| `route/ai/attachment.ts` | 2 | `route/mail/draft.ts` | 3 |
 
-- API(`/api/*`) 라우트 등록 합계 = **169**(기존 148 + ai 21, SSE 스트리밍 2 포함). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **172**(기존 148 + ai 21 + mail drafts 3, SSE 스트리밍 2 포함). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

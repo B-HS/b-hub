@@ -7,6 +7,7 @@ const mockAccount = {
     provider: 'gmail',
     email: 'test@gmail.com',
     displayName: null,
+    signature: '-- \nHyunseok',
     isActive: true,
     lastSyncAt: new Date(),
     lastSyncStatus: 'success',
@@ -43,6 +44,7 @@ describe('GET /mail/accounts', () => {
         const body = await res.json()
         expect(body.success).toBe(true)
         expect(body.data).toHaveLength(1)
+        expect(body.data[0].signature).toBe('-- \nHyunseok')
     })
 
     test('인증 없으면 401을 반환한다', async () => {
@@ -101,6 +103,17 @@ describe('PATCH /mail/accounts/:accountId', () => {
             body: JSON.stringify({ displayName: 'New Name' }),
         })
         expect(res.status).toBe(200)
+    })
+
+    test('signature를 수정한다', async () => {
+        const { app, deps } = createApp()
+        const res = await app.request('/mail/accounts/1', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ signature: '-- \nNew sig' }),
+        })
+        expect(res.status).toBe(200)
+        expect(deps.mailAccountService.update).toHaveBeenCalledWith(1, 'user-1', expect.objectContaining({ signature: '-- \nNew sig' }))
     })
 })
 

@@ -10,6 +10,7 @@ export const mailAccountCreateSchema = z.object({
     provider: z.enum(['gmail', 'naver', 'daum', 'imap']),
     email: z.email(),
     displayName: z.string().max(100).optional(),
+    signature: z.string().max(10000).optional(),
     credentials: z
         .object({
             username: z.string().min(1).optional(),
@@ -27,6 +28,7 @@ export const mailAccountCreateSchema = z.object({
 
 export const mailAccountUpdateSchema = z.object({
     displayName: z.string().max(100).optional(),
+    signature: z.string().max(10000).nullable().optional(),
     isActive: z.boolean().optional(),
 })
 
@@ -35,6 +37,7 @@ export const mailAccountResponseSchema = z.object({
     provider: z.string(),
     email: z.string(),
     displayName: z.string().nullable(),
+    signature: z.string().nullable(),
     isActive: z.boolean(),
     lastSyncAt: z.string().nullable(),
     lastSyncStatus: z.string().nullable(),

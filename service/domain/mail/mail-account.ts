@@ -12,7 +12,7 @@ type MailAccountDb = {
     insert: (data: NewMailAccount) => Promise<{ id: number }>
     update: (
         id: number,
-        data: Partial<Pick<MailAccount, 'displayName' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
+        data: Partial<Pick<MailAccount, 'displayName' | 'signature' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
     ) => Promise<void>
 
     remove: (id: number) => Promise<void>
@@ -47,6 +47,7 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
             provider: string
             email: string
             displayName?: string
+            signature?: string
             credentials?: { username?: string; password: string }
             imapHost?: string
             imapPort?: number
@@ -75,6 +76,7 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
             provider: input.provider,
             email: input.email,
             displayName: input.displayName ?? null,
+            signature: input.signature ?? null,
             credentials: encryptedCredentials,
             imapHost: input.imapHost ?? null,
             imapPort: input.imapPort ?? null,
@@ -88,10 +90,11 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
         return result
     }
 
-    const update = async (accountId: number, userId: string, input: { displayName?: string; isActive?: boolean }) => {
+    const update = async (accountId: number, userId: string, input: { displayName?: string; signature?: string | null; isActive?: boolean }) => {
         await assertOwnership(accountId, userId)
-        const updateData: Partial<Pick<MailAccount, 'displayName' | 'isActive'>> = {}
+        const updateData: Partial<Pick<MailAccount, 'displayName' | 'signature' | 'isActive'>> = {}
         if (input.displayName !== undefined) updateData.displayName = input.displayName
+        if (input.signature !== undefined) updateData.signature = input.signature
         if (input.isActive !== undefined) updateData.isActive = input.isActive
         await deps.db.update(accountId, updateData)
     }

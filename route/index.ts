@@ -18,6 +18,7 @@ import { createThumbnailRoute } from './blog/thumbnail'
 import { createMailAccountRoute } from './mail/account'
 import { createMailFolderRoute } from './mail/folder'
 import { createMailMessageRoute } from './mail/message'
+import { createMailDraftRoute } from './mail/draft'
 import { createMailSyncRoute } from './mail/sync'
 import { createMailUploadRoute } from './mail/upload'
 import { createSpotifyAccountRoute } from './spotify/account'
@@ -202,6 +203,13 @@ export const createRouter = (deps: RouterDeps = {}) => {
             mailMessageService: stub(deps.mailMessageService),
             getSession: stubFn(deps.getSession) as never,
             checkLimit: deps.mailCheckLimit,
+        }),
+    )
+    router.route(
+        '/mail/drafts',
+        createMailDraftRoute({
+            mailDraftService: stub(deps.mailDraftService),
+            getSession: stubFn(deps.getSession) as never,
         }),
     )
     router.route(

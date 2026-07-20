@@ -7,6 +7,7 @@ const mockAccount = (overrides = {}) => ({
     provider: 'gmail',
     email: 'test@gmail.com',
     displayName: null,
+    signature: null,
     credentials: null,
     imapHost: null,
     imapPort: null,
@@ -144,6 +145,26 @@ describe('createMailAccountService', () => {
             expect(insertCall.credentials).toBeNull()
         })
 
+        test('signature를 저장한다', async () => {
+            const deps = createDeps()
+            const service = createMailAccountService(deps)
+            await service.create('user-1', {
+                provider: 'gmail',
+                email: 'test@gmail.com',
+                signature: '-- \nHyunseok',
+            })
+            const insertCall = deps.db.insert.mock.calls[0][0] as Record<string, unknown>
+            expect(insertCall.signature).toBe('-- \nHyunseok')
+        })
+
+        test('signature가 없으면 null', async () => {
+            const deps = createDeps()
+            const service = createMailAccountService(deps)
+            await service.create('user-1', { provider: 'gmail', email: 'test@gmail.com' })
+            const insertCall = deps.db.insert.mock.calls[0][0] as Record<string, unknown>
+            expect(insertCall.signature).toBeNull()
+        })
+
         test('계정 수가 제한 미만이면 생성에 성공한다', async () => {
             const deps = createDeps({ db: { countByUser: mock(() => Promise.resolve(9)) } })
             const service = createMailAccountService(deps)
@@ -219,6 +240,20 @@ describe('createMailAccountService', () => {
             const service = createMailAccountService(deps)
             await service.update(1, 'user-1', { displayName: 'Updated', isActive: false })
             expect(deps.db.update).toHaveBeenCalledWith(1, { displayName: 'Updated', isActive: false })
+        })
+
+        test('signature를 수정한다', async () => {
+            const deps = createDeps()
+            const service = createMailAccountService(deps)
+            await service.update(1, 'user-1', { signature: '-- \nHyunseok' })
+            expect(deps.db.update).toHaveBeenCalledWith(1, { signature: '-- \nHyunseok' })
+        })
+
+        test('signature를 null로 초기화한다', async () => {
+            const deps = createDeps()
+            const service = createMailAccountService(deps)
+            await service.update(1, 'user-1', { signature: null })
+            expect(deps.db.update).toHaveBeenCalledWith(1, { signature: null })
         })
 
         test('소유권 검증 실패 시 에러를 발생시킨다', async () => {

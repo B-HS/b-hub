@@ -15,11 +15,13 @@
 | `dto/mail/account.ts` | 계정 생성/수정/응답/파라미터 Zod 스키마. `safeHost`(SSRF 차단 `isBlockedHost`), provider enum(`gmail`/`naver`/`daum`/`imap`) |
 | `dto/mail/folder.ts` | 폴더 목록 쿼리(`accountId`)·응답 스키마 |
 | `dto/mail/message.ts` | 목록/검색/스레드/발신자 쿼리, 읽음·별표·이동·삭제 바디, 작성/답장/전달 바디, 메시지 응답·상세 응답 스키마 |
+| `dto/mail/draft.ts` | 임시보관 생성/수정 바디, `id` 파라미터, 임시보관 응답 스키마 |
 | `dto/mail/attachment.ts` | 첨부 다운로드 파라미터(`messageId`·`attachmentId`) |
 | `dto/mail/sync.ts` | incremental 트리거·historical 배치·상태조회 쿼리 스키마 |
 | `route/mail/account.ts` | 계정 CRUD·연결테스트·Gmail OAuth connect/callback |
 | `route/mail/folder.ts` | 폴더 목록 조회 |
 | `route/mail/message.ts` | 목록·검색·스레드·발신자·상세·플래그·이동·삭제·발송·답장·전달·첨부 다운로드 |
+| `route/mail/draft.ts` | 임시보관(Drafts) 생성·수정·삭제 (로컬 전용) |
 | `route/mail/sync.ts` | incremental/historical 동기화·상태 |
 | `route/mail/upload.ts` | 첨부/인라인 업로드·삭제 |
 | `service/domain/mail/mail-provider.ts` | `MailProvider` 인터페이스 + Provider* 타입(메시지·폴더·첨부·동기화 결과·작성 데이터) |
@@ -32,12 +34,14 @@
 | `service/domain/mail/mail-crypto.ts` | 공용 `lib/credential-crypto.ts` 를 감싸는 얇은 래퍼(`createMailCrypto = createCredentialCrypto`). 실제 암복호화 구현은 아래 lib 파일 |
 | `service/domain/mail/mail-sync.ts` | incremental/historical 동기화 오케스트레이션, sync log/session 관리 |
 | `service/domain/mail/mail-message.ts` | 조회·검색·스레드·플래그(별표 thread 전파)·이동·삭제·첨부 다운로드·발송/답장/전달 |
+| `service/domain/mail/mail-draft.ts` | 임시보관 생성/수정/삭제(로컬 전용). drafts 폴더 find-or-create, 소유권 검증, 스레딩 헤더 도출 |
 | `service/domain/mail/mail-upload.ts` | 업로드 검증(MIME·magic bytes·확장자·크기)·저장·발송용 resolve |
 | `compose/mail.ts` | ServiceDb(Drizzle) 구현·의존성 조립. provider factory, OAuth 토큰 getter/refresher, rate limiter, storage adapter |
 | `lib/mail-utils.ts` | 헤더 sanitize, MIME encoded-word, 주소 포맷, `isBlockedHost`, `maskProviderError`, `extractMessageIdTokens`, `deriveThreadId`, `sanitizeFilename` |
 | `lib/mail-thread.ts` | `computeThreadIds`(union-find 스레드 그룹핑, 백필용) |
 | `lib/credential-crypto.ts` | 자격증명 암복호화 구현(AES-256-GCM, v2=scrypt / v1=legacy). mail·ai 도메인이 공유(mail=`MAIL_ENCRYPTION_KEY`, ai=`AI_ENCRYPTION_KEY`) |
 | `scripts/backfill-thread-id.ts` | 기존 메일 `thread_id` 일괄 백필 CLI |
+| `scripts/mail-fulltext-index.ts` | `mail_messages(subject, body_text)` FULLTEXT ngram 인덱스 생성 CLI(멱등). drizzle 0.45.2 가 FULLTEXT/`WITH PARSER` 를 표현 못 해 raw DDL 로 관리 |
 | `tests/…/mail*` | dto·route·service·provider·lib 테스트(하단 테스트 섹션) |
 
 ## 데이터 모델
@@ -46,7 +50,7 @@
 
 | 테이블(물리명) | 핵심 컬럼 | 인덱스/제약 | 관계 |
 |---|---|---|---|
-| `mail_accounts` | `provider`, `email`, `credentials`(암호화 text), `imap_host/port/tls`, `smtp_host/port/tls`, `last_sync_at/status`, `sync_cursor`, `better_auth_account_id` | idx(`user_id`), unique(`user_id`,`email`) | `user_id`→`user`(cascade) |
+| `mail_accounts` | `provider`, `email`, `display_name`, `signature`(text, nullable — 계정별 서명), `credentials`(암호화 text), `imap_host/port/tls`, `smtp_host/port/tls`, `last_sync_at/status`, `sync_cursor`, `better_auth_account_id` | idx(`user_id`), unique(`user_id`,`email`) | `user_id`→`user`(cascade) |
 | `mail_folders` | `remote_folder_id`, `name`, `type`, `parent_id`, `message_count`, `unread_count`, `uid_validity`, `sync_cursor` | idx(`account_id`), unique(`account_id`,`remote_folder_id`) | `account_id`→`mail_accounts`(cascade) |
 | `mail_messages` | `remote_message_id`, `message_id_header`, `thread_id`, `in_reply_to`, `references_header`, `from/to/cc/bcc_address`(json), `subject`, `body_html/text`(longtext), `snippet`, `is_read/starred/draft`, `has_attachments`, `sent_at`, `received_at`, `uid` | unique(`account_id`,`remote_message_id`); idx(`folder_id`),(`sent_at`),(`thread_id`),(`account_id`,`is_read`),(`account_id`,`folder_id`,`received_at`),(`account_id`,`received_at`) | `account_id`→`mail_accounts`, `folder_id`→`mail_folders`(cascade) |
 | `mail_attachments` | `remote_attachment_id`, `filename`, `mime_type`, `size_bytes`, `content_id`, `is_inline`, `r2_key`(캐시 키) | idx(`message_id`), unique(`message_id`,`remote_attachment_id`) | `message_id`→`mail_messages`(cascade) |
@@ -55,6 +59,7 @@
 | `mail_uploads` | `filename`, `mime_type`, `size_bytes`, `r2_key`(unique), `is_inline` | idx(`user_id`) | `user_id`→`user`(cascade) |
 
 - 모든 PK 는 `int autoincrement`. 원격 식별자(`remote_message_id`·`remote_folder_id`·`remote_attachment_id`)는 provider 별 의미가 다르다(Gmail=API id / IMAP=UID·part id).
+- **로컬 임시보관(Drafts)**은 새 테이블 없이 기존 스키마를 재사용한다: `mail_folders` 에 `type='drafts'`·`remote_folder_id='__local_drafts__'` 로컬 폴더 1행 + `mail_messages` 에 `is_draft=true`·`remote_message_id='local-draft:{uuid}'` 행. (→ 아래 "핵심 흐름 › 임시보관(Drafts)" 절)
 
 ## API 엔드포인트
 
@@ -65,14 +70,14 @@
 | GET | `/api/mail/accounts` | 세션 | 계정 목록 |
 | GET | `/api/mail/accounts/:accountId` | 세션 | 계정 상세 |
 | POST | `/api/mail/accounts` | 세션 | 계정 연결(IMAP 수동/프리셋; body=`mailAccountCreateSchema`) |
-| PATCH | `/api/mail/accounts/:accountId` | 세션 | 계정 수정(`displayName`/`isActive`) |
+| PATCH | `/api/mail/accounts/:accountId` | 세션 | 계정 수정(`displayName`/`signature`/`isActive`) |
 | DELETE | `/api/mail/accounts/:accountId` | 세션 | 계정 삭제 |
 | POST | `/api/mail/accounts/:accountId/test` | 세션 | 연결 테스트(`provider.testConnection`) |
 | GET | `/api/mail/accounts/connect/google` | 세션 | Gmail OAuth 시작 → Google 로 302 |
 | GET | `/api/mail/accounts/connect/google/callback` | 세션 | OAuth 콜백 → 계정 생성/연결 후 redirect |
 | GET | `/api/mail/folders?accountId=` | 세션 | 폴더 목록 |
 | GET | `/api/mail/messages` | 세션 | 메시지 목록(페이지네이션, `accountId`/`folderId`/`isRead`/`isStarred` 필터) |
-| GET | `/api/mail/messages/search?q=` | 세션 | 제목·snippet LIKE 검색 |
+| GET | `/api/mail/messages/search` | 세션 | 제목·본문 검색 + 구조화 필터(`q` optional, `accountId`·`folderId`·`fromAddress`·`toAddress`·`hasAttachment`·`isRead`·`isStarred`·`dateFrom`·`dateTo`·`excludeJunk` 기본 true). q 있으면 관련도(FULLTEXT) 정렬, 없으면 `received_at` desc |
 | GET | `/api/mail/messages/thread?accountId=&threadId=` | 세션 | 같은 thread 메시지(sent_at 오름차순) |
 | GET | `/api/mail/messages/senders` | 세션 | 발신자 목록(주소→이름) |
 | GET | `/api/mail/messages/:messageId` | 세션 | 상세 + 첨부. 안읽음이면 백그라운드 읽음처리 |
@@ -87,6 +92,9 @@
 | POST | `/api/mail/messages/:messageId/reply` | 세션 | 답장(In-Reply-To/References 자동) |
 | POST | `/api/mail/messages/:messageId/forward` | 세션 | 전달 |
 | GET | `/api/mail/messages/:messageId/attachments/:attachmentId` | 세션 | 첨부 다운로드(바이너리 Response) |
+| POST | `/api/mail/drafts` | 세션 | 임시보관 생성(로컬 전용, `isDraft=true`, drafts 폴더 저장) |
+| PUT | `/api/mail/drafts/:id` | 세션 | 임시보관 수정(부분 업데이트) |
+| DELETE | `/api/mail/drafts/:id` | 세션 | 임시보관 삭제(발송 후 정리 포함) |
 | POST | `/api/mail/sync` | 세션 + rate limit | incremental 동기화 |
 | POST | `/api/mail/sync/historical` | 세션 | historical 배치 동기화 |
 | GET | `/api/mail/sync/status?accountId=` | 세션 | 최신 로그 + 진행 세션 상태 |
@@ -120,6 +128,12 @@
 - **thread_id 산출**: Gmail 은 native `raw.threadId` 를 그대로 사용. IMAP 은 native thread 가 없어 `deriveThreadId({references, inReplyTo, messageIdHeader})` 로 도출(References 첫 토큰 > In-Reply-To > Message-ID 우선순위). IMAP envelope 에는 References 가 없어 fetch 쿼리에 `headers:['references']` 를 추가하고 `parseReferencesHeader` 로 파싱한다. 상세는 [../bug/mail-imap-thread-id.md](../bug/mail-imap-thread-id.md).
 - `getThread(accountId, threadId)` 는 `mail_messages.thread_id` 가 같은 행을 `sent_at` 순으로 반환한다.
 
+### 검색(`search`) — 본문·필터·정렬
+
+- `search` 는 소유 계정 스코프 위에 구조화 필터(`fromAddress`/`toAddress` JSON 부분일치, `hasAttachment`/`isRead`/`isStarred`, `dateFrom`/`dateTo` = `received_at` 범위, `folderId`, `excludeJunk`)를 AND 로 얹는다. `excludeJunk`(기본 true)는 `type IN ('trash','spam')` 폴더의 메시지를 서브쿼리로 제외한다 — 정크 폴더 안에서 검색하려면 클라이언트가 `excludeJunk=false` 를 보낸다(`folderId` 와 독립).
+- **본문 검색·정렬은 FULLTEXT ngram 인덱스 유무에 따라 갈린다.** `compose/mail.ts` 가 부팅 후 1회 `information_schema` 로 `ft_mail_messages_subject_body` 존재를 프로브(프로세스당 메모이즈)한다. 있으면 q 질의는 `MATCH(subject, body_text) AGAINST(q IN NATURAL LANGUAGE MODE)` + 관련도 desc·`received_at` desc 정렬. 없으면 `subject`/`body_text`/`snippet` 3열 `LIKE` + `received_at` desc 로 **안전 폴백**(500 없음). q 가 없으면 필터만으로 `received_at` desc.
+- **인덱스는 drizzle 스키마 밖에서 관리한다**: drizzle 0.45.2 는 FULLTEXT·`WITH PARSER ngram` 을 표현 못 해 `db/schema.ts` 에 없다. `bun run scripts/mail-fulltext-index.ts`(멱등) 로 적용하면 다음 부팅부터 MATCH 경로로 승격. ngram 은 한국어 등 CJK 토크나이징에 필요(기본 파서는 공백 분절이라 한국어 미검색). `db:push` 는 이 인덱스를 관리하지 않으며, push 후 드롭될 수 있으면 스크립트를 재실행하고 앱을 재기동한다(재기동 시 프로브가 다시 감지).
+
 ### 별표 thread 전파 (커밋 f20afcf)
 
 - `markStarred`/`unmarkStarred` 는 먼저 `expandToThreadMessageIds(messageIds, userId)` 로 대상을 확장한다. 확장 규칙: 소유권(userId) 검증된 메시지 집합에 대해, `thread_id` 가 있는 것은 같은 `(account_id, thread_id)` 의 모든 메일을 추가하고, `thread_id` 가 null 인 메일은 자기 자신만 유지. 확장된 id 로 `applyFlagAction` 실행(provider 플래그: IMAP `\\Flagged`, Gmail `STARRED` label + DB `is_starred`).
@@ -137,6 +151,20 @@
 - **업로드(`mail-upload.ts`)**: MIME 정규식 검증. inline 은 이미지 MIME 화이트리스트 + magic bytes + 10MB 제한, 일반 첨부는 위험 MIME/확장자 차단 + 25MB 제한. `mail/uploads/{userId}/{uuid}/{filename}` 로 저장하고 `mail_uploads` 기록. `resolveForSend(ids, userId)` 가 발송 시 스토리지에서 내용을 내려받아 `ComposeAttachment[]` 로 만든다.
 - **발송(`send`/`reply`/`forward`)**: `attachmentIds` 가 있으면 `resolveForSend` 로 첨부 해석 후 `provider.sendMessage`. Gmail 은 raw MIME(멀티파트, base64url)을 `/messages/send` 로, IMAP 은 nodemailer SMTP 로 전송. `reply` 는 원본 `messageIdHeader`→In-Reply-To, `referencesHeader`+`messageIdHeader`→References 를 세팅하고 제목 `Re:`. `reply` 는 `to`/`cc` 배열을 그대로 받아 발송하므로 프론트가 원문 From/To/Cc 로 reply-all 대상을 계산해 넘길 수 있다(미지정 시 `to`=원문 발신자). `forward` 는 원문 인용 + 제목 `Fwd:`.
 - **plain-text 대체본(multipart/alternative)**: `bodyText` 미지정 시 `bodyHtml` 을 `htmlToPlainText`(`lib/mail-utils.ts`)로 변환해 text 파트를 자동 생성한다. Gmail 은 `multipart/alternative`(text/plain + text/html, 첨부 동반 시 `multipart/mixed` 로 래핑), IMAP 은 nodemailer `text`+`html` 로 전송. 따라서 프론트는 `bodyHtml` 만 보내도 되고, `bodyText` 를 명시하면 그 값이 text 파트로 쓰인다.
+
+### 임시보관(Drafts) — 로컬 전용 (`mail-draft.ts`)
+
+- **v1 은 로컬 전용**이다. IMAP `APPEND`/Gmail draft API 로 원격 동기화하지 않고, `mail_messages` 에 `is_draft=true` 행으로만 저장한다. 별도 draft 테이블·컬럼은 없다(기존 메시지 스키마 재사용).
+- **drafts 폴더 find-or-create**: 계정의 `type='drafts'` 폴더(가장 낮은 `id`)를 찾고, 없으면 로컬 drafts 폴더를 생성한다(`remote_folder_id='__local_drafts__'`, `name='Drafts'`, `type='drafts'`, `onDuplicateKeyUpdate` 로 경합 방어). 이후 실제 동기화가 provider 의 drafts 폴더(다른 `remote_folder_id`)를 별도로 만들 수 있어 계정당 drafts 폴더가 2개 공존할 수 있다(로컬 draft 는 항상 `__local_drafts__` 쪽).
+- **생성(`createDraft`)**: 계정 소유권 검증(`accountService.getById`) → drafts 폴더 확보 → `remote_message_id='local-draft:{uuid}'`(계정 내 unique), `from`=계정 이메일, `is_read=true`·`is_starred=false`·`is_draft=true`·`has_attachments=false`, `received_at=now`(목록 정렬용), `sent_at=null`. `snippet` 은 `bodyText`(없으면 `htmlToPlainText(bodyHtml)`) 200자로 자동 생성. 폴더 카운트 재계산.
+- **스레딩**: `inReplyTo`/`references` 를 직접 받거나 `replyToMessageId` 로 원본에서 도출(원본 소유권 검증, `in_reply_to`=원본 Message-ID, `references`=원본 References+Message-ID, `thread_id`=원본 thread). 명시 값이 도출 값보다 우선.
+- **조회·재편집**: 별도 조회 엔드포인트 없음 — 기존 `GET /api/mail/messages`(폴더/계정 필터, `is_draft` 미필터라 자연 포함)·`GET /api/mail/messages/:id`(recipients·body 포함 상세)로 목록·재편집한다.
+- **수정(`updateDraft`)/삭제(`deleteDraft`)**: 대상이 `is_draft=true` 이고 사용자 소유일 때만(아니면 `MAIL_MESSAGE_NOT_FOUND`). 수정은 전달된 필드만 부분 반영(body 변경 시 snippet 재계산). 삭제 후 폴더 카운트 재계산.
+- **발송 후 정리**: 발송은 프론트가 기존 `POST /api/mail/messages/send`(신규 draft) 또는 reply 엔드포인트로 하고, 발송 성공 후 `DELETE /api/mail/drafts/:id` 로 임시보관을 지운다. **주의**: `send` 바디(`mailComposeSchema`)는 `inReplyTo`/`references` 를 받지 않으므로, 답장 draft 를 send 로 보내면 스레딩 헤더가 유실된다 — 스레딩 유지가 필요하면 원본 기준 reply 엔드포인트를 쓴다(기존 send 계약은 미변경).
+
+### 계정 서명(signature)
+
+- `mail_accounts.signature`(text, nullable) = 계정별 서명. `mailAccountCreateSchema`/`mailAccountUpdateSchema` 로 입력(최대 10000자, update 는 `null` 로 초기화 가능), 계정 응답(`formatAccount`)에 `signature` 필드로 노출. 서버는 저장·노출만 하고 발송 본문에 자동 합성하지는 않는다(합성은 프론트 담당).
 
 ### 자격증명 암호화 (`lib/credential-crypto.ts`)
 
@@ -191,9 +219,9 @@
 
 `bun test`(부분: `bun test <경로>`). 관련 파일:
 
-- dto: `tests/dto/mail/account.test.ts`, `message.test.ts`, `folder.test.ts`, `sync.test.ts`, `attachment.test.ts`
-- route: `tests/route/mail/account.test.ts`, `message.test.ts`, `folder.test.ts`, `sync.test.ts`, `upload.test.ts`
-- service: `tests/service/domain/mail/mail-account.test.ts`, `mail-oauth-connect.test.ts`, `mail-provider-factory.test.ts`, `mail-sync.test.ts`, `mail-message.test.ts`, `mail-upload.test.ts`, `mail-crypto.test.ts`
+- dto: `tests/dto/mail/account.test.ts`(+signature), `message.test.ts`, `draft.test.ts`, `folder.test.ts`, `sync.test.ts`, `attachment.test.ts`
+- route: `tests/route/mail/account.test.ts`(+signature), `message.test.ts`, `draft.test.ts`, `folder.test.ts`, `sync.test.ts`, `upload.test.ts`
+- service: `tests/service/domain/mail/mail-account.test.ts`(+signature), `mail-message.test.ts`, `mail-draft.test.ts`, `mail-oauth-connect.test.ts`, `mail-provider-factory.test.ts`, `mail-sync.test.ts`, `mail-upload.test.ts`, `mail-crypto.test.ts`
 - provider: `tests/service/domain/mail/providers/imap-provider.test.ts`, `gmail-provider.test.ts`, `gmail-helpers.test.ts`
 - lib: `tests/lib/mail-utils.test.ts`, `tests/lib/mail-thread.test.ts`
 - 어드민: `tests/page/admin/mail.test.ts`

@@ -6,6 +6,7 @@ import { createMailProviderFactory } from '../service/domain/mail/mail-provider-
 import { createMailAccountService } from '../service/domain/mail/mail-account'
 import { createMailSyncService } from '../service/domain/mail/mail-sync'
 import { createMailMessageService } from '../service/domain/mail/mail-message'
+import { createMailDraftService } from '../service/domain/mail/mail-draft'
 import { createMailUploadService } from '../service/domain/mail/mail-upload'
 import { createMailOAuthConnectService } from '../service/domain/mail/mail-oauth-connect'
 import { createRateLimiter } from '../lib/rate-limit'
@@ -81,7 +82,7 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         },
         update: async (
             id: number,
-            data: Partial<Pick<schema.MailAccount, 'displayName' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
+            data: Partial<Pick<schema.MailAccount, 'displayName' | 'signature' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
         ) => {
             await db.update(schema.mailAccounts).set(data).where(eq(schema.mailAccounts.id, id))
         },
@@ -710,6 +711,99 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         },
     })
 
+    const mailDraftDb = {
+        findDraftsFolder: async (accountId: number) => {
+            const [folder] = await db
+                .select()
+                .from(schema.mailFolders)
+                .where(and(eq(schema.mailFolders.accountId, accountId), eq(schema.mailFolders.type, 'drafts')))
+                .orderBy(schema.mailFolders.id)
+                .limit(1)
+            return folder ?? null
+        },
+        createDraftsFolder: async (data: { accountId: number; remoteFolderId: string; name: string; type: string }) => {
+            await db
+                .insert(schema.mailFolders)
+                .values({
+                    accountId: data.accountId,
+                    remoteFolderId: data.remoteFolderId,
+                    name: data.name,
+                    type: data.type,
+                    parentId: null,
+                    messageCount: 0,
+                    unreadCount: 0,
+                    uidValidity: null,
+                })
+                .onDuplicateKeyUpdate({ set: { name: data.name, type: data.type } })
+            const [folder] = await db
+                .select()
+                .from(schema.mailFolders)
+                .where(and(eq(schema.mailFolders.accountId, data.accountId), eq(schema.mailFolders.remoteFolderId, data.remoteFolderId)))
+                .limit(1)
+            return folder
+        },
+        insertDraft: async (data: {
+            accountId: number
+            folderId: number
+            remoteMessageId: string
+            fromAddress: { name: string; address: string } | null
+            toAddresses: { name: string; address: string }[]
+            ccAddresses: { name: string; address: string }[]
+            bccAddresses: { name: string; address: string }[]
+            subject: string | null
+            bodyHtml: string | null
+            bodyText: string | null
+            snippet: string | null
+            threadId: string | null
+            inReplyTo: string | null
+            referencesHeader: string | null
+            isRead: boolean
+            isStarred: boolean
+            isDraft: boolean
+            hasAttachments: boolean
+            sentAt: Date | null
+            receivedAt: Date | null
+        }) => {
+            const [result] = await db.insert(schema.mailMessages).values(data).$returningId()
+            return { id: result.id }
+        },
+        getMessageById: async (id: number) => {
+            const [msg] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id)).limit(1)
+            return msg ?? null
+        },
+        updateDraft: async (
+            id: number,
+            data: Partial<
+                Pick<
+                    schema.MailMessage,
+                    | 'toAddresses'
+                    | 'ccAddresses'
+                    | 'bccAddresses'
+                    | 'subject'
+                    | 'bodyHtml'
+                    | 'bodyText'
+                    | 'snippet'
+                    | 'inReplyTo'
+                    | 'referencesHeader'
+                >
+            >,
+        ) => {
+            await db.update(schema.mailMessages).set(data).where(eq(schema.mailMessages.id, id))
+        },
+        deleteById: async (id: number) => {
+            await db.delete(schema.mailMessages).where(eq(schema.mailMessages.id, id))
+        },
+        countMessagesByFolder: mailSyncDb.countMessagesByFolder,
+        countUnreadByFolder: mailSyncDb.countUnreadByFolder,
+        updateFolderCounts: mailSyncDb.updateFolderCounts,
+    }
+
+    const mailDraftService = createMailDraftService({
+        db: mailDraftDb,
+        accountService: mailAccountService,
+        generateId: () => crypto.randomUUID(),
+    })
+
     const mailFolderDb = {
         getFoldersByAccount: mailSyncDb.getFoldersByAccount,
     }
@@ -722,6 +816,7 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         mailOAuthConnect,
         mailSyncService,
         mailMessageService,
+        mailDraftService,
         mailUploadService,
         mailFolderDb,
         mailCheckLimit,
