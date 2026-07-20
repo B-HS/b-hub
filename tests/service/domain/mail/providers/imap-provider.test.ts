@@ -8,6 +8,7 @@ const mockImapConnect = mock(() => Promise.resolve())
 const mockImapLogout = mock(() => Promise.resolve())
 
 let mockUids: number[] = []
+let mockMessageCount: number | null = null
 let capturedFetchFields: unknown[] = []
 let mockEnvelopeByUid: Record<number, Record<string, unknown>> = {}
 let mockReferencesByUid: Record<number, string> = {}
@@ -20,7 +21,7 @@ mock.module('imapflow', () => ({
         connect = mockImapConnect
         logout = mockImapLogout
         getMailboxLock = mock(() => Promise.resolve({ release: () => {} }))
-        status = mock(() => Promise.resolve({ messages: mockUids.length }))
+        status = mock(() => Promise.resolve({ messages: mockMessageCount ?? mockUids.length }))
         fetch(range: unknown, fields: unknown, _options?: unknown) {
             capturedFetchQueries.push(range)
             capturedFetchFields.push(fields)
@@ -96,6 +97,7 @@ beforeEach(() => {
     capturedFetchQueries = []
     capturedFetchFields = []
     mockUids = []
+    mockMessageCount = null
     mockEnvelopeByUid = {}
     mockReferencesByUid = {}
 })
@@ -204,6 +206,28 @@ describe('fetchMessages direction', () => {
 
         expect(result.messages.length).toBe(2)
         expect(result.newSyncCursor).toBeNull()
+    })
+
+    test('backward: 범위에 메시지가 없으면 cursor null 반환으로 종결한다', async () => {
+        mockUids = []
+        mockMessageCount = 3
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '10', batchSize: 100, direction: 'backward' })
+
+        expect(result.messages.length).toBe(0)
+        expect(result.newSyncCursor).toBeNull()
+    })
+
+    test('forward: 범위에 메시지가 없으면 기존 cursor를 유지한다', async () => {
+        mockUids = []
+        mockMessageCount = 3
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '30', batchSize: 100 })
+
+        expect(result.messages.length).toBe(0)
+        expect(result.newSyncCursor).toBe('30')
     })
 
     test('forward: 마지막 배치여도 cursor를 유지한다 (incremental용)', async () => {

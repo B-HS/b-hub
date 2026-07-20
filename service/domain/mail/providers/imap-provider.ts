@@ -201,7 +201,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 const batchUids = uids.slice(0, batchSize)
 
                 if (batchUids.length === 0) {
-                    return { messages: [], deletedIds: [], newSyncCursor: cursor ?? null, totalEstimate }
+                    return { messages: [], deletedIds: [], newSyncCursor: direction === 'backward' ? null : (cursor ?? null), totalEstimate }
                 }
 
                 const messages: ProviderMessage[] = []
