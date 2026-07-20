@@ -444,6 +444,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             bodyText?: string
             to?: EmailAddress[]
             cc?: EmailAddress[]
+            bcc?: EmailAddress[]
             attachmentIds?: number[]
         },
     ) => {
@@ -456,6 +457,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         return send(userId, original.accountId, {
             to,
             cc: data.cc,
+            bcc: data.bcc,
             subject: sanitizeHeaderValue(`Re: ${original.subject ?? ''}`),
             bodyHtml: data.bodyHtml,
             bodyText: data.bodyText,

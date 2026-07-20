@@ -95,6 +95,7 @@ export const mailReplySchema = z.object({
     bodyText: z.string().max(1_000_000).optional(),
     to: z.array(emailAddressSchema).optional(),
     cc: z.array(emailAddressSchema).optional(),
+    bcc: z.array(emailAddressSchema).optional(),
     attachmentIds: z.array(z.number().int().positive()).optional(),
 })
 
