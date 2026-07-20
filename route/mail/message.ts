@@ -54,7 +54,7 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
         '/search',
         describeRoute({
             tags: ['Mail'],
-            summary: '메일 검색',
+            summary: '메일 검색(제목·본문 + 구조화 필터·관련도 정렬)',
             responses: { 200: { description: '검색 결과' }, ...errorResponses(['UNAUTHORIZED']) },
         }),
         validator('query', mailMessageSearchQuerySchema),

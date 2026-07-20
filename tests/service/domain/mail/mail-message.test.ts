@@ -148,6 +148,77 @@ describe('createMailMessageService', () => {
         })
     })
 
+    describe('search', () => {
+        test('검색 결과를 반환한다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            const result = await service.search('user-1', { q: 'hello' })
+            expect(result.data).toHaveLength(1)
+            expect(result.total).toBe(1)
+        })
+
+        test('excludeJunk 기본값 true와 페이지네이션 기본값을 db.search에 전달한다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            await service.search('user-1', { q: 'hello' })
+            expect(deps.db.search).toHaveBeenCalledWith(
+                expect.objectContaining({ userId: 'user-1', q: 'hello', excludeJunk: true, page: 1, limit: 20 }),
+            )
+        })
+
+        test('excludeJunk=false를 그대로 전달한다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            await service.search('user-1', { q: 'hello', excludeJunk: false })
+            expect(deps.db.search).toHaveBeenCalledWith(expect.objectContaining({ excludeJunk: false }))
+        })
+
+        test('q 없이 필터만으로 검색할 수 있다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            await service.search('user-1', { isStarred: true })
+            expect(deps.db.search).toHaveBeenCalledWith(expect.objectContaining({ q: undefined, isStarred: true, excludeJunk: true }))
+        })
+
+        test('모든 구조화 필터를 db.search로 전달한다', async () => {
+            const deps = createDeps()
+            const service = createMailMessageService(deps)
+            const dateFrom = new Date('2024-01-01T00:00:00.000Z')
+            const dateTo = new Date('2024-02-01T00:00:00.000Z')
+            await service.search('user-1', {
+                q: 'hi',
+                accountId: 2,
+                folderId: 5,
+                fromAddress: 'alice',
+                toAddress: 'bob',
+                hasAttachment: true,
+                isRead: false,
+                isStarred: true,
+                dateFrom,
+                dateTo,
+                excludeJunk: false,
+                page: 3,
+                limit: 10,
+            })
+            expect(deps.db.search).toHaveBeenCalledWith({
+                userId: 'user-1',
+                q: 'hi',
+                accountId: 2,
+                folderId: 5,
+                fromAddress: 'alice',
+                toAddress: 'bob',
+                hasAttachment: true,
+                isRead: false,
+                isStarred: true,
+                dateFrom,
+                dateTo,
+                excludeJunk: false,
+                page: 3,
+                limit: 10,
+            })
+        })
+    })
+
     describe('getById', () => {
         test('소유한 메시지를 반환한다', async () => {
             const deps = createDeps()

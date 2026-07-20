@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
 import { createMailCrypto } from '../service/domain/mail/mail-crypto'
@@ -361,6 +361,22 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         accountService: mailAccountService,
     })
 
+    let fulltextIndexReady: Promise<boolean> | null = null
+    const isFulltextIndexReady = () => {
+        if (!fulltextIndexReady) {
+            fulltextIndexReady = db
+                .execute(
+                    sql`SELECT 1 AS present FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mail_messages' AND INDEX_NAME = 'ft_mail_messages_subject_body' LIMIT 1`,
+                )
+                .then((res) => {
+                    const rows = Array.isArray(res) ? res[0] : undefined
+                    return Array.isArray(rows) && rows.length > 0
+                })
+                .catch(() => false)
+        }
+        return fulltextIndexReady
+    }
+
     const mailMessageListColumns = {
         id: schema.mailMessages.id,
         accountId: schema.mailMessages.accountId,
@@ -453,7 +469,22 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                 .where(and(eq(schema.mailMessages.accountId, accountId), eq(schema.mailMessages.threadId, threadId)))
                 .orderBy(schema.mailMessages.sentAt)
         },
-        search: async (params: { q: string; accountId?: number; userId: string; page: number; limit: number }) => {
+        search: async (params: {
+            q?: string
+            accountId?: number
+            folderId?: number
+            fromAddress?: string
+            toAddress?: string
+            hasAttachment?: boolean
+            isRead?: boolean
+            isStarred?: boolean
+            dateFrom?: Date
+            dateTo?: Date
+            excludeJunk?: boolean
+            userId: string
+            page: number
+            limit: number
+        }) => {
             const offset = (params.page - 1) * params.limit
 
             let accountIds: number[]
@@ -474,20 +505,60 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                 if (accountIds.length === 0) return { data: [], total: 0 }
             }
 
-            const escaped = escapeLikePattern(params.q)
-            const conditions = [
-                inArray(schema.mailMessages.accountId, accountIds),
-                sql`(${schema.mailMessages.subject} LIKE ${`%${escaped}%`} ESCAPE '\\\\' OR ${schema.mailMessages.snippet} LIKE ${`%${escaped}%`} ESCAPE '\\\\')`,
-            ]
+            const useFulltext = !!params.q && (await isFulltextIndexReady())
+            const matchExpr =
+                params.q && useFulltext
+                    ? sql`MATCH(${schema.mailMessages.subject}, ${schema.mailMessages.bodyText}) AGAINST(${params.q} IN NATURAL LANGUAGE MODE)`
+                    : null
+
+            const conditions = [inArray(schema.mailMessages.accountId, accountIds)]
+
+            if (params.q) {
+                if (matchExpr) {
+                    conditions.push(matchExpr)
+                } else {
+                    const escaped = escapeLikePattern(params.q)
+                    conditions.push(
+                        sql`(${schema.mailMessages.subject} LIKE ${`%${escaped}%`} ESCAPE '\\\\' OR ${schema.mailMessages.bodyText} LIKE ${`%${escaped}%`} ESCAPE '\\\\' OR ${schema.mailMessages.snippet} LIKE ${`%${escaped}%`} ESCAPE '\\\\')`,
+                    )
+                }
+            }
+
+            if (params.fromAddress) {
+                const pattern = `%${escapeLikePattern(params.fromAddress)}%`
+                conditions.push(
+                    sql`(${schema.mailMessages.fromAddress}->>'$.address' LIKE ${pattern} ESCAPE '\\\\' OR ${schema.mailMessages.fromAddress}->>'$.name' LIKE ${pattern} ESCAPE '\\\\')`,
+                )
+            }
+
+            if (params.toAddress) {
+                const pattern = `%${escapeLikePattern(params.toAddress)}%`
+                conditions.push(
+                    sql`(JSON_SEARCH(${schema.mailMessages.toAddresses}, 'one', ${pattern}, NULL, '$[*].address') IS NOT NULL OR JSON_SEARCH(${schema.mailMessages.toAddresses}, 'one', ${pattern}, NULL, '$[*].name') IS NOT NULL)`,
+                )
+            }
+
+            if (params.hasAttachment !== undefined) conditions.push(eq(schema.mailMessages.hasAttachments, params.hasAttachment))
+            if (params.isRead !== undefined) conditions.push(eq(schema.mailMessages.isRead, params.isRead))
+            if (params.isStarred !== undefined) conditions.push(eq(schema.mailMessages.isStarred, params.isStarred))
+            if (params.dateFrom) conditions.push(gte(schema.mailMessages.receivedAt, params.dateFrom))
+            if (params.dateTo) conditions.push(lte(schema.mailMessages.receivedAt, params.dateTo))
+            if (params.folderId) conditions.push(eq(schema.mailMessages.folderId, params.folderId))
+            if (params.excludeJunk) {
+                conditions.push(
+                    sql`${schema.mailMessages.folderId} NOT IN (SELECT ${schema.mailFolders.id} FROM ${schema.mailFolders} WHERE ${schema.mailFolders.type} IN ('trash', 'spam'))`,
+                )
+            }
 
             const whereClause = and(...conditions)
+            const orderBy = matchExpr ? [desc(matchExpr), desc(schema.mailMessages.receivedAt)] : [desc(schema.mailMessages.receivedAt)]
 
             const [data, [{ count }]] = await Promise.all([
                 db
                     .select(mailMessageListColumns)
                     .from(schema.mailMessages)
                     .where(whereClause)
-                    .orderBy(desc(schema.mailMessages.receivedAt))
+                    .orderBy(...orderBy)
                     .limit(params.limit)
                     .offset(offset),
                 db

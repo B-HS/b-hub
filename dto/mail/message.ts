@@ -21,8 +21,29 @@ export const mailMessageListQuerySchema = z.object({
 })
 
 export const mailMessageSearchQuerySchema = z.object({
-    q: z.string().min(1).max(500),
+    q: z.string().min(1).max(500).optional(),
     accountId: z.coerce.number().int().positive().optional(),
+    folderId: z.coerce.number().int().positive().optional(),
+    fromAddress: z.string().min(1).max(255).optional(),
+    toAddress: z.string().min(1).max(255).optional(),
+    hasAttachment: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
+    isRead: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
+    isStarred: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional(),
+    excludeJunk: z
+        .enum(['true', 'false'])
+        .default('true')
+        .transform((v) => v === 'true'),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
 })

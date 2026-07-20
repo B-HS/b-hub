@@ -20,8 +20,17 @@ type MailMessageDb = {
     getById: (id: number) => Promise<(MailMessage & { attachments: MailAttachment[] }) | null>
     getThread: (accountId: number, threadId: string) => Promise<MailMessageSummary[]>
     search: (params: {
-        q: string
+        q?: string
         accountId?: number
+        folderId?: number
+        fromAddress?: string
+        toAddress?: string
+        hasAttachment?: boolean
+        isRead?: boolean
+        isStarred?: boolean
+        dateFrom?: Date
+        dateTo?: Date
+        excludeJunk?: boolean
         userId: string
         page: number
         limit: number
@@ -299,10 +308,36 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         await deps.db.deleteMessages(messageIds)
     }
 
-    const search = async (userId: string, query: { q: string; accountId?: number; page?: number; limit?: number }) => {
+    const search = async (
+        userId: string,
+        query: {
+            q?: string
+            accountId?: number
+            folderId?: number
+            fromAddress?: string
+            toAddress?: string
+            hasAttachment?: boolean
+            isRead?: boolean
+            isStarred?: boolean
+            dateFrom?: Date
+            dateTo?: Date
+            excludeJunk?: boolean
+            page?: number
+            limit?: number
+        },
+    ) => {
         return deps.db.search({
             q: query.q,
             accountId: query.accountId,
+            folderId: query.folderId,
+            fromAddress: query.fromAddress,
+            toAddress: query.toAddress,
+            hasAttachment: query.hasAttachment,
+            isRead: query.isRead,
+            isStarred: query.isStarred,
+            dateFrom: query.dateFrom,
+            dateTo: query.dateTo,
+            excludeJunk: query.excludeJunk ?? true,
             userId,
             page: query.page ?? 1,
             limit: query.limit ?? 20,

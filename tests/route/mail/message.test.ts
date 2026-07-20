@@ -59,9 +59,39 @@ describe('GET /mail/messages/search', () => {
         expect(res.status).toBe(200)
     })
 
-    test('q 없으면 400을 반환한다', async () => {
+    test('q 없이 필터만으로 검색하면 200을 반환한다', async () => {
+        const { app, deps } = createApp()
+        const res = await app.request('/mail/messages/search?isStarred=true')
+        expect(res.status).toBe(200)
+        expect(deps.mailMessageService.search).toHaveBeenCalledWith('user-1', expect.objectContaining({ isStarred: true, excludeJunk: true }))
+        expect(deps.mailMessageService.search.mock.calls[0][1].q).toBeUndefined()
+    })
+
+    test('구조화 필터를 파싱해 서비스로 전달한다', async () => {
+        const { app, deps } = createApp()
+        const res = await app.request(
+            '/mail/messages/search?q=hi&accountId=2&folderId=5&fromAddress=alice&toAddress=bob&hasAttachment=true&isRead=false&isStarred=true&excludeJunk=false&dateFrom=2024-01-01T00:00:00.000Z&dateTo=2024-02-01T00:00:00.000Z',
+        )
+        expect(res.status).toBe(200)
+        const call = deps.mailMessageService.search.mock.calls[0][1]
+        expect(call).toMatchObject({
+            q: 'hi',
+            accountId: 2,
+            folderId: 5,
+            fromAddress: 'alice',
+            toAddress: 'bob',
+            hasAttachment: true,
+            isRead: false,
+            isStarred: true,
+            excludeJunk: false,
+        })
+        expect(call.dateFrom).toBeInstanceOf(Date)
+        expect(call.dateTo).toBeInstanceOf(Date)
+    })
+
+    test('잘못된 excludeJunk 값은 400을 반환한다', async () => {
         const { app } = createApp()
-        const res = await app.request('/mail/messages/search')
+        const res = await app.request('/mail/messages/search?excludeJunk=maybe')
         expect(res.status).toBe(400)
     })
 })

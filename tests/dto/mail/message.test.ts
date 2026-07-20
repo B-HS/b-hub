@@ -48,8 +48,11 @@ describe('mailMessageListQuerySchema', () => {
 })
 
 describe('mailMessageSearchQuerySchema', () => {
-    test('필수 q 필드를 검증한다', () => {
-        expect(() => mailMessageSearchQuerySchema.parse({})).toThrow()
+    test('q 없이도 파싱된다(구조화 필터 전용 검색)', () => {
+        const result = mailMessageSearchQuerySchema.parse({})
+        expect(result.q).toBeUndefined()
+        expect(result.page).toBe(1)
+        expect(result.limit).toBe(20)
     })
 
     test('빈 q는 실패한다', () => {
@@ -62,6 +65,19 @@ describe('mailMessageSearchQuerySchema', () => {
         expect(result.limit).toBe(20)
     })
 
+    test('excludeJunk 기본값은 true다', () => {
+        expect(mailMessageSearchQuerySchema.parse({}).excludeJunk).toBe(true)
+        expect(mailMessageSearchQuerySchema.parse({ q: 'hi' }).excludeJunk).toBe(true)
+    })
+
+    test('excludeJunk=false를 파싱한다', () => {
+        expect(mailMessageSearchQuerySchema.parse({ excludeJunk: 'false' }).excludeJunk).toBe(false)
+    })
+
+    test('excludeJunk 잘못된 값은 실패한다', () => {
+        expect(() => mailMessageSearchQuerySchema.parse({ excludeJunk: 'nope' })).toThrow()
+    })
+
     test('q 최대 길이(500)를 초과하면 실패한다', () => {
         expect(() => mailMessageSearchQuerySchema.parse({ q: 'a'.repeat(501) })).toThrow()
     })
@@ -69,6 +85,47 @@ describe('mailMessageSearchQuerySchema', () => {
     test('q 최대 길이(500) 이내는 성공한다', () => {
         const result = mailMessageSearchQuerySchema.parse({ q: 'a'.repeat(500) })
         expect(result.q).toHaveLength(500)
+    })
+
+    test('accountId/folderId를 숫자로 강제 변환한다', () => {
+        const result = mailMessageSearchQuerySchema.parse({ accountId: '3', folderId: '7' })
+        expect(result.accountId).toBe(3)
+        expect(result.folderId).toBe(7)
+    })
+
+    test('hasAttachment/isRead/isStarred boolean 변환', () => {
+        const result = mailMessageSearchQuerySchema.parse({ hasAttachment: 'true', isRead: 'false', isStarred: 'true' })
+        expect(result.hasAttachment).toBe(true)
+        expect(result.isRead).toBe(false)
+        expect(result.isStarred).toBe(true)
+    })
+
+    test('미지정 boolean 필터는 undefined다', () => {
+        const result = mailMessageSearchQuerySchema.parse({ q: 'hi' })
+        expect(result.hasAttachment).toBeUndefined()
+        expect(result.isRead).toBeUndefined()
+        expect(result.isStarred).toBeUndefined()
+    })
+
+    test('dateFrom/dateTo ISO 문자열을 Date로 강제 변환한다', () => {
+        const result = mailMessageSearchQuerySchema.parse({ dateFrom: '2024-01-02T03:04:05.000Z', dateTo: '2024-02-03T00:00:00.000Z' })
+        expect(result.dateFrom).toBeInstanceOf(Date)
+        expect(result.dateFrom?.toISOString()).toBe('2024-01-02T03:04:05.000Z')
+        expect(result.dateTo).toBeInstanceOf(Date)
+    })
+
+    test('잘못된 dateFrom은 실패한다', () => {
+        expect(() => mailMessageSearchQuerySchema.parse({ dateFrom: 'not-a-date' })).toThrow()
+    })
+
+    test('fromAddress/toAddress를 그대로 파싱한다', () => {
+        const result = mailMessageSearchQuerySchema.parse({ fromAddress: 'alice@corp.com', toAddress: 'bob' })
+        expect(result.fromAddress).toBe('alice@corp.com')
+        expect(result.toAddress).toBe('bob')
+    })
+
+    test('빈 fromAddress는 실패한다', () => {
+        expect(() => mailMessageSearchQuerySchema.parse({ fromAddress: '' })).toThrow()
     })
 })
 
