@@ -72,7 +72,7 @@
 - **`mongodb` 는 v6(6.20.x)에 고정**(`package.json`). `mongodb` 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` `startupSnapshot.isBuildingSnapshot` 을 호출해 **모듈 로드 자체가 크래시**(`NotImplementedError`)한다. v6 은 핑·인덱스 생성이 정상 동작함을 실검증했다. 업그레이드 전 반드시 Bun 지원 여부를 확인한다.
 - **MongoDB DB 명은 코드 상수 `metrics` 로 고정**이라 `MONGODB_URI` 의 path 세그먼트는 무시된다(`db/mongo.ts` `MONGO_DB_NAME`).
 - **rate limit 카운트는 MySQL 이 아니라 Mongo 기준**: `MetricsTokenServiceDb.countEventsSince` 만 `compose/metrics.ts` 에서 `mongo.logs.countDocuments` 로 구현된다(나머지 token DB 는 Drizzle). 토큰 메타와 카운트 소스가 저장소를 넘나든다.
-- **다운 푸시 알림 없음(의도)**: 온라인/오프라인은 `/api/metrics/devices` 조회 시점에만 계산된다. 디바이스가 죽어도 서버가 능동적으로 알리지 않는다 — 하트비트 감시 크론+Discord 알림은 사용자 결정으로 제거됐다(2026-07-22, `docs/PROCESS.md` 참조). 재도입 시 과거 구현은 커밋 `1eed4af` 의 `route/metrics/heartbeat.ts`·`checkHeartbeats` 를 참고한다.
+- **다운 푸시 알림 없음(의도)**: 온라인/오프라인은 `/api/metrics/devices` 조회 시점에만 계산된다. 디바이스가 죽어도 서버가 능동적으로 알리지 않는다 — 하트비트 감시 크론+Discord 알림은 사용자 결정으로 제거됐다(2026-07-22, `docs/PROCESS.md` 참조). 재도입 시 과거 구현은 히스토리의 `feat(metrics)` 최초 커밋(`route/metrics/heartbeat.ts`·`checkHeartbeats`)을 참고한다.
 
 ## 관련 문서
 
