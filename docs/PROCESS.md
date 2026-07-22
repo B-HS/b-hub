@@ -3,9 +3,38 @@
 > 베이스 룰: `CLAUDE.md` + `~/.claude/convention/*`(arrow only, 반환타입 추론, any/unknown 금지, 코드 주석 금지, named export, Factory DI + ServiceDb, `z.infer`/`ReturnType` 유도, 응답 헬퍼, 에러 3파일).
 > 문서 진입점: [index.md](./index.md) · 완료 작업 이력: [history/](./history/)
 
-## 현재 진행 중 작업
+## 최근 완료 작업 — metrics 도메인 신설 (2026-07-22)
 
-- **레포 내 진행 중 작업 없음.** 아래 2026-07-10 세션 작업은 전부 완료(검증 통과)됐다.
+> 시스템 모니터링 대시보드의 수집 API. 클라이언트(Tauri 데스크톱/headless 데몬/ESP32)가 시스템 정보 JSON 을 주기 전송하면 MongoDB 에 저장한다. 토큰(별칭·만료일·scope) 메타는 MySQL, 로그 본문·디바이스 레지스트리는 MongoDB(`MONGODB_URI`). 클라이언트 레포: `~/machboard` (설계 정본: 그쪽 `docs/design.md`).
+>
+> **도메인명 변경(사용자 결정)**: 서버 도메인명은 `machboard` → **`metrics`** 로 확정(테이블 `metrics_token`, 에러 `METRICS_*`, 라우트 `/api/metrics/*`, 헤더 `X-Metrics-Token`, compose `composeMetrics`, 어드민 `/admin/metrics/tokens`). **클라이언트 프로젝트명은 `machboard` 유지**(레포·에이전트 명칭). 아래 체크리스트의 `machboard_*` 표기는 전부 `metrics_*` 로 실현됐다.
+> **mongodb v6 고정**: `mongodb@^6`(6.20.x) 고정 — 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` `startupSnapshot.isBuildingSnapshot` 을 호출해 모듈 로드가 크래시(`NotImplementedError`). v6 은 핑·인덱스 생성 실검증. 업그레이드 전 Bun 지원 확인 필요.
+
+### 사용자 합의 (2026-07-22)
+
+- 토큰: MySQL `machboard_token`(sha256 해시·alias·expiresAt·revokedAt) + **scope `client`(수집 전용) / `admin`(수집+조회+토큰 관리)**. 최초 admin 토큰은 `/admin` SSR 에서 발급.
+- 로그 본문: MongoDB — 클라 JSON(payload)을 그대로 저장 + 메타(deviceId·hostname·os 등) + receivedAt. TTL 90일.
+- 조회 UI: Tauri 어드민 탭(admin scope 토큰 등록으로 로그인, 디바이스 목록+시계열 차트). 토큰 관리 UI 는 SSR `/admin` + Tauri 둘 다.
+- 고도화 포함: 오프라인 버퍼+재시도(클라), 하트비트 다운 감지 Discord 알림, 토큰별 일일 rate limit+바디 크기 제한, 로그인 시 자동 시작(클라).
+
+### 체크리스트 (add-domain.md 절차)
+
+- [x] a. env — `lib/env.ts` 에 `MONGODB_URI` optional 추가
+- [x] b. DB — `db/schema.ts` `metrics_token` 테이블 + 타입 export(`MetricsToken`/`NewMetricsToken`), `db/mongo.ts` Mongo 싱글턴(+인덱스 보장, `db:push` 반영)
+- [x] c. 에러 3파일 — `METRICS_*` 코드·메시지·상태 8종
+- [x] d. DTO — `dto/metrics/`(token·ingest·query)
+- [x] e. 서비스 — `service/domain/metrics/`(token·log: ServiceDb 주입 패턴)
+- [x] f. compose — `compose/metrics.ts`(+types·index 배선, MONGODB_URI 없으면 graceful `{}`)
+- [x] g. 미들웨어 — `middleware/require-metrics-token.ts`(Bearer/X-Metrics-Token, scope·rate limit)
+- [x] h. 라우트 — `route/metrics/`(ingest 단건/배치, tokens, devices/logs/series, heartbeat-check 크론) + `route/index.ts` 마운트 + `vercel.json` 크론(`*/10 * * * *`)
+- [x] i. 어드민 SSR — `/admin/metrics/tokens` 토큰 관리 페이지(admin-page.md 규약, RevealBanner 평문 1회)
+- [x] j. 테스트 — dto·service·middleware·route·admin(전체 스위트 2588+ pass, HTTP E2E 로 수집→조회→시계열→하트비트→폐기 검증)
+- [x] k. 검증 — `bunx tsc --noEmit`·`bun test`·`db:push` 반영 완료
+- [x] l. 문서 — `docs/domains/metrics.md`·`docs/metrics-client-contract.md`·reference 4종·`admin-features.md`·`index.md` 갱신
+
+## 직전 완료 작업
+
+- 2026-07-10 세션 작업은 전부 완료(검증 통과)됐다.
 - **후속(레포 외)**: 클라이언트 FE(mail·calendar·rirekisyo)를 원격 AI 계약(providers + `completions/stream` SSE)으로 재작업 — 이 레포가 아닌 소비자 프론트에서 진행. 배경: [history/2026-07-10-local-remote-harmonize.md](./history/2026-07-10-local-remote-harmonize.md).
 
 ## 최근 완료 작업 — 2026-07-10 세션 (상세 체크리스트)

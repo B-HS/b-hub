@@ -98,6 +98,15 @@ export const ERROR_MESSAGE: Record<ErrorCode, string> = {
     LOG_DEVICE_KEY_INVALID: '디바이스 인증 키가 유효하지 않습니다',
     LOG_DEVICE_KEY_RATE_LIMIT: '디바이스 로그 전송 한도를 초과했습니다',
 
+    METRICS_TOKEN_INVALID: 'metrics 토큰이 유효하지 않습니다',
+    METRICS_TOKEN_FORBIDDEN: 'metrics 토큰의 권한이 부족합니다',
+    METRICS_TOKEN_NOT_FOUND: 'metrics 토큰을 찾을 수 없습니다',
+    METRICS_TOKEN_RATE_LIMIT: 'metrics 토큰의 일일 전송 한도를 초과했습니다',
+    METRICS_PAYLOAD_TOO_LARGE: 'metrics payload 크기가 허용 한도를 초과했습니다',
+    METRICS_BATCH_TOO_LARGE: 'metrics 배치 크기가 허용 한도를 초과했습니다',
+    METRICS_DEVICE_NOT_FOUND: 'metrics 디바이스를 찾을 수 없습니다',
+    METRICS_INGEST_FAILED: 'metrics 수집 저장에 실패했습니다',
+
     AI_PROVIDER_NOT_FOUND: 'AI 프로바이더 연결을 찾을 수 없습니다',
     AI_PROVIDER_ALREADY_EXISTS: '이미 연결된 AI 프로바이더입니다',
     AI_CREDENTIALS_INVALID: 'AI 프로바이더 자격증명이 유효하지 않습니다',

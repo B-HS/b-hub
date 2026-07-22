@@ -10,6 +10,7 @@ import { composeResume } from './resume'
 import { composeCalendar } from './calendar'
 import { composeDrive } from './drive'
 import { composeAi } from './ai'
+import { composeMetrics } from './metrics'
 
 export const compose = () => {
     const env = getEnv()
@@ -32,6 +33,7 @@ export const compose = () => {
         initGdriveStorage: shared.initGdriveStorage,
     })
     const ai = composeAi({ ...core, storageService: shared.storageService, logEventService: logs.logEventService })
+    const metrics = composeMetrics(core)
 
     return {
         ...shared,
@@ -44,6 +46,7 @@ export const compose = () => {
         ...calendar,
         ...drive,
         ...ai,
+        ...metrics,
         baseUrl: env.BASE_URL ?? '',
         gdriveRootFolderId: env.GDRIVE_ROOT_FOLDER_ID ?? '',
     }

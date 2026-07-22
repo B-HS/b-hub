@@ -2,7 +2,7 @@
 
 > 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/blog/post.ts`, `dto/logs/log-event.ts`, `service/domain/blog/post.ts`, `compose/blog.ts`, `route/blog/post.ts`, `route/logs/log-event.ts`, `route/index.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/api-response.ts`, `lib/error.ts`·`lib/error-code.ts`·`lib/error-message.ts`, `dto/error-response.ts`, `lib/sql-utils.ts`, `tests/route/blog/post.test.ts`, `tests/service/domain/blog/post.test.ts`
 
-**기존 도메인**(ai·blog·mail·calendar·drive·spotify·weather·resume·badge·logs·auth)에 HTTP 엔드포인트 하나를 추가하는 절차를 소유한다. 신규 도메인(폴더 4곳 신설·`compose()` 배선) 추가는 이 문서 범위 밖이다. 계층 골격·부트스트랩·응답 봉투·HOF 합성 순서의 정본은 [../architecture.md](../architecture.md), 인증 수단 총람은 [../domains/auth.md](../domains/auth.md), 전 라우트 인벤토리는 [../reference/api-endpoints.md](../reference/api-endpoints.md) 다 — 여기서는 중복하지 않고 링크한다.
+**기존 도메인**(ai·blog·mail·calendar·drive·spotify·weather·resume·badge·logs·metrics·auth)에 HTTP 엔드포인트 하나를 추가하는 절차를 소유한다. 신규 도메인(폴더 4곳 신설·`compose()` 배선) 추가는 이 문서 범위 밖이다. 계층 골격·부트스트랩·응답 봉투·HOF 합성 순서의 정본은 [../architecture.md](../architecture.md), 인증 수단 총람은 [../domains/auth.md](../domains/auth.md), 전 라우트 인벤토리는 [../reference/api-endpoints.md](../reference/api-endpoints.md) 다 — 여기서는 중복하지 않고 링크한다.
 
 방향은 항상 **아래→위**(DTO → service → compose → route → 배선)로 쌓고, 각 계층은 [../architecture.md](../architecture.md) §2 의 책임 경계(Route 만 HTTP 인지, compose 만 Drizzle 인지)를 지킨다.
 
@@ -182,7 +182,7 @@ HTTP 경계. `describeRoute`(문서) + `validator`(검증) + 인증(§7) + `with
 
 ## 10. 문서·DB 갱신
 
-- **[../reference/api-endpoints.md](../reference/api-endpoints.md)**: 해당 도메인 표에 행(`Method | 전체 Path | 인증 | 설명 | 핸들러 파일`) 추가, 그 도메인의 "파일 카운트" 문장과 하단 "파일별 라우트 카운트(자기검증)" 표, `API(/api/*) 라우트 등록 합계`(현재 167)를 함께 갱신한다.
+- **[../reference/api-endpoints.md](../reference/api-endpoints.md)**: 해당 도메인 표에 행(`Method | 전체 Path | 인증 | 설명 | 핸들러 파일`) 추가, 그 도메인의 "파일 카운트" 문장과 하단 "파일별 라우트 카운트(자기검증)" 표, `API(/api/*) 라우트 등록 합계`(현재 181)를 함께 갱신한다.
 - **도메인 문서**(`../domains/<domain>.md`): 파일 맵·엔드포인트·에러코드 표에 반영(그 도메인 문서가 소유).
 - **스키마 변경 시**: `db/schema.ts` 를 고치고 `bun run db:push` 로 반영한다. **마이그레이션 파일은 없고 `drizzle/` 은 gitignored**([../architecture.md](../architecture.md) §8, 스키마 정본 [../reference/db-schema.md](../reference/db-schema.md)). 스키마 컬럼은 DB snake_case ↔ TS camelCase 매핑을 유지한다.
 

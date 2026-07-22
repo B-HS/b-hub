@@ -43,6 +43,8 @@ const envSchema = z.object({
 
     REDIS_URL: z.string().min(1).optional(),
 
+    MONGODB_URI: z.string().min(1).optional(),
+
     VERCEL: z.string().optional(),
     PORT: z.string().optional(),
 

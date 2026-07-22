@@ -37,6 +37,10 @@ import { createDriveFolderRoute } from './drive/folder'
 import { createDriveLifecycleRoute } from './drive/lifecycle'
 import { createLogEventRoute } from './logs/log-event'
 import { createDeviceKeyRoute } from './logs/device-key'
+import { createMetricsIngestRoute } from './metrics/ingest'
+import { createMetricsTokenRoute } from './metrics/token'
+import { createMetricsQueryRoute } from './metrics/query'
+import { createMetricsHeartbeatRoute } from './metrics/heartbeat'
 import { createAiConnectionRoute } from './ai/connection'
 import { createAiModelRoute } from './ai/model'
 import { createAiPromptRoute } from './ai/prompt'
@@ -346,6 +350,34 @@ export const createRouter = (deps: RouterDeps = {}) => {
             logEventService: stub(deps.logEventService),
             deviceKeyService: stub(deps.deviceKeyService),
             getSession: stubFn(deps.getSession) as never,
+        }),
+    )
+
+    router.route(
+        '/metrics/ingest',
+        createMetricsIngestRoute({
+            metricsLogService: stub(deps.metricsLogService),
+            metricsTokenService: stub(deps.metricsTokenService),
+        }),
+    )
+    router.route(
+        '/metrics/tokens',
+        createMetricsTokenRoute({
+            metricsTokenService: stub(deps.metricsTokenService),
+        }),
+    )
+    router.route(
+        '/metrics',
+        createMetricsQueryRoute({
+            metricsLogService: stub(deps.metricsLogService),
+            metricsTokenService: stub(deps.metricsTokenService),
+        }),
+    )
+    router.route(
+        '/metrics',
+        createMetricsHeartbeatRoute({
+            metricsLogService: stub(deps.metricsLogService),
+            cronSecret: deps.uploadServerSecret ?? '',
         }),
     )
 

@@ -1040,3 +1040,22 @@ export type AiMessage = typeof aiMessages.$inferSelect
 export type NewAiMessage = typeof aiMessages.$inferInsert
 export type AiAttachment = typeof aiAttachments.$inferSelect
 export type NewAiAttachment = typeof aiAttachments.$inferInsert
+
+export const metricsToken = mysqlTable(
+    'metrics_token',
+    {
+        id: int('id').autoincrement().primaryKey(),
+        token: varchar('token', { length: 64 }).notNull().unique(),
+        alias: varchar('alias', { length: 100 }).notNull(),
+        scope: varchar('scope', { length: 16 }).default('client').notNull(),
+        dailyLimit: int('daily_limit').default(20000).notNull(),
+        expiresAt: datetime('expires_at', { fsp: 3 }),
+        lastUsedAt: timestamp('last_used_at', { fsp: 3 }),
+        revokedAt: timestamp('revoked_at', { fsp: 3 }),
+        createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
+    },
+    (table) => [index('idx_metrics_token_scope').on(table.scope)],
+)
+
+export type MetricsToken = typeof metricsToken.$inferSelect
+export type NewMetricsToken = typeof metricsToken.$inferInsert

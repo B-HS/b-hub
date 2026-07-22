@@ -4,7 +4,7 @@
 
 ## 개요
 
-- 스키마는 단일 파일 `db/schema.ts`(`drizzle-orm/mysql-core`)에 정의된다. 물리 테이블 **총 49개**.
+- 스키마는 단일 파일 `db/schema.ts`(`drizzle-orm/mysql-core`)에 정의된다. 물리 테이블 **총 50개**. (그 외 metrics 도메인은 MySQL 밖 **MongoDB 컬렉션 2개**를 별도로 쓴다 — 아래 [metrics](#metrics-1) 섹션 하단 참조)
 - 클라이언트는 `db/index.ts` 의 `getDb()` 싱글톤 — `mysql2` 풀(`connectionLimit: 20`, `queueLimit: 0`, `uri: DATABASE_URL`) 위에 `drizzle(pool, { schema, mode: 'default' })`. `Database = ReturnType<typeof getDb>`, `closeDb()` 로 풀 종료.
 - Drizzle 쿼리는 계층 규칙상 `compose/*`(ServiceDb 인라인 구현)에 둔다. 예외적으로 직접 접근하는 파일: `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, 그리고 어드민 읽기 계층 `page/admin/db.ts`. `user`/`session`/`account`/`verification` 은 better-auth(`service/shared/auth-provider.ts` 의 `drizzleAdapter` + `admin` 플러그인)가 관리한다.
 - 이 문서는 테이블 인벤토리(물리명·export·컬럼수·인덱스·관계·사용처)만 다룬다. 도메인 로직/엔드포인트는 [../domains/](../domains/), 아키텍처·명령은 [../architecture.md](../architecture.md), 불변 규칙은 [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md) 참조.
@@ -23,7 +23,7 @@
 
 ### 컬럼 타입·기본값 관례
 
-- **시각 컬럼**: 대부분 `timestamp(col, { fsp: 3 })` + `.defaultNow().notNull()`, `updatedAt` 은 추가로 `.$onUpdate(() => new Date())`. 레거시 블로그 계열과 `calendar_event.dtstart/dtend/dtstamp`·`calendar_subscription.last_accessed_at` 은 `datetime`(기본값 없음 — 앱이 값 설정). `weather_current`/`weather_ultra`/`weather_short`/`weather_api_log` 는 `timestamp`(fsp 없음), `log_events.occurred_at/resolved_at` 은 `datetime({ fsp: 3 })`.
+- **시각 컬럼**: 대부분 `timestamp(col, { fsp: 3 })` + `.defaultNow().notNull()`, `updatedAt` 은 추가로 `.$onUpdate(() => new Date())`. 레거시 블로그 계열과 `calendar_event.dtstart/dtend/dtstamp`·`calendar_subscription.last_accessed_at` 은 `datetime`(기본값 없음 — 앱이 값 설정). `weather_current`/`weather_ultra`/`weather_short`/`weather_api_log` 는 `timestamp`(fsp 없음), `log_events.occurred_at/resolved_at` 과 `metrics_token.expires_at` 은 `datetime({ fsp: 3 })`.
 - **PK 타입**: better-auth 4테이블·`image_assets`·`messages`·calendar 4테이블·`drive_folders`·`ai_sessions` 는 `varchar(36)`(UUID). 대부분의 도메인 테이블은 `int().autoincrement()`. `log_events`·`ai_messages` 는 `bigint({ mode: 'number' }).autoincrement()`. 순수 조인 테이블(`post_tags`, `message_images`, `message_likes`, `message_bookmarks`, `follows`)은 PK 없이 조합 unique 만 둔다.
 - **특수 타입**: `json().$type<...>()`(mail 주소 4컬럼, `calendar_event.rrule/exdate/categories`, `log_events.details`, `ai_models.metadata`, `ai_sessions.prompt_ids`), 타입 미지정 plain `json()`(`resumes.data`), `mysqlEnum`(`calendar_event.status`/`transp`), `longtext`(`mail_messages.body_html/body_text`, `ai_messages.content`), `customType` 정의 `mediumblob`(`cloud_assets.thumbnail_blob`), `bigint({ mode: 'number' })`(`user.storage_quota_bytes`, `cloud_assets.size_bytes`, `log_events.id`, `ai_messages.id`, `ai_attachments.message_id`), `tinyint`(`calendar_event.priority`/`sequence`), `smallint`(`log_events.severity`/`retry_count`).
 
@@ -53,7 +53,8 @@
 | [drive](#drive-3) | 3 | `drive_folders`, `cloud_assets`, `storage_lifecycle_logs` |
 | [logs](#logs-2) | 2 | `log_events`, `device_key` |
 | [ai](#ai-6) | 6 | `ai_providers`, `ai_models`, `ai_prompts`, `ai_sessions`, `ai_messages`, `ai_attachments` |
-| **합계** | **49** | |
+| [metrics](#metrics-1) | 1 | `metrics_token` (+ MongoDB `metrics_logs`·`metrics_devices` 비-Drizzle) |
+| **합계** | **50** | |
 
 각 인벤토리 표의 컬럼: 물리 테이블 / TS export / 핵심 컬럼(총 컬럼 수) / 인덱스·유니크 / FK·관계(onDelete) / Drizzle 소유·사용 파일.
 
@@ -165,6 +166,25 @@
 | `ai_sessions` | `aiSessions` | `id`(PK varchar36), `user_id`, `provider_id`(nullable), `provider`, `model_id`, `title`, `feature_key`, `prompt_ids`(json), `last_message_at` (11) | `idx_ai_sessions_user`, `idx_ai_sessions_user_last`(user_id,last_message_at) | `user_id → user.id` (cascade); `provider_id → ai_providers.id` (set null) | `compose/ai.ts` |
 | `ai_messages` | `aiMessages` | `id`(PK bigint), `session_id`, `role`, `content`(longtext), `model_id`, `input_tokens`, `output_tokens`, `duration_ms` (9) | `idx_ai_messages_session_created`(session_id,created_at) | `session_id → ai_sessions.id` (cascade) | `compose/ai.ts` |
 | `ai_attachments` | `aiAttachments` | `id`(PK int), `user_id`, `message_id`(bigint 소프트), `filename`, `mime_type`, `size_bytes`, `r2_key` (8) | `r2_key` unique; `idx_ai_attachments_user`, `idx_ai_attachments_message` | `user_id → user.id` (cascade) | `compose/ai.ts` |
+
+## metrics (1)
+
+> 도메인 개요·흐름·함정은 [../domains/metrics.md](../domains/metrics.md), 클라이언트 계약은 [../metrics-client-contract.md](../metrics-client-contract.md). 이 도메인은 토큰 메타만 MySQL 에 두고 **로그 본문·디바이스는 MongoDB**(비-Drizzle, 아래)에 둔다.
+
+| 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
+|------|------|------|------|------|------|
+| `metrics_token` | `metricsToken` | `id`(PK int), `token`(64, sha256 해시), `alias`(100), `scope`(16, 기본 `client`), `daily_limit`(기본 20000), `expires_at`(datetime fsp3, nullable), `last_used_at`, `revoked_at`, `created_at` (9) | `token` unique; `idx_metrics_token_scope`(scope) | 없음(user FK 없음) | `compose/metrics.ts`(단 `countEventsSince` 는 Mongo 카운트) |
+
+### MongoDB 컬렉션 (비-Drizzle, `db/mongo.ts`)
+
+Drizzle/`db:push` 관리 밖. `mongodb` v6 싱글턴 `getMongo(uri)`(DB 명 코드 상수 `metrics` 고정, URI path 무시)가 컬렉션·인덱스를 최초 접속 시 fire-and-forget 으로 보장한다.
+
+| 컬렉션 | TS type | 핵심 필드 | 인덱스 |
+|------|------|------|------|
+| `metrics_logs` | `MetricsLogDoc` | `tokenId`, `tokenAlias`, `deviceId`, `hostname`/`os`/`arch`/`agentVersion`(nullable), `payload`(자유 JSON), `receivedAt` | `{receivedAt:1}` **TTL 90일** + `{tokenId,receivedAt}` + `{deviceId,receivedAt}` |
+| `metrics_devices` | `MetricsDeviceDoc` | `deviceId`, `tokenId`, `tokenAlias`, 메타(nullable), `intervalSec`(nullable), `firstSeenAt`, `lastSeenAt`, `downAlertedAt`(nullable) | `{deviceId}` unique |
+
+> `mongodb` 는 **v6(6.20.x) 고정**이다 — 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` API 를 호출해 모듈 로드가 크래시한다([../domains/metrics.md](../domains/metrics.md) 함정 참조).
 
 ## 정의됐으나 런타임 쓰기/CRUD 경로 없는 테이블
 

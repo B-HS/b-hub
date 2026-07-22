@@ -2,7 +2,7 @@
 
 > 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
-`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 32개, 대응 테스트는 `tests/lib/` 27개.
+`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 28개(`cron-auth.ts` 는 전용 테스트 없음).
 
 이 문서는 **"무엇이 이미 있는지"의 인벤토리**만 소유한다. 사용 패턴(에러 throw·응답 봉투·HOF 합성 규칙)은 [../architecture.md](../architecture.md) 와 [../hono-reference.md](../hono-reference.md) 가 소유하므로 여기서 재서술하지 않고 링크한다. 환경변수 전수 목록은 [env.md](./env.md), 공유 서비스는 [shared-services.md](./shared-services.md), 엔드포인트는 [api-endpoints.md](./api-endpoints.md) 가 소유한다.
 
@@ -28,18 +28,20 @@
 | 파일 | 주요 export | 역할 | 주 사용처 (Grep 근거) | 테스트 |
 |------|-------------|------|------------------------|--------|
 | `lib/api-response.ts` | `successResponse`, `paginatedResponse`, `errorResponse` + 동명 `*Schema` | 응답 봉투 3종 + OpenAPI용 Zod 스키마 | 거의 모든 `route/*` + `middleware/error-handler.ts` | `api-response.test.ts` |
-| `lib/error-code.ts` | `ERROR_CODE`, `ErrorCode` | 에러 코드 상수 101종 + union 타입 | `dto/error-response.ts`, `middleware/log-capture.ts`, `route/weather/*` | `error-code.test.ts` |
+| `lib/error-code.ts` | `ERROR_CODE`, `ErrorCode` | 에러 코드 상수 109종 + union 타입 | `dto/error-response.ts`, `middleware/log-capture.ts`, `route/weather/*` | `error-code.test.ts` |
 | `lib/error-message.ts` | `ERROR_MESSAGE` | 코드→한국어 메시지 `Record<ErrorCode,string>` | `dto/error-response.ts`, `middleware/{error-handler,log-capture}.ts` | (전용 없음; error-code·error 테스트가 커버) |
 | `lib/error.ts` | `createAppError`, `isAppError`, `getStatusCode`, `AppError` | 코드→상태 매핑 + 에러 팩토리·가드 | 광범위: `route/*`, `service/domain/*`, `service/shared/*`, `middleware/*` | `error.test.ts` |
 | `lib/with-error-handling.ts` | `withErrorHandling` | 핸들러 try/catch → AppError/500 변환 HOF | 사실상 모든 `route/*` 핸들러 | `with-error-handling.test.ts` |
 | `lib/with-auth.ts` | `withAuth`, `withAdmin`, `withApiToken` | 세션/관리자/API토큰 인증 HOF | `route/{ai,auth,logs,mail,spotify,weather}/*` | `with-auth.test.ts` |
 | `lib/with-rate-limit.ts` | `withRateLimit` | 사용자 id 기준 레이트리밋 HOF (auth 뒤에 합성, `pathKey?` 로 버킷 고정) | `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts` | `with-rate-limit.test.ts` |
 | `lib/with-spotify-auth.ts` | `withSpotifyAuth` | Spotify 위젯키 or 세션+accountId 인증 HOF | `route/spotify/data.ts` | `with-spotify-auth.test.ts` |
+| `lib/cron-auth.ts` | `verifyCronAuth` | `Authorization: Bearer`/`x-cron-secret` == secret 검증(실패 시 `UNAUTHORIZED` throw). cron 엔드포인트 공용 | `route/drive/lifecycle.ts`, `route/metrics/heartbeat.ts` | (없음) |
 | `lib/hono-types.ts` | `HonoVariables`, `AuthContext` | Hono `c.set/get` 변수 계약(user·errorCode·errorDetail) | `index.ts`, `middleware/index.ts`, 다수 `route/*` | (타입 전용) |
 | `lib/env.ts` | `getEnv`, `resetEnvCache`, `Env` | Zod `safeParse` 캐시 env 접근자 | `compose/index.ts`, `compose/types.ts` | `env.test.ts` |
 | `lib/sentry.ts` | `initSentry`, `captureException` | `@sentry/bun` 지연 초기화·예외 캡처(가드) | `middleware/*`, `compose/{logs,ai}.ts`, 도메인 키 서비스 | `sentry.test.ts` |
 | `lib/discord.ts` | `sendDiscordAlert` | 에러 알림 Discord 웹훅 POST | `compose/logs.ts` | (없음) |
 | `lib/log-service-name.ts` | `serviceNameFromPath`, `severityFromStatus`, `errorCodeFromStatus` | 요청 경로/상태 → 로그 서비스명·심각도·코드 | `middleware/log-capture.ts` | `log-service-name.test.ts` |
+| `lib/mask-sensitive-path.ts` | `maskSensitivePath` | 로그 캡처용 URL 토큰 세그먼트 마스킹(`/caldav/`·`/api/spotify/playing/`·`/api/calendar/` 토큰 경로 → `[REDACTED]`, calendar 비-토큰 세그먼트 events/groups/subscription 은 보존) | `middleware/log-capture.ts` | `mask-sensitive-path.test.ts` |
 | `lib/hmac-state.ts` | `createOAuthState`, `verifyOAuthState`, `parseStatePayload`, `hmacSign/Verify`, `base64url*` | HMAC 서명 OAuth state + base64url | `service/domain/{mail,spotify}/*-oauth-connect.ts` | `hmac-state.test.ts` |
 | `lib/token-utils.ts` | `generateToken`, `hashToken` | 32바이트 랜덤 토큰 생성 + SHA-256 해시 | `service/domain/{logs,spotify,weather}/*`, `service/shared/api-token.ts` | `token-utils.test.ts` |
 | `lib/credential-crypto.ts` | `createCredentialCrypto` | AES-256-GCM(v2 scrypt) 자격증명 암복호화(공용) | `service/domain/mail/mail-crypto.ts`(위임), `compose/ai.ts` | `credential-crypto.test.ts` |
@@ -66,8 +68,8 @@
 
 에러는 세 파일로 분리 관리한다. 새 에러는 **세 파일 모두**에 추가한다(코드·메시지·상태). `throw createAppError('CODE')` 만 쓰고 `new Error` 직접 throw 는 금지(전역 계약 → [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md)).
 
-- `lib/error-code.ts` — `ERROR_CODE` 상수 객체(**101종**) + `ErrorCode = (typeof ERROR_CODE)[keyof …]` union.
-- `lib/error-message.ts` — `ERROR_MESSAGE: Record<ErrorCode, string>`(한국어). 타입이 `Record<ErrorCode,…>` 라 코드 101종과 **1:1 강제**(101개 확인).
+- `lib/error-code.ts` — `ERROR_CODE` 상수 객체(**109종**) + `ErrorCode = (typeof ERROR_CODE)[keyof …]` union.
+- `lib/error-message.ts` — `ERROR_MESSAGE: Record<ErrorCode, string>`(한국어). 타입이 `Record<ErrorCode,…>` 라 코드 109종과 **1:1 강제**(109개 확인).
 - `lib/error.ts` — `AppError` 타입, `STATUS_MAP`(코드→HTTP), `getStatusCode`, `createAppError`, `isAppError`.
   - `createAppError(code, details?)` = `{ code, message: ERROR_MESSAGE[code], statusCode: getStatusCode(code), details }`.
   - `isAppError` = `code`·`message`·`statusCode` 프로퍼티 유무로 판별(덕 타이핑).
@@ -88,10 +90,11 @@
 | `CALENDAR_` | 캘린더/CalDAV | 8 | `CALENDAR_CALDAV_AUTH_FAILED`(401), `CALENDAR_GROUP_HAS_EVENTS`(409) |
 | `DRIVE_` | 드라이브 | 14 | `DRIVE_QUOTA_EXCEEDED`(413), `DRIVE_L2_UPLOAD_FAILED`, `DRIVE_ALL_TIERS_FAILED` |
 | `LOG_` | 로그 수집 | 5 | `LOG_BATCH_TOO_LARGE`(413), `LOG_DEVICE_KEY_RATE_LIMIT`(429) |
+| `METRICS_` | metrics 수집 | 8 | `METRICS_TOKEN_INVALID`(401), `METRICS_TOKEN_FORBIDDEN`(403), `METRICS_TOKEN_RATE_LIMIT`(429), `METRICS_PAYLOAD_TOO_LARGE`(413), `METRICS_BATCH_TOO_LARGE`(413), `METRICS_INGEST_FAILED`(500) |
 | `AI_` | AI 프로바이더 | 15 | `AI_REAUTH_REQUIRED`(401), `AI_CREDENTIALS_INVALID`(401), `AI_COMPLETION_FAILED`(502), `AI_ATTACHMENT_TOO_LARGE`(413) |
 
 - 도메인 코드는 **도메인 접두사**로 네이밍. 새 도메인 에러는 그 도메인 prefix 를 붙인다.
-- **STATUS_MAP 누락 3종**: `MAIL_UPLOAD_BLOCKED_EXTENSION`·`MAIL_BLOCKED_HOST`·`MAIL_OAUTH_ACCOUNT_MISMATCH` 는 `ERROR_CODE`/`ERROR_MESSAGE`(101)에는 있으나 `STATUS_MAP`(98)에는 없어 `getStatusCode` 의 `?? 500` fallback 으로 **500** 이 된다. `STATUS_MAP` 은 `Record<string, number>`(≠`Record<ErrorCode,…>`)라 컴파일러가 누락을 못 잡는다. 새 코드 추가 시 세 파일 정합을 수동 확인한다.
+- **STATUS_MAP 누락 3종**: `MAIL_UPLOAD_BLOCKED_EXTENSION`·`MAIL_BLOCKED_HOST`·`MAIL_OAUTH_ACCOUNT_MISMATCH` 는 `ERROR_CODE`/`ERROR_MESSAGE`(109)에는 있으나 `STATUS_MAP`(106)에는 없어 `getStatusCode` 의 `?? 500` fallback 으로 **500** 이 된다(metrics 8종은 세 파일 모두 등록됨). `STATUS_MAP` 은 `Record<string, number>`(≠`Record<ErrorCode,…>`)라 컴파일러가 누락을 못 잡는다. 새 코드 추가 시 세 파일 정합을 수동 확인한다.
 
 ---
 
@@ -139,6 +142,9 @@
 - `isAllowedRedirect(url)`: 상대경로(`/`, `//` 제외) 또는 `gumyo.net`/`hyns.dev`(및 서브도메인)만 허용 → 오픈 리다이렉트 방어.
 - 사용처: `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts`. 테스트: `url-validator.test.ts`.
 
+**`lib/cron-auth.ts`**
+- `verifyCronAuth(c, secret)`: `Authorization: Bearer <secret>` 또는 `x-cron-secret` 헤더가 `secret` 과 일치하지 않으면 `createAppError('UNAUTHORIZED')` throw. cron 엔드포인트 공용 게이트(`route/drive/lifecycle.ts` 3곳 + `route/metrics/heartbeat.ts`). 시크릿은 배선상 `UPLOAD_SERVER_SECRET`. `route/drive/lifecycle.ts` 의 로컬 헬퍼를 공용 추출한 것(2회 사용). 테스트: 없음.
+
 **`lib/rate-limit.ts`**
 - `createRateLimiter({windowMs,maxRequests})` → `{checkLimit(key), reset(key)}`. **인메모리 `Map`** + `setInterval` 만료 청소. 서버리스/멀티인스턴스에서는 인스턴스별 독립(공유 안 됨). 사용처: `compose/mail.ts`(60초/20회, 키 `mail:{userId}:{path}`)·`compose/ai.ts`(60초/30회, 키 `ai:{userId}:{path}`) — 둘 다 `checkLimit` 어댑터로 `withRateLimit` 에 주입. 테스트: `rate-limit.test.ts`.
 
@@ -185,6 +191,9 @@
 
 **`lib/log-service-name.ts`**
 - `serviceNameFromPath(path)`(경로→`b-hub-{도메인}`, `/api/ai` 포함 12분기 + `/api` 폴백 `b-hub-api`), `severityFromStatus(status)`(≥500→40, else 30), `errorCodeFromStatus(status)`(상태→라벨, 미매핑 5xx→`INTERNAL_ERROR`, 그 외→`HTTP_{status}`). 사용처: `middleware/log-capture.ts`. 상세 → [../logging.md](../logging.md). 테스트: `log-service-name.test.ts`.
+
+**`lib/mask-sensitive-path.ts`**
+- `maskSensitivePath(path)`: 로그 캡처 시 URL 경로의 토큰 세그먼트를 `[REDACTED]` 로 치환. `/api/spotify/playing/`·`/caldav/` 는 프리픽스 다음 첫 세그먼트를, `/api/calendar/` 는 첫 세그먼트가 비-토큰(`events`/`groups`/`subscription`)이 아닐 때만 마스킹(그 외 경로는 원본 유지). 사용처: `middleware/log-capture.ts`. 테스트: `mask-sensitive-path.test.ts`.
 
 **`lib/hono-types.ts`**
 - `HonoVariables`(`user`·`errorCode`·`errorDetail`), `AuthContext = { Variables: HonoVariables }`. `new Hono<AuthContext>()` 및 `c.get/set` 타입 계약. 내부 `AuthUser` = `{id,name,email,role,image}`. 사용처: `index.ts`, `middleware/index.ts`, 다수 `route/*`. 테스트: 타입 전용(없음).

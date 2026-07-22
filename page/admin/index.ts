@@ -22,6 +22,8 @@ import { createResumesRoute } from './pages/resumes'
 import { createCalendarRoute } from './pages/calendar'
 import { createDriveRoute } from './pages/drive'
 import { createAiProvidersRoute, createAiSessionsRoute, createAiPromptsRoute } from './pages/ai'
+import { createMetricsTokensRoute } from './pages/metrics'
+import type { MetricsTokenService } from '../../service/domain/metrics/token'
 import type { Database } from '../../db'
 
 export type AdminRouteDeps = {
@@ -31,6 +33,7 @@ export type AdminRouteDeps = {
     auth?: AuthProvider
     triggerMailSync?: TriggerMailSync
     csrfSecret?: string
+    metricsTokenService?: MetricsTokenService
 }
 
 export const createAdminRoute = (deps: AdminRouteDeps) => {
@@ -73,6 +76,7 @@ export const createAdminRoute = (deps: AdminRouteDeps) => {
     app.route('/resumes', createResumesRoute(baseDeps))
     app.route('/calendar', createCalendarRoute(baseDeps))
     app.route('/drive', createDriveRoute(baseDeps))
+    app.route('/metrics/tokens', createMetricsTokensRoute({ getSession: deps.getSession, metricsTokenService: deps.metricsTokenService }))
     app.route('/ai/providers', createAiProvidersRoute(baseDeps))
     app.route('/ai/sessions', createAiSessionsRoute(baseDeps))
     app.route('/ai/prompts', createAiPromptsRoute(baseDeps))

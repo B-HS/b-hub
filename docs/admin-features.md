@@ -2,7 +2,7 @@
 
 > 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
 
-`db/schema.ts` 테이블 49개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다.
+`db/schema.ts` 테이블 50개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 대체로 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다. **예외: Metrics Tokens(§5.5)** 는 `AdminDb` 가 아니라 주입된 `metricsTokenService` 를 통해 조회·발급·폐기한다(로그·디바이스가 MongoDB 라 Drizzle 어댑터 밖).
 
 - 스키마 전수: [reference/db-schema.md](./reference/db-schema.md) · API 엔드포인트 전수: [reference/api-endpoints.md](./reference/api-endpoints.md) (중복 서술하지 않고 이 문서는 어드민 UI 만 다룬다).
 - 참고 수치(2026-07-02): `service/domain/` 서비스 팩토리 32개 + KMA mock 1개(10개 도메인), `route/` 라우트 팩토리 42개 / 라우트 파일 44개.
@@ -63,6 +63,15 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 - **Filter**: `service`, Min severity(`severity`: WARN+ 30 / ERROR+ 40 / FATAL 50), `deviceId`, Resolved(`unresolved`: All / Unresolved(y) / Resolved(n)), `from`, `to`, `size`.
 - **Action**: `/admin/logs/:id/resolve` — `resolved_at` 기록(`?flash=ok`, "해소 처리되었습니다.").
 - **Device keys**(`deviceKey`)는 어드민 페이지 없이 API(`/api/logs/device-keys`)로 관리.
+
+## 5.5. Metrics Tokens (`/admin/metrics/tokens`) — `metricsToken`
+
+시스템 모니터링(machboard) 수집·조회 토큰 발급/폐기. 데이터·흐름 정본은 [domains/metrics.md](./domains/metrics.md), 클라이언트 계약은 [metrics-client-contract.md](./metrics-client-contract.md). **`AdminDb` 가 아니라 주입된 `metricsTokenService`** 로 조회한다(`MONGODB_URI` 없으면 서비스 미주입 → 미구성 안내 렌더, 목록 빈 배열).
+
+- **List**(`metricsTokenService.listAll`): Alias / Scope(badge: `admin`=destructive · `client`=secondary) / Daily limit(`dailyLimit`) / Expires(`expiresAt`) / Last used(`lastUsedAt`) / Status(badge: revoked=muted / active=success) / Created + 폐기(활성 행만). **필터 없음**(다른 어드민 리스트와 달리 `FilterBar` 미사용).
+- **Create form**(configured 상태에서만 렌더): 별칭(`alias`, maxlength 100 required) · Scope select(`client`/`admin`) · 만료일(`expiresInDays`, number 1~3650, 빈값=무기한) · 일일 한도(`dailyLimit`, number, 빈값=기본 20000). `POST /admin/metrics/tokens` → 발급 후 **`RevealBanner`(manage/components) 로 평문 토큰 1회 렌더**(303 redirect 아님 — 발급 응답을 바로 HTML 로 렌더해 토큰 노출. manage tokens 패턴). 별칭 누락 시 `?flash=err`(validation), 미구성 시 `?flash=err`(not_configured) 303.
+- **Action**: `POST /admin/metrics/tokens/:id/revoke` — `revoke`(`revoked_at` 기록) 후 `?flash=ok` 303.
+- 사이드바 위치: **Observability** 그룹(Log Events 아래, `nav.ts`).
 
 ---
 
@@ -230,6 +239,7 @@ GET  /admin                                → dashboard
      /admin/api/tokens                     → list ( /:id/revoke POST )
      /admin/api/logs                       → list
      /admin/logs                           → list ( /:id/resolve POST )
+     /admin/metrics/tokens                 → list + create(POST /) + /:id/revoke POST
      /admin/blog/posts                     → list ( /:id/publish|hide|notice|comments|delete POST )
      /admin/blog/comments                  → list ( /:id/hide|delete POST )
      /admin/blog/categories                → list + create(POST /) + /:id/hide POST
@@ -294,8 +304,8 @@ GET  /admin                                → dashboard
 
 | 파일 | 역할 |
 |---|---|
-| `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. |
-| `nav.ts` | 사이드바 `NAV`(10개 그룹) + `isActivePath`. |
+| `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. `metricsTokenService?`(optional)를 받아 `/metrics/tokens` 마운트(루트 `index.ts` 가 `composed.metricsTokenService` 주입). |
+| `nav.ts` | 사이드바 `NAV`(10개 그룹) + `isActivePath`. Observability 그룹에 Log Events·Metrics Tokens. |
 | `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`. |
 | `csrf.ts` | `createAdminCsrfGuard` — 폼 POST CSRF 토큰 검증(가드). `/manage` 도 공유. |
 | `theme.ts` | `ADMIN_THEME_COOKIE`·`THEME_COOKIE_MAX_AGE`·`sanitizeTheme` — 라이트/다크 테마 쿠키. |
@@ -309,6 +319,7 @@ GET  /admin                                → dashboard
 | `pages/sessions.tsx` | 전 사용자 세션 list + revoke / revoke-all. |
 | `pages/api.tsx` | `createApiTokensRoute`(tokens list + revoke) · `createApiLogsRoute`(request logs). |
 | `pages/logs.tsx` | Log Events list + resolve(severity 라벨/badge 헬퍼). |
+| `pages/metrics.tsx` | `createMetricsTokensRoute` — Metrics Tokens list + create(RevealBanner 평문 1회)·revoke. `metricsTokenService?` 주입(미구성 시 안내). |
 | `pages/blog.tsx` | Posts·Comments·Categories·Tags·Images 전체. |
 | `pages/messages.tsx` | Messages list/detail + delete/restore, Follows list. |
 | `pages/weather.tsx` | Keys·Logs·Cache(+drop). |

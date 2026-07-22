@@ -31,7 +31,7 @@
 
 | 폴더 | 소유 범위 | 파일 규칙 |
 |------|-----------|-----------|
-| [domains/](../domains/) | 도메인별 문서(파일 맵·데이터 모델·엔드포인트·흐름·함정). 현재 11종: ai·auth·badge·blog·calendar·drive·logs·mail·resume·spotify·weather | `<domain>.md` 1도메인 1파일 |
+| [domains/](../domains/) | 도메인별 문서(파일 맵·데이터 모델·엔드포인트·흐름·함정). 현재 12종: ai·auth·badge·blog·calendar·drive·logs·mail·metrics·resume·spotify·weather | `<domain>.md` 1도메인 1파일 |
 | [reference/](../reference/) | 전수 인벤토리 — `db-schema.md`(테이블·컬럼)·`api-endpoints.md`(전 라우트)·`env.md`(환경변수)·`lib-utilities.md`(lib/ 전수)·`shared-services.md`(service/shared 전수) | 주제별 1파일, 카운트·표 중심 |
 | [guidelines/](./) | 작업 유형별 절차 지침서(체크리스트). 이 문서 포함. 현재 8종: 신규 도메인 추가([add-domain.md](./add-domain.md))·엔드포인트 추가([add-endpoint.md](./add-endpoint.md))·DB 변경([db-schema-change.md](./db-schema-change.md))·어드민 페이지([admin-page.md](./admin-page.md))·외부 API 연동([external-api-integration.md](./external-api-integration.md))·에러/로깅([error-handling-and-logging.md](./error-handling-and-logging.md))·폴더별 지침([folder-guide.md](./folder-guide.md))·문서 유지보수(이 문서) | `<주제>.md` |
 | [quality-assurance/](../quality-assurance/) | 검증 체크리스트 — 머지 전 통과 기준([pre-merge-checklist.md](../quality-assurance/pre-merge-checklist.md))·엔드포인트 QA([endpoint-qa.md](../quality-assurance/endpoint-qa.md))·의존성 업그레이드 FE 소비자 영향 검수([fe-deps-impact-check.md](../quality-assurance/fe-deps-impact-check.md)) | `<주제>.md`, 체크박스 진행 추적 |

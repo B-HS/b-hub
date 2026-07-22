@@ -5,7 +5,7 @@
 ## 개요
 
 - 허브 앱의 환경변수 스키마 단일 출처는 `lib/env.ts` 의 `envSchema`(zod). 값 접근은 `getEnv()` 싱글톤으로만 한다.
-- 스키마에 29개 키가 선언되어 있고, **필수는 `DATABASE_URL` 하나**다. 나머지는 전부 `.optional()`(단 `NODE_ENV` 는 `default('development')`).
+- 스키마에 30개 키가 선언되어 있고, **필수는 `DATABASE_URL` 하나**다. 나머지는 전부 `.optional()`(단 `NODE_ENV` 는 `default('development')`).
 - 검증된 `env` 객체는 `compose/index.ts` 에서 한 번 만들어(`getEnv()`) `core = { db, env }` 로 각 `compose/<domain>.ts` 에 주입된다. 대부분의 키는 compose 계층에서만 소비된다.
 - 예외적으로 부트스트랩·모듈 싱글톤·서버 엔트리 몇 곳은 `process.env` 를 직접 읽는다(아래 [getEnv 규칙](#getenv-규칙)).
 - getEnv 규칙 정본은 [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md), 부트스트랩·DI 흐름은 [../architecture.md](../architecture.md) 참조.
@@ -74,6 +74,7 @@
 | `UPLOAD_SERVER_SECRET` | 선택 (min1) | — | upload-server 토큰 서명 시크릿(blog·drive, 미설정 시 `''`) | `compose/blog.ts:493`, `compose/drive.ts:244`·`297` |
 | `UPLOAD_SERVER_URL` | 선택 (url) | — | upload-server base URL(blog, 미설정 시 `''`) | `compose/blog.ts:494` |
 | `REDIS_URL` | 선택 (min1) | — | 캐시 Redis 접속. 미설정/실패 시 인메모리 fallback | `service/shared/redis-cache.ts:3` (process.env 직접) |
+| `MONGODB_URI` | 선택 (min1) | — | metrics 로그·디바이스 MongoDB 접속. **미설정 시 `compose/metrics.ts` 가 `{}` 반환 → metrics 라우트만 `SERVICE_NOT_CONFIGURED`(503), 앱은 정상 부팅**(DB 명은 코드 상수 `metrics` 고정, URI path 무시) | `compose/metrics.ts:15`·`17`, `db/mongo.ts` |
 | `VERCEL` | 선택 | — | Vercel 런타임 감지(파일 경로 분기) | `compose/shared.ts:70`(env), `service/shared/font-loader.ts:21`·`service/shared/icon-loader.ts:11`(process.env) |
 | `PORT` | 선택 | — | 서버 리슨 포트(미설정 시 `9999`) | `index.ts:60` (process.env 직접) |
 | `NODE_ENV` | 선택 (enum) | `'development'` | 환경 분기. 허용값 `development`\|`production`\|`test` | `compose/shared.ts:32`(주입 env → `isProduction`), `index.ts:38`, `lib/api-response.ts:49`, `lib/with-error-handling.ts:19`, `middleware/error-handler.ts:17`, `middleware/index.ts:23`(이상 5곳 process.env) |
@@ -82,7 +83,7 @@
 
 ## .env.example ↔ lib/env.ts 차집합
 
-`.env.example` 에는 22개 키가 있고 모두 `lib/env.ts` 스키마에 존재한다. 즉 **`.env.example` 에만 있는 키는 없음.**
+`.env.example` 에는 23개 키가 있고 모두 `lib/env.ts` 스키마에 존재한다. 즉 **`.env.example` 에만 있는 키는 없음.**
 
 **스키마에 있으나 `.env.example` 에 없는 키 (7개):**
 

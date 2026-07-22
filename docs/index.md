@@ -39,6 +39,7 @@
 | [manage-features.md](./manage-features.md) | 사용자 셀프서비스 페이지(`/manage`) — 세션 인증·본인 리소스 CRUD, `/admin` 과의 인가·데이터 접근 차이 |
 | [logging.md](./logging.md) | `log_events` 중앙 로깅 상세 설계(스키마·수집·자동 캡처·알림·리텐션) |
 | [firmware-logging-contract.md](./firmware-logging-contract.md) | ESP32 등 디바이스가 지켜야 할 로그 수집 계약 |
+| [metrics-client-contract.md](./metrics-client-contract.md) | machboard 에이전트·ESP32 가 지켜야 할 시스템 정보 수집 계약(헤더·필드·재시도·하트비트) |
 | [hono-reference.md](./hono-reference.md) | Hono JSX SSR 어드민 작성용 프레임워크 레퍼런스 |
 | [DESIGN.md](./DESIGN.md) | 블로그 프론트(`gumyo.net` 블로그) 디자인 시스템 — 이 서버가 아닌 소비자 프론트의 시각 정본 |
 | [PROCESS.md](./PROCESS.md) | 현재 작업 체크리스트(완료 시 history/ 이관) |
@@ -60,6 +61,7 @@
 | [domains/badge.md](./domains/badge.md) | 동적 배지 이미지 — satori+resvg 파이프라인, 아이콘·폰트 |
 | [domains/logs.md](./domains/logs.md) | 로그 도메인 파일 맵·엔드포인트(상세는 logging.md) |
 | [domains/ai.md](./domains/ai.md) | AI 프로바이더 — codex OAuth/anthropic·ollama API key, 프로바이더 추상화, 모델 캐시, 채팅 세션·프롬프트·첨부, 자격증명 암호화, 사용기록 |
+| [domains/metrics.md](./domains/metrics.md) | 시스템 모니터링(machboard) 수집 — 토큰(MySQL)·로그/디바이스(MongoDB) 하이브리드, scope(client/admin), 하트비트 다운 감지·Discord 알림 |
 
 ### reference/ — 전수 레퍼런스
 

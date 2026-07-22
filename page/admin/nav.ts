@@ -68,7 +68,10 @@ export const NAV: readonly NavGroup[] = [
     },
     {
         title: 'Observability',
-        items: [{ href: '/admin/logs', label: 'Log Events' }],
+        items: [
+            { href: '/admin/logs', label: 'Log Events' },
+            { href: '/admin/metrics/tokens', label: 'Metrics Tokens' },
+        ],
     },
     {
         title: 'Other',

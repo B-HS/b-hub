@@ -95,7 +95,8 @@ weather/logs/spotify/resume/calendar = compose*(core)
 mail   = composeMail({ ...core, storageService })
 drive  = composeDrive({ ...core, storageService, imageProcessor, gdriveStorageService: null, initGdriveStorage })
 ai     = composeAi({ ...core, storageService, logEventService })  // AI_ENCRYPTION_KEY 없으면 {} 반환(graceful)
-return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume, ...calendar, ...drive, ...ai, baseUrl, gdriveRootFolderId }
+metrics = composeMetrics(core)  // MONGODB_URI 없으면 {} 반환(graceful, 로그·디바이스는 MongoDB)
+return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume, ...calendar, ...drive, ...ai, ...metrics, baseUrl, gdriveRootFolderId }
 ```
 
 - **`composeShared(core)`** 가 먼저 생성하는 공용 의존성: `auth`(better-auth), `getSession`(세션 정규화 어댑터), `apiTokenService`, `storageService`(R2/S3), `imageProcessor`(sharp), `imageGenerator`(satori+resvg), `fontLoader`, `badgeService`, `gdriveStorageService`(`null` 플레이스홀더), `initGdriveStorage`, `getGdriveAccessToken`. 도메인 compose 는 core + 이 shared 산출물을 주입받는다.

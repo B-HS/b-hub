@@ -39,6 +39,7 @@ const adminRoutes = [
     '/admin/spotify/accounts',
     '/admin/spotify/keys',
     '/admin/spotify/widget-tokens',
+    '/admin/metrics/tokens',
     '/admin/resumes',
     '/admin/calendar/events',
     '/admin/calendar/groups',

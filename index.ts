@@ -30,7 +30,14 @@ createMiddleware(app, {
 app.route(
     '',
     createPage({
-        admin: { getSession: composed.getSession, db: getDb(), auth: composed.auth, triggerMailSync, csrfSecret: getEnv().BETTER_AUTH_SECRET },
+        admin: {
+            getSession: composed.getSession,
+            db: getDb(),
+            auth: composed.auth,
+            triggerMailSync,
+            csrfSecret: getEnv().BETTER_AUTH_SECRET,
+            metricsTokenService: composed.metricsTokenService,
+        },
         manage: {
             getSession: composed.getSession,
             apiTokenService: composed.apiTokenService,

@@ -18,6 +18,7 @@
 | `어드민` | 세션 + `role==='admin'` | `withAdmin` 또는 핸들러 내 `getSession`+role 검사(blog는 로컬 `requireAdmin` 헬퍼) |
 | `weather-key` | `X-Weather-Key` 헤더 | `middleware/require-weather-key.ts`(`requireWeatherKey`/`requireWeatherKeyNoLog`) |
 | `device-key` | `X-Device-Key` 헤더 | `middleware/require-device-key.ts`(`requireDeviceKey`) |
+| `metrics-token(client\|admin)` | `Authorization: Bearer` 또는 `X-Metrics-Token` 헤더 + scope 검사 | `middleware/require-metrics-token.ts`(`requireMetricsToken`) |
 | `spotify-key\|세션` | `X-Spotify-Key` 헤더 **또는** 세션+`accountId` 쿼리 | `lib/with-spotify-auth.ts`(`withSpotifyAuth`) |
 | `widget-token` | URL 경로 토큰 | `spotifyWidgetTokenService.validate(token)` |
 | `구독토큰` | URL 경로 구독/ICS 토큰 | `getSubscriptionByToken`/`getSubscriptionByIcsToken` |
@@ -352,6 +353,26 @@
 
 ---
 
+## metrics
+
+마운트: `/metrics/ingest`(ingest), `/metrics/tokens`(token), `/metrics`(query), `/metrics`(heartbeat). 더 구체적인 접두사(`/metrics/ingest`·`/metrics/tokens`)를 `/metrics` 앞에 등록한다.
+
+| Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
+|--------|-----------|------|------|-------------|
+| POST | `/api/metrics/ingest` | metrics-token(client)+rate limit | 단건 수집(payload 직렬화 64KB 초과 413). 응답 `{count}` | `route/metrics/ingest.ts` |
+| POST | `/api/metrics/ingest/batch` | metrics-token(client)+rate limit | 배치 수집(1~50건, 초과 413). 응답 `{count}` | `route/metrics/ingest.ts` |
+| GET | `/api/metrics/tokens` | metrics-token(admin) | metrics 토큰 목록 | `route/metrics/token.ts` |
+| POST | `/api/metrics/tokens` | metrics-token(admin) | 토큰 발급(평문 `{id,token}` 1회) | `route/metrics/token.ts` |
+| DELETE | `/api/metrics/tokens/:id` | metrics-token(admin) | 토큰 폐기(없으면 404) | `route/metrics/token.ts` |
+| GET | `/api/metrics/devices` | metrics-token(admin) | 디바이스 목록(online 계산) | `route/metrics/query.ts` |
+| GET | `/api/metrics/logs` | metrics-token(admin) | 수집 로그 목록(`paginatedResponse`) | `route/metrics/query.ts` |
+| GET | `/api/metrics/series` | metrics-token(admin) | payload 수치 필드 시계열(디바이스 미존재 404) | `route/metrics/query.ts` |
+| GET·POST | `/api/metrics/heartbeat-check` | cron-secret | 디바이스 다운/복구 감지 — **Vercel cron**(`*/10 * * * *`). 응답 `{down,recovered}` | `route/metrics/heartbeat.ts` |
+
+파일 카운트: `ingest.ts` = 2, `token.ts` = 3, `query.ts` = 3, `heartbeat.ts` = 1. 상세: [../domains/metrics.md](../domains/metrics.md).
+
+---
+
 ## 페이지 / well-known (최상위 마운트, `/api` 밖)
 
 `app.route('', createPage(...))`. `home`·`policy`·`well-known` 은 공개. `securityExcludeExactPaths` 에 `/`·`/policy`, `securityExcludePaths` 에 `/.well-known/caldav` 포함.
@@ -390,6 +411,7 @@
 |------|--------|-------------|
 | `/api/drive/lifecycle/evict-r2` | `0 3 * * *` | `route/drive/lifecycle.ts` (POST `/evict-r2`) |
 | `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` (POST `/auto-promote`) |
+| `/api/metrics/heartbeat-check` | `*/10 * * * *` | `route/metrics/heartbeat.ts` (GET·POST `/heartbeat-check`) |
 
 ---
 
@@ -417,7 +439,9 @@
 | `route/drive/folder.ts` | 5 | `route/logs/device-key.ts` | 3 |
 | `route/drive/lifecycle.ts` | 3 | `route/ai/connection.ts` | 4 |
 | `route/ai/model.ts` | 2 | `route/ai/prompt.ts` | 4 |
-| `route/ai/session.ts` | 5 | `route/ai/chat.ts` | 2 |
+| `route/ai/session.ts` | 5 | `route/ai/chat.ts` | 4 |
 | `route/ai/attachment.ts` | 2 | `route/mail/draft.ts` | 3 |
+| `route/metrics/ingest.ts` | 2 | `route/metrics/token.ts` | 3 |
+| `route/metrics/query.ts` | 3 | `route/metrics/heartbeat.ts` | 1 |
 
-- API(`/api/*`) 라우트 등록 합계 = **172**(기존 148 + ai 21 + mail drafts 3, SSE 스트리밍 2 포함). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **181**(기존 172 + metrics 9). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

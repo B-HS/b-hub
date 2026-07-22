@@ -204,8 +204,8 @@
 
 ## `db/`
 
-- **역할**: `schema.ts`(Drizzle 스키마, 물리 테이블 49개) + `index.ts`(`getDb()` 싱글톤).
-- **배치 규칙**: 스키마 정의와 풀 생성만. 쿼리는 여기 두지 않는다(`compose/` 및 문서화된 예외 파일). 두 파일 외 추가 파일 없음.
+- **역할**: `schema.ts`(Drizzle 스키마, 물리 테이블 50개) + `index.ts`(`getDb()` 싱글톤) + `mongo.ts`(metrics 로그·디바이스용 MongoDB 싱글턴 `getMongo`/`closeMongo`, 비-Drizzle).
+- **배치 규칙**: 스키마 정의와 풀 생성만. 쿼리는 여기 두지 않는다(`compose/` 및 문서화된 예외 파일). MySQL 은 `schema.ts`+`index.ts`, MongoDB(metrics)는 `mongo.ts` — 이 세 파일 외 추가 없음.
 - **작성 컨벤션** (근거: `db/index.ts`, `db/schema.ts`, [reference/db-schema.md](../reference/db-schema.md))
   - `index.ts`: `getDb()` = `mysql2` 풀(`connectionLimit: 20`, `queueLimit: 0`, `uri: DATABASE_URL`) 위 `drizzle(pool, { schema, mode: 'default' })` 싱글톤. `Database = ReturnType<typeof getDb>`, `closeDb()`. `DATABASE_URL` 은 `process.env` 직접(부트스트랩 싱글톤).
   - `schema.ts`: `timestamp(col,{fsp:3}).defaultNow().notNull()`(신규 계열)·PK 관례(varchar36 UUID vs int autoincrement vs bigint)·FK `onDelete` 관례. 셀렉트/인서트 타입은 `$inferSelect`/`$inferInsert` 로 하단 export.
@@ -225,7 +225,7 @@
 - **역할**: 도메인·HTTP 프레임워크 무관 순수 유틸 + 코어(에러 3파일·응답 헬퍼·HOF·env·컨텍스트 타입). 파일 32개, 배럴(`index.ts`) 없음 — 소비자는 파일 직접 상대경로 import.
 - **배치 규칙**: 2곳 이상 쓰이는 순수 함수만. **새 유틸 작성 전 [reference/lib-utilities.md](../reference/lib-utilities.md) 인벤토리에서 기존 것을 먼저 찾는다**(현존 중복: `external-api.ts`·`pagination.ts`·`db-helper.ts`·`sensitive-filter.ts` 는 비-test 미사용). 상태·외부 SDK 를 가진 건 `service/shared/` 로.
 - **작성 컨벤션** (근거: `lib/error.ts`·`lib/api-response.ts`·`lib/with-*.ts`, [reference/lib-utilities.md](../reference/lib-utilities.md))
-  - **에러는 3파일**(`error-code.ts` 코드 101종 + `error-message.ts` `Record<ErrorCode,string>` + `error.ts` `STATUS_MAP`/`createAppError`/`isAppError`). 새 에러는 **세 파일 모두** 추가(코드·메시지·상태). `STATUS_MAP` 은 `Record<string,number>` 라 컴파일러가 누락을 못 잡음 — 정합 수동 확인. 도메인 접두사(`BLOG_`·`MAIL_` …).
+  - **에러는 3파일**(`error-code.ts` 코드 109종 + `error-message.ts` `Record<ErrorCode,string>` + `error.ts` `STATUS_MAP`/`createAppError`/`isAppError`). 새 에러는 **세 파일 모두** 추가(코드·메시지·상태). `STATUS_MAP` 은 `Record<string,number>` 라 컴파일러가 누락을 못 잡음 — 정합 수동 확인. 도메인 접두사(`BLOG_`·`MAIL_` …).
   - **응답은 `api-response.ts` 헬퍼로만**(`successResponse`/`paginatedResponse`/`errorResponse`). `details` 는 비프로덕션만 직렬화.
   - HOF 는 `with*` 네이밍. 합성 순서 바깥 `withErrorHandling` → 안쪽 `withAuth`/`withRateLimit`. `withRateLimit` 은 user 를 받으므로 auth 뒤.
   - env 는 `env.ts` `getEnv()` 로 단일화(직접 `process.env` 금지, 부트스트랩 예외).
