@@ -95,7 +95,7 @@ weather/logs/spotify/resume/calendar = compose*(core)
 mail   = composeMail({ ...core, storageService })
 drive  = composeDrive({ ...core, storageService, imageProcessor, gdriveStorageService: null, initGdriveStorage })
 ai     = composeAi({ ...core, storageService, logEventService })  // AI_ENCRYPTION_KEY 없으면 {} 반환(graceful)
-metrics = composeMetrics(core)  // MONGODB_URI 없으면 {} 반환(graceful, 로그·디바이스는 MongoDB)
+metrics = composeMetrics({ ...core, storageService })  // MONGODB_URI 없으면 {} 반환(graceful). 로그·디바이스는 MongoDB, 아카이브는 R2
 return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume, ...calendar, ...drive, ...ai, ...metrics, baseUrl, gdriveRootFolderId }
 ```
 

@@ -2,7 +2,7 @@
 
 > 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
-`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 33개, 대응 테스트는 `tests/lib/` 28개.
+`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 28개(`cron-auth.ts` 는 라우트 테스트에서 커버).
 
 이 문서는 **"무엇이 이미 있는지"의 인벤토리**만 소유한다. 사용 패턴(에러 throw·응답 봉투·HOF 합성 규칙)은 [../architecture.md](../architecture.md) 와 [../hono-reference.md](../hono-reference.md) 가 소유하므로 여기서 재서술하지 않고 링크한다. 환경변수 전수 목록은 [env.md](./env.md), 공유 서비스는 [shared-services.md](./shared-services.md), 엔드포인트는 [api-endpoints.md](./api-endpoints.md) 가 소유한다.
 
@@ -35,6 +35,7 @@
 | `lib/with-auth.ts` | `withAuth`, `withAdmin`, `withApiToken` | 세션/관리자/API토큰 인증 HOF | `route/{ai,auth,logs,mail,spotify,weather}/*` | `with-auth.test.ts` |
 | `lib/with-rate-limit.ts` | `withRateLimit` | 사용자 id 기준 레이트리밋 HOF (auth 뒤에 합성, `pathKey?` 로 버킷 고정) | `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts` | `with-rate-limit.test.ts` |
 | `lib/with-spotify-auth.ts` | `withSpotifyAuth` | Spotify 위젯키 or 세션+accountId 인증 HOF | `route/spotify/data.ts` | `with-spotify-auth.test.ts` |
+| `lib/cron-auth.ts` | `verifyCronAuth` | `Authorization: Bearer`/`x-cron-secret` == secret 검증(실패 시 `UNAUTHORIZED`). cron 엔드포인트 공용 | `route/drive/lifecycle.ts`, `route/metrics/archive.ts` | `tests/route/metrics/archive.test.ts` |
 | `lib/hono-types.ts` | `HonoVariables`, `AuthContext` | Hono `c.set/get` 변수 계약(user·errorCode·errorDetail) | `index.ts`, `middleware/index.ts`, 다수 `route/*` | (타입 전용) |
 | `lib/env.ts` | `getEnv`, `resetEnvCache`, `Env` | Zod `safeParse` 캐시 env 접근자 | `compose/index.ts`, `compose/types.ts` | `env.test.ts` |
 | `lib/sentry.ts` | `initSentry`, `captureException` | `@sentry/bun` 지연 초기화·예외 캡처(가드) | `middleware/*`, `compose/{logs,ai}.ts`, 도메인 키 서비스 | `sentry.test.ts` |

@@ -33,7 +33,7 @@ export const compose = () => {
         initGdriveStorage: shared.initGdriveStorage,
     })
     const ai = composeAi({ ...core, storageService: shared.storageService, logEventService: logs.logEventService })
-    const metrics = composeMetrics(core)
+    const metrics = composeMetrics({ ...core, storageService: shared.storageService })
 
     return {
         ...shared,

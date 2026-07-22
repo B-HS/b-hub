@@ -355,7 +355,7 @@
 
 ## metrics
 
-마운트: `/metrics/ingest`(ingest), `/metrics/tokens`(token), `/metrics`(query). 더 구체적인 접두사(`/metrics/ingest`·`/metrics/tokens`)를 `/metrics` 앞에 등록한다.
+마운트: `/metrics/ingest`(ingest), `/metrics/tokens`(token), `/metrics`(query), `/metrics`(archive). 더 구체적인 접두사(`/metrics/ingest`·`/metrics/tokens`)를 `/metrics` 앞에 등록한다.
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
@@ -367,8 +367,9 @@
 | GET | `/api/metrics/devices` | metrics-token(admin) | 디바이스 목록(online 계산) | `route/metrics/query.ts` |
 | GET | `/api/metrics/logs` | metrics-token(admin) | 수집 로그 목록(`paginatedResponse`) | `route/metrics/query.ts` |
 | GET | `/api/metrics/series` | metrics-token(admin) | payload 수치 필드 시계열(디바이스 미존재 404) | `route/metrics/query.ts` |
+| GET·POST | `/api/metrics/archive` | cron-secret | 핫 보관(7일) 경과 로그를 R2 아카이브 후 삭제 — **Vercel cron**(`20 4 * * *`) | `route/metrics/archive.ts` |
 
-파일 카운트: `ingest.ts` = 2, `token.ts` = 3, `query.ts` = 3. 상세: [../domains/metrics.md](../domains/metrics.md).
+파일 카운트: `ingest.ts` = 2, `token.ts` = 3, `query.ts` = 3, `archive.ts` = 1. 상세: [../domains/metrics.md](../domains/metrics.md).
 
 ---
 
@@ -410,6 +411,7 @@
 |------|--------|-------------|
 | `/api/drive/lifecycle/evict-r2` | `0 3 * * *` | `route/drive/lifecycle.ts` (POST `/evict-r2`) |
 | `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` (POST `/auto-promote`) |
+| `/api/metrics/archive` | `20 4 * * *` | `route/metrics/archive.ts` (GET·POST `/archive`) |
 
 ---
 
@@ -440,6 +442,6 @@
 | `route/ai/session.ts` | 5 | `route/ai/chat.ts` | 4 |
 | `route/ai/attachment.ts` | 2 | `route/mail/draft.ts` | 3 |
 | `route/metrics/ingest.ts` | 2 | `route/metrics/token.ts` | 3 |
-| `route/metrics/query.ts` | 3 | | |
+| `route/metrics/query.ts` | 3 | `route/metrics/archive.ts` | 1 |
 
-- API(`/api/*`) 라우트 등록 합계 = **180**(기존 172 + metrics 8 — heartbeat-check 는 2026-07-22 사용자 결정으로 제거). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **181**(기존 172 + metrics 9 — heartbeat-check 는 2026-07-22 사용자 결정으로 제거, archive 는 같은 날 추가). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

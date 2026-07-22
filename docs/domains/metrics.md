@@ -30,6 +30,7 @@
 | `route/metrics/ingest.ts` | HTTP 경계 — `createMetricsIngestRoute`. 단건 POST `/` + 배치 POST `/batch`(둘 다 `requireMetricsToken` client scope + rate limit). payload 직렬화 64KB 초과 413, 배치 50건 초과 413 |
 | `route/metrics/token.ts` | HTTP 경계 — `createMetricsTokenRoute`. 토큰 GET/POST/DELETE, 전부 `requireMetricsToken` **admin scope**. POST 응답 `{ id, token }`(평문 1회) |
 | `route/metrics/query.ts` | HTTP 경계 — `createMetricsQueryRoute`. GET `/devices`·`/logs`(`paginatedResponse`)·`/series`, 전부 admin scope. series 는 디바이스 미존재 시 404 |
+| `route/metrics/archive.ts` | HTTP 경계 — `createMetricsArchiveRoute`. GET+POST `/archive`, `verifyCronAuth`(cron 인증). `archiveOldLogs` 호출 → 아카이브 요약 |
 | `service/domain/metrics/token.ts` | 도메인 로직 — `createMetricsTokenService`(create·validate·checkRateLimit·revoke·listAll), `MetricsTokenServiceDb`. 토큰은 `hashToken`(sha256) 저장, `expiresInDays`→`expiresAt`, validate 시 폐기·만료면 null·`lastUsedAt` fire-and-forget 갱신. rate limit = rolling 24h Mongo 이벤트 수 < `dailyLimit` |
 | `service/domain/metrics/log.ts` | 도메인 로직 — `createMetricsLogService`(ingest·list·listDevices·getDevice·series), `MetricsLogServiceDb`. online 판정 = `now - lastSeenAt < max(3×intervalSec, 5분)`. ingest 는 `receivedAt` 서버시각 + 디바이스별 최신 이벤트로 upsert |
 | `dto/metrics/token.ts` | Zod — `METRICS_TOKEN_SCOPE`(client/admin), `metricsTokenCreateSchema`(alias 1~100·scope enum def client·expiresInDays 1~3650 opt·dailyLimit opt), `metricsTokenResponseSchema` |
@@ -41,7 +42,8 @@
 | `middleware/require-metrics-token.ts` | 토큰 인증 — `Authorization: Bearer` 또는 `X-Metrics-Token` 헤더. validate 실패 401, admin 요구인데 client 토큰이면 403, `checkRateLimit:true` 옵션 시 429. 통과 시 `metricsTokenId`/`metricsTokenAlias` 컨텍스트 세팅 |
 | `db/schema.ts` | `metrics_token`(`MetricsToken`/`NewMetricsToken`) 테이블 정의 |
 | `db/mongo.ts` | `mongodb` v6 싱글턴 `getMongo(uri)`(+`resetMongo`·`closeMongo`·`isMongoClientClosed`·`ensureMetricsIndexes`), `MetricsLogDoc`·`MetricsDeviceDoc`. 서버리스용 옵션(serverSelection/connect 8s, maxPoolSize 5) |
-| `route/index.ts` | `/metrics/ingest`·`/metrics/tokens`·`/metrics`(query)로 마운트(`stub` 래핑, 더 구체적인 접두사 먼저) |
+| `lib/cron-auth.ts` | `verifyCronAuth(c, secret)` — Bearer/`x-cron-secret` == secret 검증. metrics archive + drive lifecycle cron 공용 |
+| `route/index.ts` | `/metrics/ingest`·`/metrics/tokens`·`/metrics`(query)·`/metrics`(archive)로 마운트(`stub` 래핑, 더 구체적인 접두사 먼저) |
 | `page/admin/pages/metrics.tsx` | 어드민 SSR — 토큰 목록/발급/폐기(`/admin/metrics/tokens`). 미구성 시 안내 렌더 |
 | `lib/error-code.ts` · `lib/error-message.ts` · `lib/error.ts` | `METRICS_TOKEN_INVALID`(401)·`METRICS_TOKEN_FORBIDDEN`(403)·`METRICS_TOKEN_NOT_FOUND`(404)·`METRICS_TOKEN_RATE_LIMIT`(429)·`METRICS_PAYLOAD_TOO_LARGE`(413)·`METRICS_BATCH_TOO_LARGE`(413)·`METRICS_DEVICE_NOT_FOUND`(404)·`METRICS_INGEST_FAILED`(500) 코드·메시지·상태 |
 
@@ -59,12 +61,14 @@
 | GET | `/api/metrics/devices` | metrics-token(admin) | 디바이스 목록(각 행 `online` 계산 포함) |
 | GET | `/api/metrics/logs` | metrics-token(admin) | 수집 로그 목록/필터(deviceId·tokenId·from·to·limit·offset). `paginatedResponse` |
 | GET | `/api/metrics/series` | metrics-token(admin) | payload 수치 필드 시계열. 디바이스 미존재 시 404 `METRICS_DEVICE_NOT_FOUND` |
+| GET·POST | `/api/metrics/archive` | cron-secret(`UPLOAD_SERVER_SECRET`) | 핫 보관(7일) 경과 로그 R2 아카이브 후 삭제. Vercel cron(`20 4 * * *`) |
 
 ## 핵심 흐름
 
 - **수집**: 클라이언트가 `Authorization: Bearer <token>` 또는 `X-Metrics-Token` 으로 POST `/api/metrics/ingest`(단건)·`/api/metrics/ingest/batch`(≤50) → `requireMetricsToken`(client scope 검증 + rolling 24h rate limit) → payload 크기 검사(직렬화 >64KB 413) → `metricsLogService.ingest` 가 `receivedAt` 서버시각으로 `metrics_logs` insert + 디바이스별 최신 이벤트로 `metrics_devices` upsert.
 - **디바이스 메타 보존**: `upsertDevice` 는 null 메타를 `$set` 이 아니라 `$setOnInsert` 로 보내 **기존 메타를 null 로 덮지 않는다**(간헐적으로 메타 없는 이벤트가 와도 최초 등록값 유지).
 - **조회·시계열**: admin scope 토큰으로 GET `/api/metrics/devices`(online = `now-lastSeenAt < max(3×intervalSec, 5분)`), `/api/metrics/logs`(페이지네이션), `/api/metrics/series`(aggregate: `payload.<field>` 가 number 인 문서만 → 최신순 limit → `{t,v}` 매핑 후 시간 오름차순 reverse).
+- **아카이브(2026-07-22 사용자 결정: R2·핫 7일·매일)**: Vercel cron 이 매일 `/api/metrics/archive`(cron 인증) 호출 → `archiveOldLogs` 가 UTC 자정 기준 7일(`HOT_RETENTION_DAYS`) 이전의 **완결된 일자만** 순회하며, 일자별 전체 문서를 JSONL 로 직렬화 → gzip → R2 `metrics-archive/YYYY-MM-DD.jsonl.gz` 업로드 → **업로드 성공 후에만** 해당 일자 삭제. 실패 시 삭제가 실행되지 않아 데이터 유실이 없고, 재실행은 같은 키를 덮어써 멱등이다. 어드민 차트(최대 7d)는 핫 데이터 범위와 일치한다. Mongo TTL(90일)은 아카이브 미동작 시의 백스톱으로 유지.
 - **토큰 발급·폐기**: 최초 admin 토큰은 `/admin/metrics/tokens` SSR 에서 발급하고, 이후 API(`/api/metrics/tokens`)로도 admin scope 로 발급/폐기한다. 평문 토큰은 발급 응답 1회만 노출된다(sha256 해시 저장).
 
 ## 주의사항 / 함정

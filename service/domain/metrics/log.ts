@@ -4,6 +4,8 @@ import type { MetricsLogListQuery, MetricsSeriesQuery } from '../../../dto/metri
 const OFFLINE_INTERVAL_FACTOR = 3
 const OFFLINE_MIN_THRESHOLD_MS = 5 * 60 * 1000
 const DEFAULT_INTERVAL_SEC = 60
+const DAY_MS = 24 * 60 * 60 * 1000
+const HOT_RETENTION_DAYS = 7
 
 export type MetricsLogRecord = {
     tokenId: number
@@ -37,10 +39,14 @@ export type MetricsLogServiceDb = {
     listDevices: () => Promise<MetricsDeviceRecord[]>
     getDevice: (deviceId: string) => Promise<MetricsDeviceRecord | null>
     seriesPoints: (params: MetricsSeriesQuery) => Promise<{ t: Date; v: number }[]>
+    listArchiveDayKeys: (before: Date) => Promise<string[]>
+    findLogsBetween: (from: Date, to: Date) => Promise<MetricsLogRecord[]>
+    deleteLogsBetween: (from: Date, to: Date) => Promise<number>
 }
 
 type MetricsLogServiceDeps = {
     db: MetricsLogServiceDb
+    uploadArchive: (day: string, jsonl: string) => Promise<void>
 }
 
 const isOnline = (device: { intervalSec: number | null; lastSeenAt: Date }, now: Date) => {
@@ -48,7 +54,7 @@ const isOnline = (device: { intervalSec: number | null; lastSeenAt: Date }, now:
     return now.getTime() - device.lastSeenAt.getTime() < thresholdMs
 }
 
-export const createMetricsLogService = ({ db }: MetricsLogServiceDeps) => {
+export const createMetricsLogService = ({ db, uploadArchive }: MetricsLogServiceDeps) => {
     const ingest = async (token: { id: number; alias: string }, events: MetricsIngestInput[]) => {
         const receivedAt = new Date()
         const rows = events.map((e) => ({
@@ -97,7 +103,32 @@ export const createMetricsLogService = ({ db }: MetricsLogServiceDeps) => {
 
     const series = async (params: MetricsSeriesQuery) => db.seriesPoints(params)
 
-    return { ingest, list, listDevices, getDevice, series }
+    const archiveOldLogs = async (now = new Date()) => {
+        const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+        const cutoff = new Date(todayUtc - HOT_RETENTION_DAYS * DAY_MS)
+        const days = await db.listArchiveDayKeys(cutoff)
+        const archived: { day: string; count: number; deleted: number }[] = []
+
+        for (const day of days) {
+            const from = new Date(`${day}T00:00:00.000Z`)
+            const to = new Date(from.getTime() + DAY_MS)
+            const rows = await db.findLogsBetween(from, to)
+            if (rows.length === 0) continue
+            const jsonl = rows.map((r) => JSON.stringify({ ...r, receivedAt: r.receivedAt.toISOString() })).join('\n')
+            await uploadArchive(day, jsonl)
+            const deleted = await db.deleteLogsBetween(from, to)
+            archived.push({ day, count: rows.length, deleted })
+        }
+
+        return {
+            cutoff: cutoff.toISOString(),
+            archived,
+            totalArchived: archived.reduce((sum, d) => sum + d.count, 0),
+            totalDeleted: archived.reduce((sum, d) => sum + d.deleted, 0),
+        }
+    }
+
+    return { ingest, list, listDevices, getDevice, series, archiveOldLogs }
 }
 
 export type MetricsLogService = ReturnType<typeof createMetricsLogService>

@@ -9,7 +9,7 @@ import type { MetricsTokenServiceDb } from '../service/domain/metrics/token'
 import type { MetricsLogServiceDb } from '../service/domain/metrics/log'
 import type { ComposeMetricsArgs } from './types'
 
-export const composeMetrics = ({ db, env }: ComposeMetricsArgs) => {
+export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) => {
     if (!env.MONGODB_URI) return {}
 
     const uri = env.MONGODB_URI
@@ -106,10 +106,35 @@ export const composeMetrics = ({ db, env }: ComposeMetricsArgs) => {
             )
             return points.reverse()
         },
+        listArchiveDayKeys: async (before) =>
+            runMongo(async (mongo) => {
+                const rows = await mongo.logs
+                    .aggregate<{
+                        _id: string
+                    }>([{ $match: { receivedAt: { $lt: before } } }, { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$receivedAt' } } } }, { $sort: { _id: 1 } }])
+                    .toArray()
+                return rows.map((r) => r._id)
+            }),
+        findLogsBetween: async (from, to) =>
+            runMongo((mongo) =>
+                mongo.logs
+                    .find({ receivedAt: { $gte: from, $lt: to } }, { projection: { _id: 0 } })
+                    .sort({ receivedAt: 1 })
+                    .toArray(),
+            ),
+        deleteLogsBetween: async (from, to) =>
+            runMongo(async (mongo) => {
+                const res = await mongo.logs.deleteMany({ receivedAt: { $gte: from, $lt: to } })
+                return res.deletedCount
+            }),
+    }
+
+    const uploadArchive = async (day: string, jsonl: string) => {
+        await storageService.upload(`metrics-archive/${day}.jsonl.gz`, Bun.gzipSync(Buffer.from(jsonl)), 'application/gzip')
     }
 
     const metricsTokenService = createMetricsTokenService({ db: tokenDb })
-    const metricsLogService = createMetricsLogService({ db: logDb })
+    const metricsLogService = createMetricsLogService({ db: logDb, uploadArchive })
 
     return { metricsTokenService, metricsLogService }
 }
