@@ -10,6 +10,7 @@
         "typecheck": "tsc --noEmit",
         "test:coverage": "bun test --coverage",
         "db:generate": "drizzle-kit generate",
+        "mongo:indexes": "bun run scripts/ensure-mongo-indexes.ts",
         "db:push": "drizzle-kit push",
         "db:studio": "drizzle-kit studio"
     },

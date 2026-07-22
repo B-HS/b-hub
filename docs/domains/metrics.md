@@ -21,7 +21,7 @@
 - **MongoDB**(비-Drizzle, `db/mongo.ts`, DB `metrics`):
   - `metrics_logs`(`MetricsLogDoc`): `tokenId`·`tokenAlias`·`deviceId`·`hostname`/`os`/`arch`/`agentVersion`(nullable)·`payload`(자유 JSON)·`receivedAt`. 인덱스 `{receivedAt:1}` **TTL 90일** + `{tokenId,receivedAt}` + `{deviceId,receivedAt}`.
   - `metrics_devices`(`MetricsDeviceDoc`): `deviceId`(unique)·`tokenId`·`tokenAlias`·메타(nullable)·`intervalSec`(nullable)·`firstSeenAt`·`lastSeenAt`. 인덱스 `{deviceId}` unique.
-  - 인덱스는 `getMongo(uri)` 최초 호출 시 `createMongo` 가 fire-and-forget(`.catch(captureException)`)으로 보장하고, 싱글턴 종료용 `closeMongo` 도 제공한다.
+  - 인덱스는 런타임이 아니라 **`bun run mongo:indexes`**(`scripts/ensure-mongo-indexes.ts` → `ensureMetricsIndexes`)로 보장한다. 초기엔 콜드스타트 fire-and-forget 생성이었으나 Vercel freeze 에 잘려 클라이언트가 닫힌 채 방치되는 사고(TopologyClosed 전면 500)를 유발해 제거했다. 싱글턴 재생성용 `resetMongo`·종료용 `closeMongo` 제공.
 
 ## 파일 맵
 
@@ -40,7 +40,7 @@
 | `compose/index.ts` | `const metrics = composeMetrics(core)` + return 객체에 `...metrics` 스프레드 병합 |
 | `middleware/require-metrics-token.ts` | 토큰 인증 — `Authorization: Bearer` 또는 `X-Metrics-Token` 헤더. validate 실패 401, admin 요구인데 client 토큰이면 403, `checkRateLimit:true` 옵션 시 429. 통과 시 `metricsTokenId`/`metricsTokenAlias` 컨텍스트 세팅 |
 | `db/schema.ts` | `metrics_token`(`MetricsToken`/`NewMetricsToken`) 테이블 정의 |
-| `db/mongo.ts` | `mongodb` v6 싱글턴 `getMongo(uri)`(+`closeMongo`), `MetricsLogDoc`·`MetricsDeviceDoc`, 컬렉션·인덱스 보장 |
+| `db/mongo.ts` | `mongodb` v6 싱글턴 `getMongo(uri)`(+`resetMongo`·`closeMongo`·`isMongoClientClosed`·`ensureMetricsIndexes`), `MetricsLogDoc`·`MetricsDeviceDoc`. 서버리스용 옵션(serverSelection/connect 8s, maxPoolSize 5) |
 | `route/index.ts` | `/metrics/ingest`·`/metrics/tokens`·`/metrics`(query)로 마운트(`stub` 래핑, 더 구체적인 접두사 먼저) |
 | `page/admin/pages/metrics.tsx` | 어드민 SSR — 토큰 목록/발급/폐기(`/admin/metrics/tokens`). 미구성 시 안내 렌더 |
 | `lib/error-code.ts` · `lib/error-message.ts` · `lib/error.ts` | `METRICS_TOKEN_INVALID`(401)·`METRICS_TOKEN_FORBIDDEN`(403)·`METRICS_TOKEN_NOT_FOUND`(404)·`METRICS_TOKEN_RATE_LIMIT`(429)·`METRICS_PAYLOAD_TOO_LARGE`(413)·`METRICS_BATCH_TOO_LARGE`(413)·`METRICS_DEVICE_NOT_FOUND`(404)·`METRICS_INGEST_FAILED`(500) 코드·메시지·상태 |
@@ -69,6 +69,7 @@
 
 ## 주의사항 / 함정
 
+- **닫힌 Mongo 클라이언트 자가치유**: Vercel 인스턴스 freeze/thaw 로 클라이언트가 닫히면(`MongoTopologyClosedError`/`MongoNotConnectedError`) 모듈 캐시 싱글턴이 죽은 채 남아 전 요청 500 이 된다(2026-07-22 프로덕션 실사고). `compose/metrics.ts` 의 `runMongo` 가 이를 감지해 `resetMongo` 후 1회 재시도한다 — Mongo 호출을 새로 추가할 땐 반드시 `runMongo` 로 감싼다.
 - **`mongodb` 는 v6(6.20.x)에 고정**(`package.json`). `mongodb` 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` `startupSnapshot.isBuildingSnapshot` 을 호출해 **모듈 로드 자체가 크래시**(`NotImplementedError`)한다. v6 은 핑·인덱스 생성이 정상 동작함을 실검증했다. 업그레이드 전 반드시 Bun 지원 여부를 확인한다.
 - **MongoDB DB 명은 코드 상수 `metrics` 로 고정**이라 `MONGODB_URI` 의 path 세그먼트는 무시된다(`db/mongo.ts` `MONGO_DB_NAME`).
 - **rate limit 카운트는 MySQL 이 아니라 Mongo 기준**: `MetricsTokenServiceDb.countEventsSince` 만 `compose/metrics.ts` 에서 `mongo.logs.countDocuments` 로 구현된다(나머지 token DB 는 Drizzle). 토큰 메타와 카운트 소스가 저장소를 넘나든다.
