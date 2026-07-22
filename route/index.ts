@@ -40,7 +40,6 @@ import { createDeviceKeyRoute } from './logs/device-key'
 import { createMetricsIngestRoute } from './metrics/ingest'
 import { createMetricsTokenRoute } from './metrics/token'
 import { createMetricsQueryRoute } from './metrics/query'
-import { createMetricsHeartbeatRoute } from './metrics/heartbeat'
 import { createAiConnectionRoute } from './ai/connection'
 import { createAiModelRoute } from './ai/model'
 import { createAiPromptRoute } from './ai/prompt'
@@ -371,13 +370,6 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createMetricsQueryRoute({
             metricsLogService: stub(deps.metricsLogService),
             metricsTokenService: stub(deps.metricsTokenService),
-        }),
-    )
-    router.route(
-        '/metrics',
-        createMetricsHeartbeatRoute({
-            metricsLogService: stub(deps.metricsLogService),
-            cronSecret: deps.uploadServerSecret ?? '',
         }),
     )
 

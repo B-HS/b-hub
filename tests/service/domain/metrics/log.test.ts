@@ -13,7 +13,6 @@ const sampleDevice = (overrides: Partial<MetricsDeviceRecord> = {}): MetricsDevi
     intervalSec: 60,
     firstSeenAt: new Date('2026-07-01T00:00:00Z'),
     lastSeenAt: new Date(),
-    downAlertedAt: null,
     ...overrides,
 })
 
@@ -24,7 +23,6 @@ const createMockDb = (overrides: Record<string, unknown> = {}) => ({
     listDevices: mock(async () => [] as MetricsDeviceRecord[]),
     getDevice: mock(async (_deviceId: string) => null as MetricsDeviceRecord | null),
     seriesPoints: mock(async () => [] as { t: Date; v: number }[]),
-    setDeviceAlerted: mock(async (_deviceId: string, _at: Date | null) => {}),
     ...overrides,
 })
 
@@ -65,31 +63,15 @@ describe('createMetricsLogService', () => {
         expect(devices.find((d) => d.deviceId === 'slow-ok')?.online).toBe(true)
     })
 
-    test('checkHeartbeats는 다운 전이 시 1회 알림+마킹, 복구 시 알림+해제한다', async () => {
+    test('getDevice는 미존재 시 null, 존재 시 online을 포함해 반환한다', async () => {
         const now = new Date()
-        const db = createMockDb({
-            listDevices: mock(async () => [
-                sampleDevice({ deviceId: 'down-new', lastSeenAt: new Date(now.getTime() - 60 * 60_000) }),
-                sampleDevice({ deviceId: 'down-known', lastSeenAt: new Date(now.getTime() - 60 * 60_000), downAlertedAt: new Date() }),
-                sampleDevice({ deviceId: 'recovered', lastSeenAt: new Date(now.getTime() - 60_000), downAlertedAt: new Date() }),
-                sampleDevice({ deviceId: 'healthy', lastSeenAt: new Date(now.getTime() - 60_000) }),
-            ]),
-        })
-        const alerter = mock((_e: { errorCode: string; severity: number }) => {})
-        const service = createMetricsLogService({ db: db as never, alerter })
-        const result = await service.checkHeartbeats(now)
+        const missing = createMetricsLogService({ db: createMockDb() as never })
+        expect(await missing.getDevice('ghost', now)).toBeNull()
 
-        expect(result.down).toEqual(['down-new'])
-        expect(result.recovered).toEqual(['recovered'])
-        expect(alerter).toHaveBeenCalledTimes(2)
-        expect(alerter.mock.calls[0][0].errorCode).toBe('METRICS_DEVICE_DOWN')
-        expect(alerter.mock.calls[0][0].severity).toBe(40)
-        expect(alerter.mock.calls[1][0].errorCode).toBe('METRICS_DEVICE_RECOVERED')
-        const [downId, downAt] = db.setDeviceAlerted.mock.calls[0]
-        expect(downId).toBe('down-new')
-        expect(downAt).toBeInstanceOf(Date)
-        const [recoveredId, recoveredAt] = db.setDeviceAlerted.mock.calls[1]
-        expect(recoveredId).toBe('recovered')
-        expect(recoveredAt).toBeNull()
+        const found = createMetricsLogService({
+            db: createMockDb({ getDevice: mock(async () => sampleDevice({ lastSeenAt: new Date(now.getTime() - 60_000) })) }) as never,
+        })
+        const device = await found.getDevice('mac-1', now)
+        expect(device?.online).toBe(true)
     })
 })

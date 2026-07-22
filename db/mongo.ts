@@ -28,7 +28,6 @@ export type MetricsDeviceDoc = {
     intervalSec: number | null
     firstSeenAt: Date
     lastSeenAt: Date
-    downAlertedAt: Date | null
 }
 
 const createMongo = (uri: string) => {

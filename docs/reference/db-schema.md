@@ -182,7 +182,7 @@ Drizzle/`db:push` 관리 밖. `mongodb` v6 싱글턴 `getMongo(uri)`(DB 명 코�
 | 컬렉션 | TS type | 핵심 필드 | 인덱스 |
 |------|------|------|------|
 | `metrics_logs` | `MetricsLogDoc` | `tokenId`, `tokenAlias`, `deviceId`, `hostname`/`os`/`arch`/`agentVersion`(nullable), `payload`(자유 JSON), `receivedAt` | `{receivedAt:1}` **TTL 90일** + `{tokenId,receivedAt}` + `{deviceId,receivedAt}` |
-| `metrics_devices` | `MetricsDeviceDoc` | `deviceId`, `tokenId`, `tokenAlias`, 메타(nullable), `intervalSec`(nullable), `firstSeenAt`, `lastSeenAt`, `downAlertedAt`(nullable) | `{deviceId}` unique |
+| `metrics_devices` | `MetricsDeviceDoc` | `deviceId`, `tokenId`, `tokenAlias`, 메타(nullable), `intervalSec`(nullable), `firstSeenAt`, `lastSeenAt` | `{deviceId}` unique |
 
 > `mongodb` 는 **v6(6.20.x) 고정**이다 — 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` API 를 호출해 모듈 로드가 크래시한다([../domains/metrics.md](../domains/metrics.md) 함정 참조).
 

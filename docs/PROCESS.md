@@ -9,6 +9,7 @@
 >
 > **도메인명 변경(사용자 결정)**: 서버 도메인명은 `machboard` → **`metrics`** 로 확정(테이블 `metrics_token`, 에러 `METRICS_*`, 라우트 `/api/metrics/*`, 헤더 `X-Metrics-Token`, compose `composeMetrics`, 어드민 `/admin/metrics/tokens`). **클라이언트 프로젝트명은 `machboard` 유지**(레포·에이전트 명칭). 아래 체크리스트의 `machboard_*` 표기는 전부 `metrics_*` 로 실현됐다.
 > **mongodb v6 고정**: `mongodb@^6`(6.20.x) 고정 — 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` `startupSnapshot.isBuildingSnapshot` 을 호출해 모듈 로드가 크래시(`NotImplementedError`). v6 은 핑·인덱스 생성 실검증. 업그레이드 전 Bun 지원 확인 필요.
+> **하트비트 크론+Discord 알림 제거(2026-07-22 사용자 결정)**: "대시보드 볼 때만 상태 확인하면 되고 Discord 통보 불필요" — `route/metrics/heartbeat.ts`·`checkHeartbeats`·`MetricsAlerter`·`downAlertedAt`·`lib/cron-auth.ts`(추출 원복, drive lifecycle 로컬 헬퍼 복원)·vercel 크론 제거. 온라인/오프라인은 `/api/metrics/devices` 조회 시 계산으로 유지. 아래 체크리스트 h 의 heartbeat-check·고도화 합의의 "하트비트 다운 감지 Discord 알림" 항목은 이 결정으로 폐기됨.
 
 ### 사용자 합의 (2026-07-22)
 

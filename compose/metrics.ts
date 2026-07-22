@@ -3,12 +3,10 @@ import { metricsToken } from '../db/schema'
 import { getMongo } from '../db/mongo'
 import { createMetricsTokenService } from '../service/domain/metrics/token'
 import { createMetricsLogService } from '../service/domain/metrics/log'
-import { sendDiscordAlert } from '../lib/discord'
-import { captureException } from '../lib/sentry'
 import type { Filter } from 'mongodb'
 import type { MetricsLogDoc } from '../db/mongo'
 import type { MetricsTokenServiceDb } from '../service/domain/metrics/token'
-import type { MetricsAlerter, MetricsLogServiceDb } from '../service/domain/metrics/log'
+import type { MetricsLogServiceDb } from '../service/domain/metrics/log'
 import type { ComposeMetricsArgs } from './types'
 
 export const composeMetrics = ({ db, env }: ComposeMetricsArgs) => {
@@ -45,7 +43,7 @@ export const composeMetrics = ({ db, env }: ComposeMetricsArgs) => {
         upsertDevice: async (row) => {
             const { seenAt, deviceId, tokenId, tokenAlias, ...meta } = row
             const set: Record<string, unknown> = { tokenId, tokenAlias, lastSeenAt: seenAt }
-            const setOnInsert: Record<string, unknown> = { deviceId, firstSeenAt: seenAt, downAlertedAt: null }
+            const setOnInsert: Record<string, unknown> = { deviceId, firstSeenAt: seenAt }
             for (const [key, value] of Object.entries(meta)) {
                 if (value === null) setOnInsert[key] = null
                 else set[key] = value
@@ -93,24 +91,10 @@ export const composeMetrics = ({ db, env }: ComposeMetricsArgs) => {
                 .toArray()
             return points.reverse()
         },
-        setDeviceAlerted: async (deviceId, at) => {
-            await mongo.devices.updateOne({ deviceId }, { $set: { downAlertedAt: at } })
-        },
     }
 
-    const alertThrottle = new Map<string, number>()
-    const alerter: MetricsAlerter | undefined = env.DISCORD_WEBHOOK_URL
-        ? (e) => {
-              const key = `${e.errorCode}:${e.deviceId ?? ''}`
-              const now = Date.now()
-              if (now - (alertThrottle.get(key) ?? 0) < 60_000) return
-              alertThrottle.set(key, now)
-              sendDiscordAlert(env.DISCORD_WEBHOOK_URL!, e).catch((err) => captureException(err))
-          }
-        : undefined
-
     const metricsTokenService = createMetricsTokenService({ db: tokenDb })
-    const metricsLogService = createMetricsLogService({ db: logDb, alerter })
+    const metricsLogService = createMetricsLogService({ db: logDb })
 
     return { metricsTokenService, metricsLogService }
 }

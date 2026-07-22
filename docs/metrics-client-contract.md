@@ -1,6 +1,6 @@
 # metrics 수집 클라이언트 계약 (machboard 에이전트·ESP32)
 
-> 기준: 2026-07-22 (dev @ `98f7492`) 코드 검증. 다루는 코드: `dto/metrics/ingest.ts`(`metricsIngestSchema`·`metricsIngestBatchSchema`), `dto/metrics/token.ts`, `route/metrics/ingest.ts`, `middleware/require-metrics-token.ts`, `service/domain/metrics/token.ts`(rate limit)·`service/domain/metrics/log.ts`(online/하트비트), `lib/error-code.ts`·`lib/error.ts`. 서버 저장·조회·하트비트 설계는 [domains/metrics.md](./domains/metrics.md).
+> 기준: 2026-07-22 코드 검증. 다루는 코드: `dto/metrics/ingest.ts`(`metricsIngestSchema`·`metricsIngestBatchSchema`), `dto/metrics/token.ts`, `route/metrics/ingest.ts`, `middleware/require-metrics-token.ts`, `service/domain/metrics/token.ts`(rate limit)·`service/domain/metrics/log.ts`(online 판정), `lib/error-code.ts`·`lib/error.ts`. 서버 저장·조회 설계는 [domains/metrics.md](./domains/metrics.md).
 
 > machboard 클라이언트(Tauri 데스크톱 / headless 데몬 / ESP32)는 **별도 레포**(`~/machboard`, 설계 정본 그쪽 `docs/design.md`)에 있으므로, b-hub 서버가 기대하는 **수집 계약**을 여기에 명세한다.
 > ESP32 등 임베디드 클라이언트도 동일 계약을 따른다(전송량이 작을 뿐 필드·에러·재시도 규약 동일).
@@ -53,13 +53,12 @@
 - **오프라인/실패 버퍼**: 전송 실패분은 로컬 버퍼(RAM/디스크)에 적재하고 복구 시 batch flush(≤50, 오래된 것부터). 포화 시 가장 오래된 것부터 drop.
 - **`400` 은 봉투 형식이 다르다**: 도메인 에러(401/403/413/429)는 `{ "success": false, "error": { "code", "message" } }` 이지만, **`400`(스키마 검증 실패)은 `error` 가 issue 배열**(`{ "success": false, "error": [ … ], "data": {…} }`) 이다(zod 4·hono-openapi 1 전환 결과). 클라이언트는 `400` 을 "고쳐도 그대로 실패"로 취급해 재인큐하지 않는다.
 
-## 4. 하트비트(다운/복구) 감지의 의미
+## 4. 온라인/오프라인 판정의 의미
 
-서버는 Vercel cron 이 10분마다 `GET/POST /api/metrics/heartbeat-check`(cron 인증, 클라이언트가 호출하는 엔드포인트 아님)을 돌려 디바이스 online 여부를 판정한다. **클라이언트가 조율할 지점은 `intervalSec` 하나다.**
+서버는 어드민 조회(`GET /api/metrics/devices`) 시점에 디바이스 online 여부를 계산한다(별도 감시 크론·푸시 알림 없음 — 2026-07-22 사용자 결정으로 제거). **클라이언트가 조율할 지점은 `intervalSec` 하나다.**
 
-- **online 판정**: `now - lastSeenAt < max(3 × intervalSec, 5분)`. 즉 클라이언트가 보낸 `intervalSec` 의 **3배(최소 300초)** 동안 아무 이벤트도 안 오면 그 디바이스는 **다운**으로 간주된다(`intervalSec` 미전송 시 기본 60초 → 임계 300초).
-- **다운 전이** 시 severity 40 `METRICS_DEVICE_DOWN`, **복구 전이** 시 severity 20 `METRICS_DEVICE_RECOVERED` 알림이 나간다(`DISCORD_WEBHOOK_URL` 설정 시, `errorCode:deviceId` 60초 throttle).
-- **클라이언트 함의**: 실제 전송 주기와 `intervalSec` 을 일치시킨다. 주기보다 큰 값을 보내면 다운 감지가 둔해지고, 작은 값을 보내면 일시적 지연에도 오탐(다운→복구)이 잦아진다. 전송 주기를 바꾸면 `intervalSec` 도 함께 갱신해 보낸다.
+- **online 판정**: `now - lastSeenAt < max(3 × intervalSec, 5분)`. 즉 클라이언트가 보낸 `intervalSec` 의 **3배(최소 300초)** 동안 아무 이벤트도 안 오면 그 디바이스는 **오프라인**으로 표시된다(`intervalSec` 미전송 시 기본 60초 → 임계 300초).
+- **클라이언트 함의**: 실제 전송 주기와 `intervalSec` 을 일치시킨다. 주기보다 큰 값을 보내면 오프라인 표시가 둔해지고, 작은 값을 보내면 일시적 지연에도 오프라인 오탐이 잦아진다. 전송 주기를 바꾸면 `intervalSec` 도 함께 갱신해 보낸다.
 
 ## 5. 참고 — 최소 이벤트 예시 (비계약, 형태 예시)
 

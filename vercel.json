@@ -5,7 +5,6 @@
     "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
     "crons": [
         { "path": "/api/drive/lifecycle/evict-r2", "schedule": "0 3 * * *" },
-        { "path": "/api/drive/lifecycle/auto-promote", "schedule": "0 5 * * *" },
-        { "path": "/api/metrics/heartbeat-check", "schedule": "*/10 * * * *" }
+        { "path": "/api/drive/lifecycle/auto-promote", "schedule": "0 5 * * *" }
     ]
 }

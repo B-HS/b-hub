@@ -1,12 +1,22 @@
 import { Hono } from 'hono'
 import { withErrorHandling } from '../../lib/with-error-handling'
-import { verifyCronAuth } from '../../lib/cron-auth'
+import { createAppError } from '../../lib/error'
 import { successResponse } from '../../lib/api-response'
 import type { StorageLifecycleService } from '../../service/shared/storage-lifecycle'
 
 type DriveLifecycleRouteDeps = {
     storageLifecycleService: StorageLifecycleService
     uploadServerSecret: string
+}
+
+const verifyCronAuth = (c: { req: { header: (name: string) => string | undefined } }, secret: string) => {
+    const authHeader = c.req.header('Authorization')
+    const cronSecret = c.req.header('x-cron-secret')
+    const provided = authHeader?.replace('Bearer ', '') ?? cronSecret
+
+    if (!provided || provided !== secret) {
+        throw createAppError('UNAUTHORIZED')
+    }
 }
 
 export const createDriveLifecycleRoute = (deps: DriveLifecycleRouteDeps) => {
