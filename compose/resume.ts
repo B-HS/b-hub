@@ -31,6 +31,16 @@ export const composeResume = ({ db }: ComposeResumeArgs) => {
                 return resume ?? null
             },
 
+            getLatestResumeByType: async (type) => {
+                const [resume] = await db
+                    .select()
+                    .from(schema.resumes)
+                    .where(eq(schema.resumes.type, type))
+                    .orderBy(desc(schema.resumes.updatedAt))
+                    .limit(1)
+                return resume ?? null
+            },
+
             insertResume: async (data) => {
                 const [resume] = await db
                     .insert(schema.resumes)

@@ -27,26 +27,54 @@ const validResumeData = {
     creation_day: '11',
 }
 
+const localized = (value: string) => ({ ko: value, en: value, jp: value })
+
 const validCvData = {
-    name: '猫 太郎',
-    kana: 'ねこ たろう',
-    summary: 'Webフロントエンド開発経験を持つエンジニアです。',
-    experience: { environments: 'Linux', languages: 'TypeScript', frameworks: 'React', infrastructure: 'AWS', tools: 'Git' },
-    overview: [{ title: '株式会社テスト', period: '2023年～', content: '開発', tech_stack: 'React' }],
-    jobs: [
+    profile: {
+        firstName: 'Hyunseok',
+        lastName: 'Byun',
+        firstNameReading: { ko: '현석', en: '', jp: 'ヒョンソク' },
+        lastNameReading: { ko: '변', en: '', jp: 'ビョン' },
+        jobTitle: localized('Frontend Engineer'),
+        birthday: localized('95. 07. 01'),
+        location: { ko: '대한민국, 서울', en: 'Seoul, South Korea', jp: '韓国、ソウル' },
+        email: 'test@test.com',
+        github: 'https://github.com/test',
+        blog: 'https://blog.test.com',
+        introduce: [localized('소개 한 줄')],
+    },
+    seo: { title: localized('이력서'), description: localized('이력서 설명') },
+    labels: {
+        workExperience: localized('Work Experience'),
+        projects: localized('Projects'),
+        skills: localized('Skills'),
+        etc: localized('etc.'),
+    },
+    workExperiences: [
         {
-            title: 'Web開発',
-            period_from: '23/10',
-            period_to: '25/7',
-            period_span: '1年10ヶ月',
-            kind: 'Web',
-            role: 'エンジニア',
-            size: '6名',
-            content: '開発',
-            lang: 'TypeScript',
-            tools: 'Git',
+            name: localized('테스트 회사'),
+            period: localized('24. 03 - 26. 09'),
+            location: localized('서울'),
+            role: localized('Frontend Engineer'),
+            projects: [
+                {
+                    title: localized('테스트 프로젝트'),
+                    description: [localized('설명 첫 줄'), localized('설명 둘째 줄')],
+                    skills: ['Next.js', 'React'],
+                    site: 'https://example.com',
+                },
+            ],
         },
     ],
+    personalProjects: {
+        name: localized('개인 프로젝트'),
+        period: localized('22. 11 - 현재'),
+        location: localized(''),
+        role: localized('Toys'),
+        projects: [{ title: localized('토이'), description: [localized('설명')], skills: ['Bun'] }],
+    },
+    skillGroups: [{ name: localized('Frontend'), items: ['Next.js', 'React'] }],
+    additionalExperiences: [{ period: localized('25. 03'), description: localized('내용') }],
 }
 
 describe('resumeDataSchema', () => {
@@ -67,13 +95,35 @@ describe('resumeDataSchema', () => {
 })
 
 describe('cvDataSchema', () => {
-    test('유효한 CV 데이터를 파싱한다', () => {
+    test('유효한 웹 이력서 데이터를 파싱한다', () => {
         const result = cvDataSchema.safeParse(validCvData)
         expect(result.success).toBe(true)
     })
 
     test('필수 필드가 없으면 거부한다', () => {
-        const result = cvDataSchema.safeParse({ name: '猫' })
+        const result = cvDataSchema.safeParse({ profile: { firstName: 'Hyunseok' } })
+        expect(result.success).toBe(false)
+    })
+
+    test('구 職務経歴書 구조를 거부한다', () => {
+        const result = cvDataSchema.safeParse({ name: '猫 太郎', kana: 'ねこ たろう', summary: '요약', experience: {}, overview: [], jobs: [] })
+        expect(result.success).toBe(false)
+    })
+
+    test('site 가 없는 프로젝트를 허용한다', () => {
+        const { site: _site, ...projectWithoutSite } = validCvData.workExperiences[0].projects[0]
+        const result = cvDataSchema.safeParse({
+            ...validCvData,
+            workExperiences: [{ ...validCvData.workExperiences[0], projects: [projectWithoutSite] }],
+        })
+        expect(result.success).toBe(true)
+    })
+
+    test('언어 키가 빠진 LocalizedText 를 거부한다', () => {
+        const result = cvDataSchema.safeParse({
+            ...validCvData,
+            seo: { title: { ko: '이력서', en: 'Resume' }, description: localized('설명') },
+        })
         expect(result.success).toBe(false)
     })
 })

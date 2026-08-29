@@ -3,6 +3,20 @@
 > 베이스 룰: `CLAUDE.md` + `~/.claude/convention/*`(arrow only, 반환타입 추론, any/unknown 금지, 코드 주석 금지, named export, Factory DI + ServiceDb, `z.infer`/`ReturnType` 유도, 응답 헬퍼, 에러 3파일).
 > 문서 진입점: [index.md](./index.md) · 완료 작업 이력: [history/](./history/)
 
+## 최근 완료 작업 — 웹 이력서(resume.gumyo.net) DB 전환: cv 슬롯 재정의 + 공개 조회 (2026-08-29)
+
+> 배경: resume.gumyo.net(별도 레포 RESUME)의 콘텐츠를 정적 번역 파일에서 DB 로 전환. 사용자 결정으로 `resumes.type='cv'`(구 職務経歴書 스키마, 실데이터 없음 전제)를 ko/en/jp 3개 언어 웹 이력서 슬롯으로 재정의한다. 편집은 기존 `/manage/resume` JSON 편집기 그대로. 합의: [acknowledge/2026-08-29-cv-web-resume.md](./acknowledge/2026-08-29-cv-web-resume.md)
+
+- [x] a. `dto/resume/resume-data.ts` — `cvDataSchema` 를 웹 이력서 스키마(LocalizedText 기반)로 교체
+- [x] b. `service/domain/resume/resume.ts` — `getPublicCv` + `ResumeServiceDb.getLatestResumeByType`
+- [x] c. `compose/resume.ts` — `getLatestResumeByType` Drizzle 구현
+- [x] d. `route/resume/resume.ts` — `GET /public/cv` (인증 없음, 최신 cv 1건, `{ cv, updatedAt }`)
+- [x] e. 테스트 갱신 — dto(cv 스키마)·service(getPublicCv)·route(공개 엔드포인트) — resume 3파일 44 pass
+- [x] f. docs 갱신 — domains/resume.md · reference/api-endpoints.md
+- [x] g. 검증 — `bunx tsc --noEmit` 0 에러 · resume 테스트 44 pass · prettier 통과 (rebase 후 신규 base 에서 재검증)
+- 부수 발견: 워킹트리에 있던 우발적 노이즈 변경(`drizzle.config.ts` 말단 `O` 문법 오류, `dto/calendar-group.ts` 후행 공백, `masterdata/locations.json` 말단 개행 제거)을 `git checkout` 으로 원복함
+- 원격 dev 가 force-update 로 재작성되어 있어, 본 커밋을 신규 origin/dev 위로 rebase 해 반영함
+
 ## 최근 완료 작업 — metrics 도메인 신설 (2026-07-22)
 
 > 시스템 모니터링 대시보드의 수집 API. 클라이언트(Tauri 데스크톱/headless 데몬/ESP32)가 시스템 정보 JSON 을 주기 전송하면 MongoDB 에 저장한다. 토큰(별칭·만료일·scope) 메타는 MySQL, 로그 본문·디바이스 레지스트리는 MongoDB(`MONGODB_URI`). 클라이언트 레포: `~/machboard` (설계 정본: 그쪽 `docs/design.md`).

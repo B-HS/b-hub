@@ -38,10 +38,19 @@ const mockResume = {
     updatedAt: new Date(),
 }
 
+const mockCvResume = {
+    ...mockResume,
+    id: 3,
+    type: 'cv',
+    title: '웹 이력서',
+    data: { profile: { firstName: 'Hyunseok' } },
+}
+
 const createMockDeps = () => ({
     resumeService: {
         list: mock(() => Promise.resolve({ resumes: [mockResume], total: 1 })),
         getById: mock(() => Promise.resolve({ success: true as const, resume: mockResume })),
+        getPublicCv: mock(() => Promise.resolve(mockCvResume)),
         create: mock(() => Promise.resolve({ id: 2 })),
         update: mock(() => Promise.resolve({ success: true as const })),
         delete: mock(() => Promise.resolve({ success: true as const })),
@@ -54,6 +63,27 @@ const createApp = (deps = createMockDeps()) => {
     app.route('/resume', createResumeRoute(deps))
     return { app, deps }
 }
+
+describe('GET /resume/public/cv', () => {
+    test('인증 없이 최신 cv 데이터를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/resume/public/cv')
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.data.cv).toEqual(mockCvResume.data)
+        expect(body.data.updatedAt).toBeDefined()
+    })
+
+    test('cv가 없으면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.resumeService.getPublicCv = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/resume/public/cv')
+        expect(res.status).toBe(404)
+    })
+})
 
 describe('GET /resume', () => {
     test('인증된 사용자의 이력서 목록을 반환한다', async () => {

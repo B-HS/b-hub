@@ -12,9 +12,17 @@ const mockResume = {
     updatedAt: new Date(),
 }
 
+const mockCvResume = {
+    ...mockResume,
+    id: 3,
+    type: 'cv',
+    title: '웹 이력서',
+}
+
 const createMockDb = () => ({
     getResumesByUserId: mock(() => Promise.resolve({ resumes: [mockResume], total: 1 })),
     getResumeById: mock((id: number) => Promise.resolve(id === 1 ? mockResume : null)),
+    getLatestResumeByType: mock((type: string) => Promise.resolve(type === 'cv' ? mockCvResume : null)),
     insertResume: mock(() => Promise.resolve({ id: 2 })),
     updateResume: mock(() => Promise.resolve()),
     deleteResume: mock(() => Promise.resolve()),
@@ -28,6 +36,23 @@ describe('createResumeService', () => {
         const result = await service.list('user-1', { page: 1, limit: 20 })
         expect(result.resumes).toHaveLength(1)
         expect(result.total).toBe(1)
+    })
+
+    test('getPublicCv는 최신 cv 이력서를 반환한다', async () => {
+        const db = createMockDb()
+        const service = createResumeService({ db })
+
+        const result = await service.getPublicCv()
+        expect(result?.type).toBe('cv')
+        expect(db.getLatestResumeByType).toHaveBeenCalledWith('cv')
+    })
+
+    test('getPublicCv는 cv가 없으면 null을 반환한다', async () => {
+        const db = createMockDb()
+        db.getLatestResumeByType = mock(() => Promise.resolve(null))
+        const service = createResumeService({ db })
+
+        expect(await service.getPublicCv()).toBeNull()
     })
 
     test('getById는 자신의 이력서를 반환한다', async () => {

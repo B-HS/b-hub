@@ -14,6 +14,7 @@ type ResumeRow = {
 type ResumeServiceDb = {
     getResumesByUserId: (userId: string, query: ResumeListQuery) => Promise<{ resumes: ResumeRow[]; total: number }>
     getResumeById: (id: number) => Promise<ResumeRow | null>
+    getLatestResumeByType: (type: string) => Promise<ResumeRow | null>
     insertResume: (data: { userId: string; type: string; title: string; data: unknown; isPublic: boolean }) => Promise<{ id: number }>
     updateResume: (id: number, data: { title?: string; data?: unknown; isPublic?: boolean }) => Promise<void>
     deleteResume: (id: number) => Promise<void>
@@ -26,6 +27,10 @@ type ResumeServiceDeps = {
 export const createResumeService = (deps: ResumeServiceDeps) => ({
     list: async (userId: string, query: ResumeListQuery) => {
         return deps.db.getResumesByUserId(userId, query)
+    },
+
+    getPublicCv: async () => {
+        return deps.db.getLatestResumeByType('cv')
     },
 
     getById: async (id: number, userId: string) => {
