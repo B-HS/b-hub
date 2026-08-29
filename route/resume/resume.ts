@@ -17,19 +17,19 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
     const route = new Hono()
 
     route.get(
-        '/public/cv',
+        '/public/web',
         describeRoute({
             tags: ['Resume'],
-            summary: '공개 웹 이력서(cv) 조회',
+            summary: '공개 웹 이력서(web) 조회',
             responses: {
-                200: { description: '최신 cv 데이터' },
+                200: { description: '최신 web 이력서 데이터' },
                 ...errorResponses(['RESUME_NOT_FOUND']),
             },
         }),
         withErrorHandling(async (c) => {
-            const resume = await deps.resumeService.getPublicCv()
+            const resume = await deps.resumeService.getPublicWebResume()
             if (!resume) throw createAppError('RESUME_NOT_FOUND')
-            return c.json(successResponse({ cv: resume.data, updatedAt: resume.updatedAt }))
+            return c.json(successResponse({ webResume: resume.data, updatedAt: resume.updatedAt }))
         }),
     )
 

@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { resumeDataSchema, cvDataSchema } from './resume-data'
+import { resumeDataSchema, cvDataSchema, webResumeDataSchema } from './resume-data'
 
-export const RESUME_TYPE = ['resume', 'cv'] as const
+export const RESUME_TYPE = ['resume', 'cv', 'web'] as const
 
 const resumePayloadSchema = z.object({
     type: z.literal('resume'),
@@ -13,7 +13,12 @@ const cvPayloadSchema = z.object({
     data: cvDataSchema,
 })
 
-export const resumeCreateSchema = z.discriminatedUnion('type', [resumePayloadSchema, cvPayloadSchema]).and(
+const webPayloadSchema = z.object({
+    type: z.literal('web'),
+    data: webResumeDataSchema,
+})
+
+export const resumeCreateSchema = z.discriminatedUnion('type', [resumePayloadSchema, cvPayloadSchema, webPayloadSchema]).and(
     z.object({
         title: z.string().min(1).max(255),
         isPublic: z.boolean().default(false),
@@ -22,7 +27,7 @@ export const resumeCreateSchema = z.discriminatedUnion('type', [resumePayloadSch
 
 export const resumeUpdateSchema = z.object({
     title: z.string().min(1).max(255).optional(),
-    data: z.union([resumeDataSchema, cvDataSchema]).optional(),
+    data: z.union([resumeDataSchema, cvDataSchema, webResumeDataSchema]).optional(),
     isPublic: z.boolean().optional(),
 })
 

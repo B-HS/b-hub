@@ -208,11 +208,11 @@
 
 ## resume
 
-마운트: `/resume`. 공개 cv 조회 제외 전 경로 `세션`(핸들러 내 `getSession`).
+마운트: `/resume`. 공개 web 이력서 조회 제외 전 경로 `세션`(핸들러 내 `getSession`).
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
-| GET | `/api/resume/public/cv` | 없음(공개) | 최신 웹 이력서(cv) 조회 — resume.gumyo.net 소비 | `route/resume/resume.ts` |
+| GET | `/api/resume/public/web` | 없음(공개) | 최신 웹 이력서(web) 조회 — resume.gumyo.net 소비 | `route/resume/resume.ts` |
 | GET | `/api/resume` | 세션 | 내 이력서 목록(페이지네이션) | `route/resume/resume.ts` |
 | GET | `/api/resume/:id` | 세션 | 이력서 상세 | `route/resume/resume.ts` |
 | POST | `/api/resume` | 세션 | 이력서 생성 | `route/resume/resume.ts` |

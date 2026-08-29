@@ -17,6 +17,18 @@
 - 부수 발견: 워킹트리에 있던 우발적 노이즈 변경(`drizzle.config.ts` 말단 `O` 문법 오류, `dto/calendar-group.ts` 후행 공백, `masterdata/locations.json` 말단 개행 제거)을 `git checkout` 으로 원복함
 - 원격 dev 가 force-update 로 재작성되어 있어, 본 커밋을 신규 origin/dev 위로 rebase 해 반영함
 
+### 정정 — cv 실데이터 발견으로 web 타입 신설 (2026-08-29 후속)
+
+> 배포 직후 검증에서 기존 cv 행(일본어 職務経歴書) 발견 — "cv 실데이터 없음" 전제 붕괴. `/public/cv` 가 해당 문서를 공개 서빙하는 상태였다. 사용자 결정(A안)으로 cv 원복 + `web` 타입 신설. 경위: [acknowledge/2026-08-29-cv-web-resume.md](./acknowledge/2026-08-29-cv-web-resume.md)
+
+- [x] a. `dto/resume/resume-data.ts` — 구 `cvDataSchema`(職務経歴書) 원복, 웹 이력서 스키마는 `webResumeDataSchema` 로 개명
+- [x] b. `dto/resume/resume.ts` — `RESUME_TYPE` 에 `'web'` 추가, create discriminated union·update union 확장
+- [x] c. `service`·`route` — `getPublicWebResume` / `GET /public/web` (`{ webResume, updatedAt }`) 로 변경
+- [x] d. `page/manage/pages/resume.tsx` — type 필터에 `web` 허용
+- [x] e. 테스트 — cv(구 스키마)·web 양쪽 픽스처로 재작성, 50 pass
+- [x] f. docs — domains/resume.md·reference/api-endpoints.md web 기준 정정, acknowledge 경위 기록
+- [x] g. 검증 — `bunx tsc --noEmit` 0 에러 · resume 테스트 50 pass · prettier 통과
+
 ## 최근 완료 작업 — metrics 도메인 신설 (2026-07-22)
 
 > 시스템 모니터링 대시보드의 수집 API. 클라이언트(Tauri 데스크톱/headless 데몬/ESP32)가 시스템 정보 JSON 을 주기 전송하면 MongoDB 에 저장한다. 토큰(별칭·만료일·scope) 메타는 MySQL, 로그 본문·디바이스 레지스트리는 MongoDB(`MONGODB_URI`). 클라이언트 레포: `~/machboard` (설계 정본: 그쪽 `docs/design.md`).

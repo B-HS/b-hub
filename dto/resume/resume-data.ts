@@ -39,38 +39,75 @@ export const resumeDataSchema = z.object({
     creation_day: z.string(),
 })
 
+const cvExperienceSchema = z.object({
+    environments: z.string(),
+    languages: z.string(),
+    frameworks: z.string(),
+    infrastructure: z.string(),
+    tools: z.string(),
+})
+
+const cvOverviewSchema = z.object({
+    title: z.string(),
+    period: z.string(),
+    content: z.string(),
+    tech_stack: z.string(),
+})
+
+const cvJobSchema = z.object({
+    title: z.string(),
+    period_from: z.string(),
+    period_to: z.string(),
+    period_span: z.string(),
+    kind: z.string(),
+    role: z.string(),
+    size: z.string(),
+    content: z.string(),
+    lang: z.string(),
+    tools: z.string(),
+})
+
+export const cvDataSchema = z.object({
+    name: z.string(),
+    kana: z.string(),
+    summary: z.string(),
+    experience: cvExperienceSchema,
+    overview: z.array(cvOverviewSchema),
+    jobs: z.array(cvJobSchema),
+})
+
 const localizedTextSchema = z.object({
     ko: z.string(),
     en: z.string(),
     jp: z.string(),
 })
 
-const cvProjectSchema = z.object({
+const webResumeProjectSchema = z.object({
     title: localizedTextSchema,
     description: z.array(localizedTextSchema),
     skills: z.array(z.string()),
     site: z.string().optional(),
 })
 
-const cvCompanySchema = z.object({
+const webResumeCompanySchema = z.object({
     name: localizedTextSchema,
     period: localizedTextSchema,
     location: localizedTextSchema,
     role: localizedTextSchema,
-    projects: z.array(cvProjectSchema),
+    projects: z.array(webResumeProjectSchema),
 })
 
-const cvSkillGroupSchema = z.object({
+const webResumeSkillGroupSchema = z.object({
     name: localizedTextSchema,
     items: z.array(z.string()),
 })
 
-const cvAdditionalExperienceSchema = z.object({
+const webResumeAdditionalExperienceSchema = z.object({
     period: localizedTextSchema,
     description: localizedTextSchema,
 })
 
-const cvProfileSchema = z.object({
+const webResumeProfileSchema = z.object({
     firstName: z.string(),
     lastName: z.string(),
     firstNameReading: localizedTextSchema,
@@ -84,27 +121,28 @@ const cvProfileSchema = z.object({
     introduce: z.array(localizedTextSchema),
 })
 
-const cvSeoSchema = z.object({
+const webResumeSeoSchema = z.object({
     title: localizedTextSchema,
     description: localizedTextSchema,
 })
 
-const cvLabelsSchema = z.object({
+const webResumeLabelsSchema = z.object({
     workExperience: localizedTextSchema,
     projects: localizedTextSchema,
     skills: localizedTextSchema,
     etc: localizedTextSchema,
 })
 
-export const cvDataSchema = z.object({
-    profile: cvProfileSchema,
-    seo: cvSeoSchema,
-    labels: cvLabelsSchema,
-    workExperiences: z.array(cvCompanySchema),
-    personalProjects: cvCompanySchema,
-    skillGroups: z.array(cvSkillGroupSchema),
-    additionalExperiences: z.array(cvAdditionalExperienceSchema),
+export const webResumeDataSchema = z.object({
+    profile: webResumeProfileSchema,
+    seo: webResumeSeoSchema,
+    labels: webResumeLabelsSchema,
+    workExperiences: z.array(webResumeCompanySchema),
+    personalProjects: webResumeCompanySchema,
+    skillGroups: z.array(webResumeSkillGroupSchema),
+    additionalExperiences: z.array(webResumeAdditionalExperienceSchema),
 })
 
 export type ResumeData = z.infer<typeof resumeDataSchema>
 export type CvData = z.infer<typeof cvDataSchema>
+export type WebResumeData = z.infer<typeof webResumeDataSchema>

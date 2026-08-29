@@ -38,10 +38,10 @@ const mockResume = {
     updatedAt: new Date(),
 }
 
-const mockCvResume = {
+const mockWebResume = {
     ...mockResume,
     id: 3,
-    type: 'cv',
+    type: 'web',
     title: '웹 이력서',
     data: { profile: { firstName: 'Hyunseok' } },
 }
@@ -50,7 +50,7 @@ const createMockDeps = () => ({
     resumeService: {
         list: mock(() => Promise.resolve({ resumes: [mockResume], total: 1 })),
         getById: mock(() => Promise.resolve({ success: true as const, resume: mockResume })),
-        getPublicCv: mock(() => Promise.resolve(mockCvResume)),
+        getPublicWebResume: mock(() => Promise.resolve(mockWebResume)),
         create: mock(() => Promise.resolve({ id: 2 })),
         update: mock(() => Promise.resolve({ success: true as const })),
         delete: mock(() => Promise.resolve({ success: true as const })),
@@ -64,23 +64,23 @@ const createApp = (deps = createMockDeps()) => {
     return { app, deps }
 }
 
-describe('GET /resume/public/cv', () => {
-    test('인증 없이 최신 cv 데이터를 반환한다', async () => {
+describe('GET /resume/public/web', () => {
+    test('인증 없이 최신 web 이력서 데이터를 반환한다', async () => {
         const deps = createMockDeps()
         deps.getSession = mock(() => Promise.resolve(null))
         const { app } = createApp(deps)
-        const res = await app.request('/resume/public/cv')
+        const res = await app.request('/resume/public/web')
         expect(res.status).toBe(200)
         const body = await res.json()
-        expect(body.data.cv).toEqual(mockCvResume.data)
+        expect(body.data.webResume).toEqual(mockWebResume.data)
         expect(body.data.updatedAt).toBeDefined()
     })
 
-    test('cv가 없으면 404를 반환한다', async () => {
+    test('web 이력서가 없으면 404를 반환한다', async () => {
         const deps = createMockDeps()
-        deps.resumeService.getPublicCv = mock(() => Promise.resolve(null))
+        deps.resumeService.getPublicWebResume = mock(() => Promise.resolve(null))
         const { app } = createApp(deps)
-        const res = await app.request('/resume/public/cv')
+        const res = await app.request('/resume/public/web')
         expect(res.status).toBe(404)
     })
 })

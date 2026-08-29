@@ -29,8 +29,8 @@ export const createResumeService = (deps: ResumeServiceDeps) => ({
         return deps.db.getResumesByUserId(userId, query)
     },
 
-    getPublicCv: async () => {
-        return deps.db.getLatestResumeByType('cv')
+    getPublicWebResume: async () => {
+        return deps.db.getLatestResumeByType('web')
     },
 
     getById: async (id: number, userId: string) => {

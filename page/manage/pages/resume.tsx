@@ -169,7 +169,7 @@ export const createManageResumeRoute = (deps: ManageResumeDeps) => {
         const page = parseIntOr(c.req.query('page'), 1)
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), DEFAULT_PAGE_SIZE), MIN_PAGE_SIZE), MAX_PAGE_SIZE)
         const typeRaw = c.req.query('type')
-        const type = typeRaw === 'resume' || typeRaw === 'cv' ? typeRaw : undefined
+        const type = typeRaw === 'resume' || typeRaw === 'cv' || typeRaw === 'web' ? typeRaw : undefined
         const { resumes, total } = await deps.resumeService.list(user.id, { type, page, limit: size })
         return c.html(<ResumesPage user={user} rows={resumes} total={total} page={page} size={size} type={typeRaw} flash={parseFlash(c)} />)
     })
