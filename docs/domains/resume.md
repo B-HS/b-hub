@@ -72,6 +72,7 @@
 - `projects[]` (회사 하위) — `{ title (LocalizedText), description (LocalizedText[]), skills (string[]), site? (string) }`
 - `skillGroups[]` — `{ name (LocalizedText), items (string[]) }`
 - `additionalExperiences[]` — `{ period, description }` (LocalizedText)
+- `customSections[]` — `{ label (LocalizedText), items ({ period, description }[]) }` — 사용자 정의 섹션, `.default([])` 로 하위호환
 
 `resumeDataSchema` 의 스칼라 필드는 전부 문자열이다(`gender`/`marital_status`/`spouse_obligation`은 enum 으로 제약된 문자열).
 
@@ -82,6 +83,7 @@
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
 | GET | `/api/resume/public/web` | **없음(공개)** | 최신(`updated_at` desc) `type='web'` 1건의 `{ webResume: data, updatedAt }`. `isPublic` 필터 없음(무조건 공개 합의). 없으면 404 |
+| PATCH | `/api/resume/web` | 세션 + `role==='admin'` | 최신 web 행의 data 전체 교체(`webResumeDataSchema` 검증). 비 admin 403, web 행 없으면 404 |
 | GET | `/api/resume` | 세션 | 내 이력서 목록. 쿼리 `type?`, `page`(기본 1), `limit`(기본 20, 최대 50). `updated_at` desc, `paginatedResponse` |
 | GET | `/api/resume/:id` | 세션 + 소유 | 상세. 비숫자 id·미존재·비소유 → 404(`RESUME_NOT_FOUND`) |
 | POST | `/api/resume` | 세션 | 생성. body = `resumeCreateSchema`(type + data + title, isPublic 기본 false) |

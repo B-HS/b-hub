@@ -1,4 +1,5 @@
 import type { ResumeCreateInput, ResumeUpdateInput, ResumeListQuery } from '../../../dto/resume/resume'
+import type { WebResumeData } from '../../../dto/resume/resume-data'
 
 type ResumeRow = {
     id: number
@@ -31,6 +32,13 @@ export const createResumeService = (deps: ResumeServiceDeps) => ({
 
     getPublicWebResume: async () => {
         return deps.db.getLatestResumeByType('web')
+    },
+
+    updateWebResume: async (data: WebResumeData) => {
+        const existing = await deps.db.getLatestResumeByType('web')
+        if (!existing) return { success: false as const, reason: 'not_found' as const }
+        await deps.db.updateResume(existing.id, { data })
+        return { success: true as const }
     },
 
     getById: async (id: number, userId: string) => {

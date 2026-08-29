@@ -213,13 +213,14 @@
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
 | GET | `/api/resume/public/web` | 없음(공개) | 최신 웹 이력서(web) 조회 — resume.gumyo.net 소비 | `route/resume/resume.ts` |
+| PATCH | `/api/resume/web` | 어드민 | 웹 이력서(web) 수정 — resume.gumyo.net 인라인 편집 | `route/resume/resume.ts` |
 | GET | `/api/resume` | 세션 | 내 이력서 목록(페이지네이션) | `route/resume/resume.ts` |
 | GET | `/api/resume/:id` | 세션 | 이력서 상세 | `route/resume/resume.ts` |
 | POST | `/api/resume` | 세션 | 이력서 생성 | `route/resume/resume.ts` |
 | PATCH | `/api/resume/:id` | 세션 | 이력서 수정 | `route/resume/resume.ts` |
 | DELETE | `/api/resume/:id` | 세션 | 이력서 삭제 | `route/resume/resume.ts` |
 
-파일 카운트: `resume.ts` = 6. 상세: [../domains/resume.md](../domains/resume.md).
+파일 카운트: `resume.ts` = 7. 상세: [../domains/resume.md](../domains/resume.md).
 
 ---
 
@@ -430,7 +431,7 @@
 | `route/weather/mock.ts` | 4 | `route/spotify/data.ts` | 2 |
 | `route/blog/post.ts` | 4 | `route/spotify/playing.ts` | 3 |
 | `route/blog/thumbnail.ts` | 1 | `route/spotify/widget-token.ts` | 4 |
-| `route/blog/comment.ts` | 4 | `route/resume/resume.ts` | 6 |
+| `route/blog/comment.ts` | 4 | `route/resume/resume.ts` | 7 |
 | `route/blog/category.ts` | 2 | `route/calendar/event.ts` | 8 |
 | `route/blog/tag.ts` | 2 | `route/calendar/group.ts` | 4 |
 | `route/blog/message.ts` | 4 | `route/calendar/subscription.ts` | 4 |

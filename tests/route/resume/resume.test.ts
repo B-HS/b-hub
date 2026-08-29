@@ -46,11 +46,42 @@ const mockWebResume = {
     data: { profile: { firstName: 'Hyunseok' } },
 }
 
+const localized = (value: string) => ({ ko: value, en: value, jp: value })
+
+const validWebResumeBody = {
+    profile: {
+        firstName: 'Hyunseok',
+        lastName: 'Byun',
+        firstNameReading: localized('현석'),
+        lastNameReading: localized('변'),
+        jobTitle: localized('Frontend Engineer'),
+        birthday: localized('95. 07. 01'),
+        location: localized('서울'),
+        email: 'test@test.com',
+        github: 'https://github.com/test',
+        blog: 'https://blog.test.com',
+        introduce: [localized('소개')],
+    },
+    seo: { title: localized('이력서'), description: localized('설명') },
+    labels: { workExperience: localized('Work'), projects: localized('Projects'), skills: localized('Skills'), etc: localized('etc.') },
+    workExperiences: [],
+    personalProjects: {
+        name: localized('개인 프로젝트'),
+        period: localized('22. 11 -'),
+        location: localized(''),
+        role: localized('Toys'),
+        projects: [],
+    },
+    skillGroups: [],
+    additionalExperiences: [],
+}
+
 const createMockDeps = () => ({
     resumeService: {
         list: mock(() => Promise.resolve({ resumes: [mockResume], total: 1 })),
         getById: mock(() => Promise.resolve({ success: true as const, resume: mockResume })),
         getPublicWebResume: mock(() => Promise.resolve(mockWebResume)),
+        updateWebResume: mock(() => Promise.resolve({ success: true as const })),
         create: mock(() => Promise.resolve({ id: 2 })),
         update: mock(() => Promise.resolve({ success: true as const })),
         delete: mock(() => Promise.resolve({ success: true as const })),
@@ -81,6 +112,52 @@ describe('GET /resume/public/web', () => {
         deps.resumeService.getPublicWebResume = mock(() => Promise.resolve(null))
         const { app } = createApp(deps)
         const res = await app.request('/resume/public/web')
+        expect(res.status).toBe(404)
+    })
+})
+
+describe('PATCH /resume/web', () => {
+    const patchWeb = (app: Hono, body: unknown) =>
+        app.request('/resume/web', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+    test('admin이면 웹 이력서를 수정한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve({ user: { id: 'user-1', role: 'admin' } }))
+        const { app } = createApp(deps)
+        const res = await patchWeb(app, validWebResumeBody)
+        expect(res.status).toBe(200)
+        expect(deps.resumeService.updateWebResume).toHaveBeenCalled()
+    })
+
+    test('admin이 아니면 403을 반환한다', async () => {
+        const { app, deps } = createApp()
+        const res = await patchWeb(app, validWebResumeBody)
+        expect(res.status).toBe(403)
+        expect(deps.resumeService.updateWebResume).not.toHaveBeenCalled()
+    })
+
+    test('미인증이면 401을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await patchWeb(app, validWebResumeBody)
+        expect(res.status).toBe(401)
+    })
+
+    test('유효하지 않은 body면 400을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve({ user: { id: 'user-1', role: 'admin' } }))
+        const { app } = createApp(deps)
+        const res = await patchWeb(app, { profile: { firstName: 'Hyunseok' } })
+        expect(res.status).toBe(400)
+    })
+
+    test('web 행이 없으면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.getSession = mock(() => Promise.resolve({ user: { id: 'user-1', role: 'admin' } }))
+        deps.resumeService.updateWebResume = mock(() => Promise.resolve({ success: false as const, reason: 'not_found' as const }))
+        const { app } = createApp(deps)
+        const res = await patchWeb(app, validWebResumeBody)
         expect(res.status).toBe(404)
     })
 })

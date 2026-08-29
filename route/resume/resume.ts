@@ -6,6 +6,7 @@ import { createAppError } from '../../lib/error'
 import { successResponse, paginatedResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
 import { resumeCreateSchema, resumeUpdateSchema, resumeListQuerySchema } from '../../dto/resume/resume'
+import { webResumeDataSchema } from '../../dto/resume/resume-data'
 import type { ResumeService } from '../../service/domain/resume/resume'
 
 type ResumeRouteDeps = {
@@ -30,6 +31,30 @@ export const createResumeRoute = (deps: ResumeRouteDeps) => {
             const resume = await deps.resumeService.getPublicWebResume()
             if (!resume) throw createAppError('RESUME_NOT_FOUND')
             return c.json(successResponse({ webResume: resume.data, updatedAt: resume.updatedAt }))
+        }),
+    )
+
+    route.patch(
+        '/web',
+        describeRoute({
+            tags: ['Resume'],
+            summary: '웹 이력서(web) 수정 (admin 전용)',
+            responses: {
+                200: { description: '수정 결과' },
+                ...errorResponses(['UNAUTHORIZED', 'FORBIDDEN', 'RESUME_NOT_FOUND']),
+            },
+        }),
+        validator('json', webResumeDataSchema),
+        withErrorHandling(async (c) => {
+            const session = await deps.getSession(c)
+            if (!session) throw createAppError('UNAUTHORIZED')
+            if (session.user.role !== 'admin') throw createAppError('FORBIDDEN')
+
+            const data = c.req.valid('json' as never) as z.infer<typeof webResumeDataSchema>
+            const result = await deps.resumeService.updateWebResume(data)
+            if (!result.success) throw createAppError('RESUME_NOT_FOUND')
+
+            return c.json(successResponse({ success: true }))
         }),
     )
 

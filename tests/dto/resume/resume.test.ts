@@ -160,6 +160,25 @@ describe('webResumeDataSchema', () => {
         })
         expect(result.success).toBe(false)
     })
+
+    test('customSections 가 없으면 빈 배열로 기본 처리한다', () => {
+        const result = webResumeDataSchema.safeParse(validWebResumeData)
+        expect(result.success).toBe(true)
+        if (result.success) {
+            expect(result.data.customSections).toEqual([])
+        }
+    })
+
+    test('customSections 를 파싱한다', () => {
+        const result = webResumeDataSchema.safeParse({
+            ...validWebResumeData,
+            customSections: [{ label: localized('Awards'), items: [{ period: localized('25. 01'), description: localized('수상') }] }],
+        })
+        expect(result.success).toBe(true)
+        if (result.success) {
+            expect(result.data.customSections).toHaveLength(1)
+        }
+    })
 })
 
 describe('resumeCreateSchema', () => {

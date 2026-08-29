@@ -17,6 +17,16 @@
 - 부수 발견: 워킹트리에 있던 우발적 노이즈 변경(`drizzle.config.ts` 말단 `O` 문법 오류, `dto/calendar-group.ts` 후행 공백, `masterdata/locations.json` 말단 개행 제거)을 `git checkout` 으로 원복함
 - 원격 dev 가 force-update 로 재작성되어 있어, 본 커밋을 신규 origin/dev 위로 rebase 해 반영함
 
+### 웹 이력서 admin 수정 엔드포인트 + customSections (2026-08-29 후속 2)
+
+> resume.gumyo.net 인라인 편집 기능(소비자 프론트)의 백엔드. 합의: 세션 + `role==='admin'` 게이트.
+
+- [x] a. `webResumeDataSchema` 에 `customSections`(label + period/description items, `.default([])` 하위호환) 추가
+- [x] b. `PATCH /api/resume/web` — 무인증 401 · 비 admin 403 · body `webResumeDataSchema` 검증(400) · web 행 없으면 404, `updateWebResume` 서비스로 최신 web 행 data 교체
+- [x] c. 테스트 — dto(customSections 기본값·파싱)·service(updateWebResume 성공/not_found)·route(admin 200/403/401/400/404), resume 3파일 59 pass
+- [x] d. CORS — 기존 설정이 PATCH·credentials 허용 확인(hono cors 기본 allowMethods + `credentials: true`), 변경 불필요
+- [x] e. 검증 — `bunx tsc --noEmit` 0 에러 · prettier 통과 · docs(domains/resume·reference/api-endpoints) 갱신
+
 ### 정정 — cv 실데이터 발견으로 web 타입 신설 (2026-08-29 후속)
 
 > 배포 직후 검증에서 기존 cv 행(일본어 職務経歴書) 발견 — "cv 실데이터 없음" 전제 붕괴. `/public/cv` 가 해당 문서를 공개 서빙하는 상태였다. 사용자 결정(A안)으로 cv 원복 + `web` 타입 신설. 경위: [acknowledge/2026-08-29-cv-web-resume.md](./acknowledge/2026-08-29-cv-web-resume.md)

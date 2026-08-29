@@ -55,6 +55,26 @@ describe('createResumeService', () => {
         expect(await service.getPublicWebResume()).toBeNull()
     })
 
+    test('updateWebResume는 최신 web 행의 data를 갱신한다', async () => {
+        const db = createMockDb()
+        const service = createResumeService({ db })
+
+        const data = { profile: { firstName: 'Hyunseok' } } as never
+        const result = await service.updateWebResume(data)
+        expect(result.success).toBe(true)
+        expect(db.updateResume).toHaveBeenCalledWith(mockWebResume.id, { data })
+    })
+
+    test('updateWebResume는 web 행이 없으면 not_found를 반환한다', async () => {
+        const db = createMockDb()
+        db.getLatestResumeByType = mock(() => Promise.resolve(null))
+        const service = createResumeService({ db })
+
+        const result = await service.updateWebResume({ profile: { firstName: 'Hyunseok' } } as never)
+        expect(result.success).toBe(false)
+        expect(db.updateResume).not.toHaveBeenCalled()
+    })
+
     test('getById는 자신의 이력서를 반환한다', async () => {
         const db = createMockDb()
         const service = createResumeService({ db })
