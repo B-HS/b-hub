@@ -47,6 +47,7 @@ export const compose = () => {
         ...drive,
         ...ai,
         ...metrics,
+        isProduction: env.NODE_ENV === 'production',
         baseUrl: env.BASE_URL ?? '',
         gdriveRootFolderId: env.GDRIVE_ROOT_FOLDER_ID ?? '',
     }

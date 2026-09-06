@@ -49,7 +49,6 @@ import { createAiChatRoute } from './ai/chat'
 import { createAiAttachmentRoute } from './ai/attachment'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
-import { getEnv } from '../lib/env'
 
 type RouterDeps = Partial<ReturnType<typeof compose>>
 
@@ -72,6 +71,7 @@ const stubFn = <T>(fn?: T): T =>
 
 export const createRouter = (deps: RouterDeps = {}) => {
     const router = new Hono()
+    const isProduction = deps.isProduction ?? process.env.NODE_ENV === 'production'
 
     router.route('/health', healthRoute)
 
@@ -98,7 +98,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
             getSession: stubFn(deps.getSession) as never,
         }),
     )
-    if (getEnv().NODE_ENV !== 'production') {
+    if (!isProduction) {
         router.route(
             '/weather/mock',
             createWeatherMockRoute({
