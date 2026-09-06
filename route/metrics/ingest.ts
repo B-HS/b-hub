@@ -20,7 +20,7 @@ type MetricsIngestRouteDeps = {
 }
 
 const assertPayloadSize = (event: MetricsIngestInput) => {
-    if (JSON.stringify(event.payload).length > METRICS_PAYLOAD_MAX_BYTES) throw createAppError('METRICS_PAYLOAD_TOO_LARGE')
+    if (Buffer.byteLength(JSON.stringify(event.payload)) > METRICS_PAYLOAD_MAX_BYTES) throw createAppError('METRICS_PAYLOAD_TOO_LARGE')
 }
 
 const readToken = (c: Context) => ({

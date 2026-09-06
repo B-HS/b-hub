@@ -2,6 +2,7 @@ import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createMetricsIngestRoute } from '../../../route/metrics/ingest'
 import { errorHandler } from '../../../middleware/error-handler'
+import { METRICS_PAYLOAD_MAX_BYTES } from '../../../dto/metrics/ingest'
 
 const tokenRecord = { id: 1, alias: 'demo-mbp', scope: 'client', dailyLimit: 20000 }
 
@@ -91,5 +92,40 @@ describe('POST /metrics/ingest/batch', () => {
         const { app } = createApp()
         const res = await postJson(app, '/metrics/ingest/batch', { events: [] })
         expect(res.status).toBe(400)
+    })
+})
+
+describe('payload 크기 검사 (UTF-8 바이트)', () => {
+    test('UTF-16 길이는 상한 이하지만 UTF-8 바이트가 64KB를 넘으면 413이다', async () => {
+        const { app, logService } = createApp()
+        const payload = { blob: '가'.repeat(30000) }
+        expect(JSON.stringify(payload).length).toBeLessThan(METRICS_PAYLOAD_MAX_BYTES)
+        expect(Buffer.byteLength(JSON.stringify(payload))).toBeGreaterThan(METRICS_PAYLOAD_MAX_BYTES)
+        const res = await postJson(app, '/metrics/ingest', { deviceId: 'x', payload })
+        expect(res.status).toBe(413)
+        const body = await res.json()
+        expect(body.error.code).toBe('METRICS_PAYLOAD_TOO_LARGE')
+        expect(logService.ingest).not.toHaveBeenCalled()
+    })
+
+    test('멀티바이트여도 UTF-8 바이트가 64KB 이하면 200이다', async () => {
+        const { app } = createApp()
+        const payload = { blob: '가'.repeat(20000) }
+        expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThan(METRICS_PAYLOAD_MAX_BYTES)
+        const res = await postJson(app, '/metrics/ingest', { deviceId: 'x', payload })
+        expect(res.status).toBe(200)
+    })
+
+    test('배치의 한 건만 UTF-8 기준 초과여도 413이다', async () => {
+        const { app, logService } = createApp()
+        const events = [
+            { deviceId: 'd-0', payload: { cpu: { usage: 1 } } },
+            { deviceId: 'd-1', payload: { blob: '가'.repeat(30000) } },
+        ]
+        const res = await postJson(app, '/metrics/ingest/batch', { events })
+        expect(res.status).toBe(413)
+        const body = await res.json()
+        expect(body.error.code).toBe('METRICS_PAYLOAD_TOO_LARGE')
+        expect(logService.ingest).not.toHaveBeenCalled()
     })
 })

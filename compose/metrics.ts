@@ -7,7 +7,43 @@ import type { Filter } from 'mongodb'
 import type { MetricsLogDoc, Mongo } from '../db/mongo'
 import type { MetricsTokenServiceDb } from '../service/domain/metrics/token'
 import type { MetricsArchiveStorage, MetricsLogServiceDb } from '../service/domain/metrics/log'
+import type { MetricsSeriesQuery } from '../dto/metrics/query'
 import type { ComposeMetricsArgs } from './types'
+
+const SERIES_PAYLOAD_ROOT = '$payload'
+const NUMERIC_SEGMENT_PATTERN = /^(0|[1-9][0-9]*)$/
+
+type MongoExpression = string | Record<string, unknown>
+
+const buildSeriesValueExpression = (base: string, segments: string[], depth = 0): MongoExpression => {
+    const numericIndex = segments.findIndex((segment) => NUMERIC_SEGMENT_PATTERN.test(segment))
+    if (numericIndex === -1) return [base, ...segments].join('.')
+
+    const parentPath = [base, ...segments.slice(0, numericIndex)].join('.')
+    const segment = segments[numericIndex]
+    const elementVar = `e${depth}`
+    return {
+        $let: {
+            vars: {
+                [elementVar]: {
+                    $cond: [{ $isArray: parentPath }, { $arrayElemAt: [parentPath, Number(segment)] }, `${parentPath}.${segment}`],
+                },
+            },
+            in: buildSeriesValueExpression(`$$${elementVar}`, segments.slice(numericIndex + 1), depth + 1),
+        },
+    }
+}
+
+export const buildSeriesPipeline = (params: MetricsSeriesQuery) => {
+    const match: Record<string, unknown> = { deviceId: params.deviceId, [`payload.${params.field}`]: { $type: 'number' } }
+    if (params.from || params.to) match.receivedAt = { ...(params.from ? { $gte: params.from } : {}), ...(params.to ? { $lte: params.to } : {}) }
+    return [
+        { $match: match },
+        { $sort: { receivedAt: -1 } },
+        { $limit: params.limit },
+        { $project: { _id: 0, t: '$receivedAt', v: buildSeriesValueExpression(SERIES_PAYLOAD_ROOT, params.field.split('.')) } },
+    ]
+}
 
 export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) => {
     if (!env.MONGODB_URI) return {}
@@ -88,20 +124,12 @@ export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) 
             return device ?? null
         },
         seriesPoints: async (params) => {
-            const match: Record<string, unknown> = { deviceId: params.deviceId, [`payload.${params.field}`]: { $type: 'number' } }
-            if (params.from || params.to)
-                match.receivedAt = { ...(params.from ? { $gte: params.from } : {}), ...(params.to ? { $lte: params.to } : {}) }
             const points = await runMongo((mongo) =>
                 mongo.logs
                     .aggregate<{
                         t: Date
                         v: number
-                    }>([
-                        { $match: match },
-                        { $sort: { receivedAt: -1 } },
-                        { $limit: params.limit },
-                        { $project: { _id: 0, t: '$receivedAt', v: `$payload.${params.field}` } },
-                    ])
+                    }>(buildSeriesPipeline(params))
                     .toArray(),
             )
             return points.reverse()
