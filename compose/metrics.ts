@@ -6,7 +6,7 @@ import { createMetricsLogService } from '../service/domain/metrics/log'
 import type { Filter } from 'mongodb'
 import type { MetricsLogDoc, Mongo } from '../db/mongo'
 import type { MetricsTokenServiceDb } from '../service/domain/metrics/token'
-import type { MetricsLogServiceDb } from '../service/domain/metrics/log'
+import type { MetricsArchiveStorage, MetricsLogServiceDb } from '../service/domain/metrics/log'
 import type { ComposeMetricsArgs } from './types'
 
 export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) => {
@@ -111,7 +111,11 @@ export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) 
                 const rows = await mongo.logs
                     .aggregate<{
                         _id: string
-                    }>([{ $match: { receivedAt: { $lt: before } } }, { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$receivedAt' } } } }, { $sort: { _id: 1 } }])
+                    }>([
+                        { $match: { receivedAt: { $lt: before } } },
+                        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$receivedAt' } } } },
+                        { $sort: { _id: 1 } },
+                    ])
                     .toArray()
                 return rows.map((r) => r._id)
             }),
@@ -129,12 +133,18 @@ export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) 
             }),
     }
 
-    const uploadArchive = async (day: string, jsonl: string) => {
-        await storageService.upload(`metrics-archive/${day}.jsonl.gz`, Bun.gzipSync(Buffer.from(jsonl)), 'application/gzip')
+    const archiveStorage: MetricsArchiveStorage = {
+        listKeys: async (prefix) => {
+            const objects = await storageService.list(prefix)
+            return objects.map((o) => o.Key).filter((key): key is string => typeof key === 'string')
+        },
+        upload: async (key, jsonl) => {
+            await storageService.upload(key, Bun.gzipSync(Buffer.from(jsonl)), 'application/gzip')
+        },
     }
 
     const metricsTokenService = createMetricsTokenService({ db: tokenDb })
-    const metricsLogService = createMetricsLogService({ db: logDb, uploadArchive })
+    const metricsLogService = createMetricsLogService({ db: logDb, archiveStorage })
 
     return { metricsTokenService, metricsLogService }
 }

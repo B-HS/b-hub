@@ -1,3 +1,4 @@
+import { captureException } from '../../../lib/sentry'
 import type { MetricsIngestInput } from '../../../dto/metrics/ingest'
 import type { MetricsLogListQuery, MetricsSeriesQuery } from '../../../dto/metrics/query'
 
@@ -6,6 +7,8 @@ const OFFLINE_MIN_THRESHOLD_MS = 5 * 60 * 1000
 const DEFAULT_INTERVAL_SEC = 60
 const DAY_MS = 24 * 60 * 60 * 1000
 const HOT_RETENTION_DAYS = 7
+const ARCHIVE_KEY_PREFIX = 'metrics-archive'
+const ARCHIVE_KEY_SUFFIX = '.jsonl.gz'
 
 export type MetricsLogRecord = {
     tokenId: number
@@ -44,9 +47,14 @@ export type MetricsLogServiceDb = {
     deleteLogsBetween: (from: Date, to: Date) => Promise<number>
 }
 
+export type MetricsArchiveStorage = {
+    listKeys: (prefix: string) => Promise<string[]>
+    upload: (key: string, jsonl: string) => Promise<void>
+}
+
 type MetricsLogServiceDeps = {
     db: MetricsLogServiceDb
-    uploadArchive: (day: string, jsonl: string) => Promise<void>
+    archiveStorage: MetricsArchiveStorage
 }
 
 const isOnline = (device: { intervalSec: number | null; lastSeenAt: Date }, now: Date) => {
@@ -54,7 +62,15 @@ const isOnline = (device: { intervalSec: number | null; lastSeenAt: Date }, now:
     return now.getTime() - device.lastSeenAt.getTime() < thresholdMs
 }
 
-export const createMetricsLogService = ({ db, uploadArchive }: MetricsLogServiceDeps) => {
+const nextArchiveKey = (day: string, existingKeys: string[]) => {
+    const prefix = `${ARCHIVE_KEY_PREFIX}/${day}/`
+    const used = new Set(existingKeys)
+    let part = 0
+    while (used.has(`${prefix}${part}${ARCHIVE_KEY_SUFFIX}`)) part += 1
+    return `${prefix}${part}${ARCHIVE_KEY_SUFFIX}`
+}
+
+export const createMetricsLogService = ({ db, archiveStorage }: MetricsLogServiceDeps) => {
     const ingest = async (token: { id: number; alias: string }, events: MetricsIngestInput[]) => {
         const receivedAt = new Date()
         const rows = events.map((e) => ({
@@ -115,8 +131,11 @@ export const createMetricsLogService = ({ db, uploadArchive }: MetricsLogService
             const rows = await db.findLogsBetween(from, to)
             if (rows.length === 0) continue
             const jsonl = rows.map((r) => JSON.stringify({ ...r, receivedAt: r.receivedAt.toISOString() })).join('\n')
-            await uploadArchive(day, jsonl)
+            const existingKeys = await archiveStorage.listKeys(`${ARCHIVE_KEY_PREFIX}/${day}/`)
+            await archiveStorage.upload(nextArchiveKey(day, existingKeys), jsonl)
             const deleted = await db.deleteLogsBetween(from, to)
+            if (deleted !== rows.length)
+                captureException(new Error(`metrics archive mismatch on ${day}: archived ${rows.length}, deleted ${deleted}`))
             archived.push({ day, count: rows.length, deleted })
         }
 

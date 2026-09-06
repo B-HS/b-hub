@@ -29,12 +29,15 @@ const createMockDb = (overrides: Record<string, unknown> = {}) => ({
     ...overrides,
 })
 
-const noopUpload = mock(async (_day: string, _jsonl: string) => {})
+const createArchiveStorage = (existingKeys: string[] = []) => ({
+    listKeys: mock(async (_prefix: string) => existingKeys),
+    upload: mock(async (_key: string, _jsonl: string) => {}),
+})
 
 describe('createMetricsLogService', () => {
     test('ingest는 메타를 정규화해 저장하고 디바이스별 최신 이벤트로 upsert한다', async () => {
         const db = createMockDb()
-        const service = createMetricsLogService({ db: db as never, uploadArchive: noopUpload })
+        const service = createMetricsLogService({ db: db as never, archiveStorage: createArchiveStorage() })
         const count = await service.ingest({ id: 1, alias: 'demo-mbp' }, [
             { deviceId: 'mac-1', payload: { seq: 1 } },
             { deviceId: 'mac-1', intervalSec: 60, payload: { seq: 2 } },
@@ -61,7 +64,7 @@ describe('createMetricsLogService', () => {
                 sampleDevice({ deviceId: 'slow-ok', intervalSec: 600, lastSeenAt: new Date(now.getTime() - 20 * 60_000) }),
             ]),
         })
-        const service = createMetricsLogService({ db: db as never, uploadArchive: noopUpload })
+        const service = createMetricsLogService({ db: db as never, archiveStorage: createArchiveStorage() })
         const devices = await service.listDevices(now)
         expect(devices.find((d) => d.deviceId === 'fresh')?.online).toBe(true)
         expect(devices.find((d) => d.deviceId === 'stale')?.online).toBe(false)
@@ -70,15 +73,70 @@ describe('createMetricsLogService', () => {
 
     test('getDevice는 미존재 시 null, 존재 시 online을 포함해 반환한다', async () => {
         const now = new Date()
-        const missing = createMetricsLogService({ db: createMockDb() as never, uploadArchive: noopUpload })
+        const missing = createMetricsLogService({ db: createMockDb() as never, archiveStorage: createArchiveStorage() })
         expect(await missing.getDevice('ghost', now)).toBeNull()
 
         const found = createMetricsLogService({
             db: createMockDb({ getDevice: mock(async () => sampleDevice({ lastSeenAt: new Date(now.getTime() - 60_000) })) }) as never,
-            uploadArchive: noopUpload,
+            archiveStorage: createArchiveStorage(),
         })
         const device = await found.getDevice('mac-1', now)
         expect(device?.online).toBe(true)
+    })
+
+    test('재실행 시 기존 파트를 덮어쓰지 않고 다음 파트 키로 업로드한다', async () => {
+        const now = new Date('2026-07-22T10:30:00Z')
+        const rows = [
+            {
+                tokenId: 1,
+                tokenAlias: 'demo-mbp',
+                deviceId: 'mac-1',
+                hostname: null,
+                os: null,
+                arch: null,
+                agentVersion: null,
+                payload: { cpu: { usage: 1 } },
+                receivedAt: new Date('2026-07-10T05:00:00Z'),
+            },
+        ]
+        const db = createMockDb({
+            listArchiveDayKeys: mock(async () => ['2026-07-10']),
+            findLogsBetween: mock(async () => rows),
+            deleteLogsBetween: mock(async () => 1),
+        })
+        const archiveStorage = createArchiveStorage(['metrics-archive/2026-07-10/0.jsonl.gz', 'metrics-archive/2026-07-10/1.jsonl.gz'])
+        const service = createMetricsLogService({ db: db as never, archiveStorage })
+        await service.archiveOldLogs(now)
+
+        expect(archiveStorage.upload.mock.calls[0][0]).toBe('metrics-archive/2026-07-10/2.jsonl.gz')
+    })
+
+    test('삭제 건수가 아카이브 건수와 다르면 결과에 그대로 드러내고 실패하지 않는다', async () => {
+        const now = new Date('2026-07-22T10:30:00Z')
+        const rows = [
+            {
+                tokenId: 1,
+                tokenAlias: 'demo-mbp',
+                deviceId: 'mac-1',
+                hostname: null,
+                os: null,
+                arch: null,
+                agentVersion: null,
+                payload: { cpu: { usage: 1 } },
+                receivedAt: new Date('2026-07-10T05:00:00Z'),
+            },
+        ]
+        const db = createMockDb({
+            listArchiveDayKeys: mock(async () => ['2026-07-10']),
+            findLogsBetween: mock(async () => rows),
+            deleteLogsBetween: mock(async () => 0),
+        })
+        const service = createMetricsLogService({ db: db as never, archiveStorage: createArchiveStorage() })
+        const result = await service.archiveOldLogs(now)
+
+        expect(result.archived).toEqual([{ day: '2026-07-10', count: 1, deleted: 0 }])
+        expect(result.totalArchived).toBe(1)
+        expect(result.totalDeleted).toBe(0)
     })
 
     test('archiveOldLogs는 7일 경과 일자만 업로드 후 삭제하고 빈 일자는 건너뛴다', async () => {
@@ -119,16 +177,20 @@ describe('createMetricsLogService', () => {
                 return 2
             }),
         })
-        const uploadArchive = mock(async (day: string, jsonl: string) => {
-            order.push(`upload:${day}`)
-            const lines = jsonl.split('\n').map((l) => JSON.parse(l))
-            expect(lines).toHaveLength(2)
-            expect(lines[0].receivedAt).toBe('2026-07-10T05:00:00.000Z')
-        })
-        const service = createMetricsLogService({ db: db as never, uploadArchive })
+        const archiveStorage = {
+            listKeys: mock(async (_prefix: string) => []),
+            upload: mock(async (key: string, jsonl: string) => {
+                order.push(`upload:${key}`)
+                const lines = jsonl.split('\n').map((l) => JSON.parse(l))
+                expect(lines).toHaveLength(2)
+                expect(lines[0].receivedAt).toBe('2026-07-10T05:00:00.000Z')
+            }),
+        }
+        const service = createMetricsLogService({ db: db as never, archiveStorage })
         const result = await service.archiveOldLogs(now)
 
-        expect(order).toEqual(['list:2026-07-15T00:00:00.000Z', 'upload:2026-07-10', 'delete:2026-07-10'])
+        expect(archiveStorage.listKeys.mock.calls[0][0]).toBe('metrics-archive/2026-07-10/')
+        expect(order).toEqual(['list:2026-07-15T00:00:00.000Z', 'upload:metrics-archive/2026-07-10/0.jsonl.gz', 'delete:2026-07-10'])
         expect(result.archived).toEqual([{ day: '2026-07-10', count: 2, deleted: 2 }])
         expect(result.totalArchived).toBe(2)
         expect(result.totalDeleted).toBe(2)
