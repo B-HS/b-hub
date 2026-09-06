@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { flashPath, parseFlash } from '../flash'
-import { formatDate, parseDateEnd, parseDateStart, parseIntOr, truncate } from '../format'
+import { formatDate, parseDateEnd, parseDateStart, parseIntOr, readPage, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -111,7 +111,7 @@ export const createLogEventsRoute = (deps: { getSession: AdminGetSession; adminD
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const service = c.req.query('service')
         const severity = c.req.query('severity')

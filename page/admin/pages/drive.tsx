@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { parseFlash } from '../flash'
-import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
+import { formatBytes, formatDate, parseIntOr, readPage, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -166,7 +166,7 @@ export const createDriveRoute = (deps: { getSession: AdminGetSession; adminDb: A
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/assets', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const tier = c.req.query('tier')
@@ -196,14 +196,14 @@ export const createDriveRoute = (deps: { getSession: AdminGetSession; adminDb: A
     })
 
     app.get('/folders', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const { rows, total } = await deps.adminDb.listDriveFolders({ page, size })
         return c.html(<FoldersPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} />)
     })
 
     app.get('/lifecycle-logs', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const assetId = c.req.query('assetId')
         const { rows, total } = await deps.adminDb.listLifecycleLogs({

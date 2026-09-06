@@ -8,6 +8,7 @@ import {
     parseDateEnd,
     parseDateStart,
     parseIntOr,
+    readPage,
     truncate,
     ynLabel,
 } from '../../../page/admin/format'
@@ -162,5 +163,22 @@ describe('parseDateEnd', () => {
 
     test('잘못된 날짜는 undefined를 반환한다', () => {
         expect(parseDateEnd('xyz')).toBeUndefined()
+    })
+})
+
+describe('readPage', () => {
+    test('정상 페이지 번호는 그대로 반환한다', () => {
+        expect(readPage('3')).toBe(3)
+    })
+
+    test('0과 음수는 1로 보정한다', () => {
+        expect(readPage('0')).toBe(1)
+        expect(readPage('-3')).toBe(1)
+    })
+
+    test('비정수/비숫자/미지정은 1을 반환한다', () => {
+        expect(readPage('abc')).toBe(1)
+        expect(readPage('2.5')).toBe(1)
+        expect(readPage(undefined)).toBe(1)
     })
 })

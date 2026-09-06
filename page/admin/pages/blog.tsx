@@ -3,7 +3,7 @@ import type { Context } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, CsrfField, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { flashPath, parseFlash } from '../flash'
-import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
+import { formatBytes, formatDate, parseIntOr, readPage, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -368,7 +368,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
 
     // Posts
     app.get('/posts', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const categoryId = c.req.query('categoryId')
@@ -423,7 +423,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
 
     // Comments
     app.get('/comments', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const q = c.req.query('q')
         const postId = c.req.query('postId')
@@ -507,7 +507,7 @@ export const createBlogRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
 
     // Images
     app.get('/images', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listImageAssets({ page, size, q })

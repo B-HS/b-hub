@@ -1,8 +1,8 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, CsrfField, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
-import { parseFlash } from '../flash'
-import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
+import { flashPath, parseFlash } from '../flash'
+import { formatBytes, formatDate, parseIntOr, readPage, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -271,7 +271,7 @@ export const createUsersRoute = (deps: { getSession: AdminGetSession; adminDb: A
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const role = c.req.query('role')
@@ -322,6 +322,8 @@ export const createUsersRoute = (deps: { getSession: AdminGetSession; adminDb: A
         const banned = body.action === 'ban'
         const reason = body.reason?.trim() || null
         const expires = body.expires?.trim() ? new Date(body.expires) : null
+        if (banned && expires && Number.isNaN(expires.getTime()))
+            return c.redirect(flashPath(sanitizeReturn(body.returnTo, `/admin/users/${id}`), 'err', 'validation'), 303)
         await deps.adminDb.updateUserBan(id, banned, banned ? reason : null, banned ? expires : null)
         if (banned) await deps.adminDb.revokeAllUserSessions(id)
         return c.redirect(sanitizeReturn(body.returnTo, `/admin/users/${id}`) + '?flash=ok', 303)
@@ -331,6 +333,7 @@ export const createUsersRoute = (deps: { getSession: AdminGetSession; adminDb: A
         const id = c.req.param('id')
         const body = await c.req.parseBody<{ bytes?: string; returnTo?: string }>()
         const bytes = parseIntOr(body.bytes, 0)
+        if (bytes < 0) return c.redirect(flashPath(sanitizeReturn(body.returnTo, `/admin/users/${id}`), 'err', 'validation'), 303)
         await deps.adminDb.updateUserQuota(id, bytes)
         return c.redirect(sanitizeReturn(body.returnTo, `/admin/users/${id}`) + '?flash=ok', 303)
     })

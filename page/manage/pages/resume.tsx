@@ -3,7 +3,7 @@ import type { FC } from 'hono/jsx'
 import { ManageShell } from '../components'
 import { Badge, CsrfField, DataTable, FilterBar, Pagination, RowAction, type Column } from '../../admin/components'
 import { flashPath, parseFlash } from '../../admin/flash'
-import { formatDate, parseIntOr } from '../../admin/format'
+import { formatDate, parseIntOr, readPage } from '../../admin/format'
 import type { AdminSessionUser } from '../../admin/guard'
 import type { Flash } from '../../admin/flash'
 import type { ManageContext, ManageGetSession } from '../guard'
@@ -166,7 +166,7 @@ export const createManageResumeRoute = (deps: ManageResumeDeps) => {
     app.get('/', async (c) => {
         const user = c.get('manageUser')
         if (!deps.resumeService) return c.html(<NotConfiguredPage user={user} />)
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), DEFAULT_PAGE_SIZE), MIN_PAGE_SIZE), MAX_PAGE_SIZE)
         const typeRaw = c.req.query('type')
         const type = typeRaw === 'resume' || typeRaw === 'cv' || typeRaw === 'web' ? typeRaw : undefined

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { flashPath, parseFlash } from '../flash'
-import { formatBytes, formatDate, parseIntOr, truncate } from '../format'
+import { formatBytes, formatDate, parseIntOr, readPage, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -294,7 +294,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/accounts', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listMailAccounts({ page, size, q })
@@ -320,7 +320,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
     })
 
     app.get('/sync-logs', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const accountId = c.req.query('accountId')
         const status = c.req.query('status')
@@ -336,7 +336,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
     })
 
     app.get('/sync-sessions', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const status = c.req.query('status')
         const { rows, total } = await deps.adminDb.listMailSyncSessions({ page, size, status })
@@ -344,7 +344,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
     })
 
     app.get('/messages', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const accountId = c.req.query('accountId')
         const q = c.req.query('q')
@@ -377,7 +377,7 @@ export const createMailRoute = (deps: { getSession: AdminGetSession; adminDb: Ad
     })
 
     app.get('/uploads', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listMailUploads({ page, size, q })

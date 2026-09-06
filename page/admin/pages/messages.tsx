@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { flashPath, parseFlash } from '../flash'
-import { formatDate, parseIntOr, truncate } from '../format'
+import { formatDate, parseIntOr, readPage, truncate } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -216,7 +216,7 @@ export const createMessagesRoute = (deps: { getSession: AdminGetSession; adminDb
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const q = c.req.query('q')
         const userId = c.req.query('userId')
@@ -258,7 +258,7 @@ export const createMessagesRoute = (deps: { getSession: AdminGetSession; adminDb
     })
 
     app.get('/follows', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const { rows, total } = await deps.adminDb.listFollows({ page, size })
         return c.html(<FollowsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} />)

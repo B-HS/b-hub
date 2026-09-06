@@ -41,6 +41,8 @@ export const parseIntOr = (v: unknown, fallback: number): number => {
     return Number.isFinite(n) && Number.isInteger(n) ? n : fallback
 }
 
+export const readPage = (v: string | undefined): number => Math.max(1, parseIntOr(v, 1))
+
 export const parseDateStart = (v: string | undefined): Date | undefined => {
     if (!v) return undefined
     const d = new Date(v.length === 10 ? `${v}T00:00:00` : v)

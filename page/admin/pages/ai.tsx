@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
-import { formatDate, parseIntOr, ynLabel } from '../format'
+import { formatDate, parseIntOr, readPage, ynLabel } from '../format'
 import type { AdminContext, AdminGetSession, AdminSessionUser } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -209,7 +209,7 @@ const PromptsPage: FC<{ user: AdminSessionUser; rows: PromptRow[]; total: number
 )
 
 const readListParams = (c: { req: { query: (k: string) => string | undefined } }) => ({
-    page: parseIntOr(c.req.query('page'), 1),
+    page: readPage(c.req.query('page')),
     size: Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200),
     q: c.req.query('q'),
 })

@@ -254,3 +254,65 @@ describe('returnTo 오픈 리다이렉트 방지', () => {
         expect(res.headers.get('location')).toContain('/admin/users?page=2')
     })
 })
+
+describe('GET /admin/users 페이지 파라미터 보정', () => {
+    test('page=0 / -3 / abc 는 500 없이 1페이지로 조회한다', async () => {
+        for (const value of ['0', '-3', 'abc']) {
+            const listUsers = mock(() => Promise.resolve({ rows: [], total: 0 }))
+            const res = await createApp({ listUsers }).request(`/admin/users?page=${value}`)
+            expect(res.status).toBe(200)
+            expect((listUsers.mock.calls[0] as unknown as [{ page: number }])[0].page).toBe(1)
+        }
+    })
+
+    test('총 페이지를 넘는 page 도 오류 없이 200 이다', async () => {
+        const res = await createApp().request('/admin/users?page=9999')
+        expect(res.status).toBe(200)
+    })
+})
+
+describe('POST /admin/users/:id/ban 입력 검증', () => {
+    test('만료일이 유효하지 않으면 validation flash 로 리다이렉트하고 저장하지 않는다', async () => {
+        const updateUserBan = mock(() => Promise.resolve())
+        const res = await createApp({ updateUserBan }).request('/admin/users/u-1/ban', {
+            method: 'POST',
+            body: new URLSearchParams({ action: 'ban', expires: 'not-a-date' }),
+        })
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/admin/users/u-1?flash=err&code=validation')
+        expect(updateUserBan).not.toHaveBeenCalled()
+    })
+
+    test('유효한 만료일은 그대로 저장한다', async () => {
+        const updateUserBan = mock(() => Promise.resolve())
+        const res = await createApp({ updateUserBan }).request('/admin/users/u-1/ban', {
+            method: 'POST',
+            body: new URLSearchParams({ action: 'ban', expires: '2026-12-31' }),
+        })
+        expect(res.headers.get('location')).toBe('/admin/users/u-1?flash=ok')
+        expect(updateUserBan.mock.calls[0][3]).toBeInstanceOf(Date)
+    })
+})
+
+describe('POST /admin/users/:id/quota 입력 검증', () => {
+    test('음수 bytes 는 validation flash 로 거부한다', async () => {
+        const updateUserQuota = mock(() => Promise.resolve())
+        const res = await createApp({ updateUserQuota }).request('/admin/users/u-1/quota', {
+            method: 'POST',
+            body: new URLSearchParams({ bytes: '-1' }),
+        })
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/admin/users/u-1?flash=err&code=validation')
+        expect(updateUserQuota).not.toHaveBeenCalled()
+    })
+
+    test('숫자가 아닌 bytes 는 기존 동작대로 0 으로 저장한다', async () => {
+        const updateUserQuota = mock(() => Promise.resolve())
+        const res = await createApp({ updateUserQuota }).request('/admin/users/u-1/quota', {
+            method: 'POST',
+            body: new URLSearchParams({ bytes: 'abc' }),
+        })
+        expect(res.headers.get('location')).toBe('/admin/users/u-1?flash=ok')
+        expect(updateUserQuota).toHaveBeenCalledWith('u-1', 0)
+    })
+})

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { parseFlash } from '../flash'
-import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr } from '../format'
+import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr, readPage } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -179,14 +179,14 @@ export const createCalendarRoute = (deps: { getSession: AdminGetSession; adminDb
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/groups', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const { rows, total } = await deps.adminDb.listCalendarGroups({ page, size })
         return c.html(<GroupsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} />)
     })
 
     app.get('/events', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const q = c.req.query('q')
         const userId = c.req.query('userId')
@@ -199,7 +199,7 @@ export const createCalendarRoute = (deps: { getSession: AdminGetSession; adminDb
     })
 
     app.get('/subscriptions', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const { rows, total } = await deps.adminDb.listCalendarSubscriptions({ page, size })
         return c.html(<SubsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} flash={parseFlash(c)} />)
@@ -212,7 +212,7 @@ export const createCalendarRoute = (deps: { getSession: AdminGetSession; adminDb
     })
 
     app.get('/deleted', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const { rows, total } = await deps.adminDb.listDeletedCalendarEvents({ page, size })
         return c.html(<DeletedPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} />)

@@ -73,3 +73,14 @@ describe('POST /manage/drive/assets/:id/delete', () => {
         expect(remove).toHaveBeenCalledWith(7, 'u1')
     })
 })
+
+describe('GET /manage/drive/assets 페이지 파라미터 보정', () => {
+    test('page=0 / -3 / abc 는 500 없이 1페이지로 조회한다', async () => {
+        for (const value of ['0', '-3', 'abc']) {
+            const list = mock(() => Promise.resolve({ data: [], total: 0, page: 1, limit: 20 }))
+            const res = await createApp({ list: list as never }).request(`/manage/drive/assets?page=${value}`)
+            expect(res.status).toBe(200)
+            expect((list.mock.calls[0] as unknown as [string, { page: number }])[1].page).toBe(1)
+        }
+    })
+})

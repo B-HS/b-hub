@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { flashPath, parseFlash } from '../flash'
-import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr, truncate } from '../format'
+import { formatDate, maskToken, parseDateEnd, parseDateStart, parseIntOr, readPage, truncate } from '../format'
 
 const sanitizeReturn = (raw: unknown, fallback: string): string => {
     const v = typeof raw === 'string' ? raw : ''
@@ -118,7 +118,7 @@ export const createApiTokensRoute = (deps: { getSession: AdminGetSession; adminD
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listApiTokens({ page, size, q })
@@ -141,7 +141,7 @@ export const createApiLogsRoute = (deps: { getSession: AdminGetSession; adminDb:
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 30), 5), 200)
         const path = c.req.query('path')
         const status = c.req.query('status')

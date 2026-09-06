@@ -3,7 +3,7 @@ import type { FC } from 'hono/jsx'
 import { ManageShell } from '../components'
 import { Badge, CsrfField, DataTable, FilterBar, Pagination, RowAction, Stat, type Column } from '../../admin/components'
 import { flashPath, parseFlash } from '../../admin/flash'
-import { formatBytes, formatDate, parseIntOr } from '../../admin/format'
+import { formatBytes, formatDate, parseIntOr, readPage } from '../../admin/format'
 import type { AdminSessionUser } from '../../admin/guard'
 import type { Flash } from '../../admin/flash'
 import type { ManageContext, ManageGetSession } from '../guard'
@@ -199,7 +199,7 @@ export const createManageDriveAssetsRoute = (deps: ManageDriveAssetsDeps) => {
     app.get('/', async (c) => {
         const user = c.get('manageUser')
         if (!deps.driveAssetService) return c.html(<NotConfiguredPage user={user} />)
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), DEFAULT_PAGE_SIZE), MIN_PAGE_SIZE), MAX_PAGE_SIZE)
         const mimeType = emptyToUndefined(c.req.query('mimeType'))
         const folderId = emptyToUndefined(c.req.query('folderId'))
@@ -253,7 +253,7 @@ export const createManageDriveAssetsRoute = (deps: ManageDriveAssetsDeps) => {
             await deps.driveAssetService.update(id, user.id, {
                 originalName: emptyToUndefined(body.originalName),
                 isPublic: parseCheckbox(body.isPublic),
-                folderId: 'folderId' in body ? emptyToUndefined(body.folderId) ?? null : undefined,
+                folderId: 'folderId' in body ? (emptyToUndefined(body.folderId) ?? null) : undefined,
             })
             return c.redirect(flashPath(returnTo, 'ok'), 303)
         } catch (error) {

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import { AdminShell, Badge, DataTable, FilterBar, Pagination, RowAction, type Column } from '../components'
 import { parseFlash } from '../flash'
-import { formatDate, maskToken, parseIntOr } from '../format'
+import { formatDate, maskToken, parseIntOr, readPage } from '../format'
 import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
@@ -152,7 +152,7 @@ export const createSpotifyRoute = (deps: { getSession: AdminGetSession; adminDb:
     app.use('*', requireAdminPage(deps.getSession))
 
     app.get('/accounts', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listSpotifyAccounts({ page, size, q })
@@ -160,7 +160,7 @@ export const createSpotifyRoute = (deps: { getSession: AdminGetSession; adminDb:
     })
 
     app.get('/keys', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const q = c.req.query('q')
         const { rows, total } = await deps.adminDb.listSpotifyKeys({ page, size, q })
@@ -174,7 +174,7 @@ export const createSpotifyRoute = (deps: { getSession: AdminGetSession; adminDb:
     })
 
     app.get('/widget-tokens', async (c) => {
-        const page = parseIntOr(c.req.query('page'), 1)
+        const page = readPage(c.req.query('page'))
         const size = Math.min(Math.max(parseIntOr(c.req.query('size'), 20), 5), 100)
         const { rows, total } = await deps.adminDb.listSpotifyWidgetTokens({ page, size })
         return c.html(<WidgetsPage user={c.get('adminUser')} rows={rows} total={total} page={page} size={size} flash={parseFlash(c)} />)
