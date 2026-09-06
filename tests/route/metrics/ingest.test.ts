@@ -129,3 +129,34 @@ describe('payload 크기 검사 (UTF-8 바이트)', () => {
         expect(logService.ingest).not.toHaveBeenCalled()
     })
 })
+
+describe('수집 본문 크기 제한', () => {
+    test('단건 본문이 128KB 를 넘으면 413 METRICS_PAYLOAD_TOO_LARGE 다', async () => {
+        const { app, logService } = createApp()
+        const res = await postJson(app, '/metrics/ingest', { deviceId: 'mac-1', payload: { blob: 'x'.repeat(128 * 1024 + 1024) } })
+
+        expect(res.status).toBe(413)
+        expect((await res.json()).error.code).toBe('METRICS_PAYLOAD_TOO_LARGE')
+        expect(logService.ingest).not.toHaveBeenCalled()
+    })
+
+    test('크기 제한보다 토큰 검사가 먼저다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/metrics/ingest', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ deviceId: 'mac-1', payload: { blob: 'x'.repeat(128 * 1024 + 1024) } }),
+        })
+
+        expect(res.status).toBe(401)
+    })
+
+    test('배치 본문은 4MB 까지 허용한다', async () => {
+        const { app, logService } = createApp()
+        const events = Array.from({ length: 4 }, (_, i) => ({ deviceId: `mac-${i}`, payload: { blob: 'x'.repeat(32 * 1024) } }))
+        const res = await postJson(app, '/metrics/ingest/batch', { events })
+
+        expect(res.status).toBe(200)
+        expect(logService.ingest).toHaveBeenCalledTimes(1)
+    })
+})

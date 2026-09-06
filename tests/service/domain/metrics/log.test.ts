@@ -196,3 +196,34 @@ describe('createMetricsLogService', () => {
         expect(result.totalDeleted).toBe(2)
     })
 })
+
+describe('archiveOldLogs 실행 예산', () => {
+    const row = (day: string): MetricsLogRecord => ({
+        tokenId: 1,
+        tokenAlias: 'demo-mbp',
+        deviceId: 'mac-1',
+        hostname: null,
+        os: null,
+        arch: null,
+        agentVersion: null,
+        payload: { cpu: { usage: 1 } },
+        receivedAt: new Date(`${day}T05:00:00Z`),
+    })
+
+    test('한 번의 실행에서 최대 3일만 처리한다', async () => {
+        const days = ['2026-07-01', '2026-07-02', '2026-07-03', '2026-07-04', '2026-07-05']
+        const db = createMockDb({
+            listArchiveDayKeys: mock(async (_before: Date) => days),
+            findLogsBetween: mock(async (from: Date) => [row(from.toISOString().slice(0, 10))]),
+            deleteLogsBetween: mock(async (_from: Date, _to: Date) => 1),
+        })
+        const archiveStorage = createArchiveStorage()
+        const service = createMetricsLogService({ db: db as never, archiveStorage })
+
+        const result = await service.archiveOldLogs(new Date('2026-07-22T10:30:00Z'))
+
+        expect(result.archived.map((a) => a.day)).toEqual(['2026-07-01', '2026-07-02', '2026-07-03'])
+        expect(archiveStorage.upload).toHaveBeenCalledTimes(3)
+        expect(result.totalArchived).toBe(3)
+    })
+})

@@ -9,6 +9,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const HOT_RETENTION_DAYS = 7
 const ARCHIVE_KEY_PREFIX = 'metrics-archive'
 const ARCHIVE_KEY_SUFFIX = '.jsonl.gz'
+const ARCHIVE_MAX_DAYS_PER_RUN = 3
+const ARCHIVE_TIME_BUDGET_MS = 200_000
 
 export type MetricsLogRecord = {
     tokenId: number
@@ -124,8 +126,10 @@ export const createMetricsLogService = ({ db, archiveStorage }: MetricsLogServic
         const cutoff = new Date(todayUtc - HOT_RETENTION_DAYS * DAY_MS)
         const days = await db.listArchiveDayKeys(cutoff)
         const archived: { day: string; count: number; deleted: number }[] = []
+        const startedAt = Date.now()
 
-        for (const day of days) {
+        for (const day of days.slice(0, ARCHIVE_MAX_DAYS_PER_RUN)) {
+            if (Date.now() - startedAt >= ARCHIVE_TIME_BUDGET_MS) break
             const from = new Date(`${day}T00:00:00.000Z`)
             const to = new Date(from.getTime() + DAY_MS)
             const rows = await db.findLogsBetween(from, to)

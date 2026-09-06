@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
@@ -18,6 +19,23 @@ type MetricsIngestRouteDeps = {
     metricsLogService: MetricsLogService
     metricsTokenService: MetricsTokenService
 }
+
+const METRICS_SINGLE_BODY_MAX_BYTES = 128 * 1024
+const METRICS_BATCH_BODY_MAX_BYTES = 4 * 1024 * 1024
+
+const singleBodyLimit = bodyLimit({
+    maxSize: METRICS_SINGLE_BODY_MAX_BYTES,
+    onError: () => {
+        throw createAppError('METRICS_PAYLOAD_TOO_LARGE')
+    },
+})
+
+const batchBodyLimit = bodyLimit({
+    maxSize: METRICS_BATCH_BODY_MAX_BYTES,
+    onError: () => {
+        throw createAppError('METRICS_BATCH_TOO_LARGE')
+    },
+})
 
 const assertPayloadSize = (event: MetricsIngestInput) => {
     if (Buffer.byteLength(JSON.stringify(event.payload)) > METRICS_PAYLOAD_MAX_BYTES) throw createAppError('METRICS_PAYLOAD_TOO_LARGE')
@@ -47,6 +65,7 @@ export const createMetricsIngestRoute = (deps: MetricsIngestRouteDeps) => {
             },
         }),
         requireMetricsToken({ metricsTokenService: deps.metricsTokenService, scope: METRICS_TOKEN_SCOPE.CLIENT, checkRateLimit: true }),
+        singleBodyLimit,
         validator('json', metricsIngestSchema),
         withErrorHandling(async (c) => {
             const body = c.req.valid('json' as never) as z.infer<typeof metricsIngestSchema>
@@ -78,6 +97,7 @@ export const createMetricsIngestRoute = (deps: MetricsIngestRouteDeps) => {
             },
         }),
         requireMetricsToken({ metricsTokenService: deps.metricsTokenService, scope: METRICS_TOKEN_SCOPE.CLIENT, checkRateLimit: true }),
+        batchBodyLimit,
         validator('json', metricsIngestBatchSchema),
         withErrorHandling(async (c) => {
             const body = c.req.valid('json' as never) as z.infer<typeof metricsIngestBatchSchema>
