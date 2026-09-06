@@ -114,7 +114,9 @@ describe('createDriveAssetService', () => {
         test('동일 해시 파일이 존재하면 중복 에러를 throw한다 (image)', async () => {
             const deps = createMockDeps()
             deps.db.getByUserAndHash = mock(() =>
-                Promise.resolve(mockAssetRow({ s3Key: 'existing', originalName: 'existing.jpg', sizeBytes: 1024, fileHash: 'abc', thumbnailBlob: null })),
+                Promise.resolve(
+                    mockAssetRow({ s3Key: 'existing', originalName: 'existing.jpg', sizeBytes: 1024, fileHash: 'abc', thumbnailBlob: null }),
+                ),
             )
             const service = createDriveAssetService(deps)
 
@@ -525,7 +527,13 @@ describe('createDriveAssetService', () => {
             const service = createDriveAssetService(deps)
 
             await expect(
-                service.prepare('user-1', { originalName: 'dup.mp4', mimeType: 'video/mp4', sizeBytes: 500_000, folderId: null, fileHash: 'existing-hash' }),
+                service.prepare('user-1', {
+                    originalName: 'dup.mp4',
+                    mimeType: 'video/mp4',
+                    sizeBytes: 500_000,
+                    folderId: null,
+                    fileHash: 'existing-hash',
+                }),
             ).rejects.toMatchObject({ code: 'DRIVE_DUPLICATE_FILE' })
             expect(deps.db.insert).not.toHaveBeenCalled()
         })
@@ -547,7 +555,13 @@ describe('createDriveAssetService', () => {
             const service = createDriveAssetService(deps)
 
             await expect(
-                service.prepare('user-1', { originalName: 'big.zip', mimeType: 'application/zip', sizeBytes: 200, folderId: null, fileHash: 'hash1' }),
+                service.prepare('user-1', {
+                    originalName: 'big.zip',
+                    mimeType: 'application/zip',
+                    sizeBytes: 200,
+                    folderId: null,
+                    fileHash: 'hash1',
+                }),
             ).rejects.toMatchObject({ code: 'DRIVE_QUOTA_EXCEEDED' })
         })
 
@@ -556,7 +570,13 @@ describe('createDriveAssetService', () => {
             const service = createDriveAssetService(deps)
 
             await expect(
-                service.prepare('user-1', { originalName: 'hack.exe', mimeType: 'application/x-msdownload', sizeBytes: 100, folderId: null, fileHash: 'hash2' }),
+                service.prepare('user-1', {
+                    originalName: 'hack.exe',
+                    mimeType: 'application/x-msdownload',
+                    sizeBytes: 100,
+                    folderId: null,
+                    fileHash: 'hash2',
+                }),
             ).rejects.toMatchObject({ code: 'DRIVE_INVALID_MIME_TYPE' })
         })
     })
@@ -565,7 +585,9 @@ describe('createDriveAssetService', () => {
         test('업로드 토큰이 일치하면 ready 상태로 업데이트한다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve(mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null })),
+                Promise.resolve(
+                    mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null }),
+                ),
             )
             const service = createDriveAssetService(deps)
 
@@ -585,20 +607,26 @@ describe('createDriveAssetService', () => {
         test('업로드 토큰이 불일치하면 UNAUTHORIZED 에러를 던진다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve(mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null })),
+                Promise.resolve(
+                    mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null }),
+                ),
             )
             const service = createDriveAssetService(deps)
 
             await expect(
-                service.complete(1, 'wrong-token', { fileHash: 'abc', storageTiers: 'L1', gdriveFileId: null, localPath: null, thumbnailBase64: null }),
+                service.complete(1, 'wrong-token', {
+                    fileHash: 'abc',
+                    storageTiers: 'L1',
+                    gdriveFileId: null,
+                    localPath: null,
+                    thumbnailBase64: null,
+                }),
             ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
         })
 
         test('이미 ready 상태인 asset은 DRIVE_UPLOAD_EVENT_FAILED 에러를 던진다', async () => {
             const deps = createMockDeps()
-            deps.db.getById = mock(() =>
-                Promise.resolve(mockAssetRow({ uploadStatus: 'ready', uploadToken: 'token', thumbnailBlob: null })),
-            )
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'ready', uploadToken: 'token', thumbnailBlob: null })))
             const service = createDriveAssetService(deps)
 
             await expect(
@@ -609,7 +637,9 @@ describe('createDriveAssetService', () => {
         test('storageTiers가 비어있으면 failed 상태로 설정한다', async () => {
             const deps = createMockDeps()
             deps.db.getById = mock(() =>
-                Promise.resolve(mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null })),
+                Promise.resolve(
+                    mockAssetRow({ fileHash: '', uploadStatus: 'preparing', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null }),
+                ),
             )
             const service = createDriveAssetService(deps)
 
@@ -622,6 +652,62 @@ describe('createDriveAssetService', () => {
             })
 
             expect(result.uploadStatus).toBe('failed')
+        })
+    })
+
+    describe('updateUploadStatus', () => {
+        test('업로드 토큰이 일치하면 uploading 상태로 갱신한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'preparing', uploadToken: 'valid-token' })))
+            const service = createDriveAssetService(deps)
+
+            const result = await service.updateUploadStatus(1, 'valid-token', 'uploading')
+
+            expect(deps.db.update).toHaveBeenCalledWith(1, { uploadStatus: 'uploading' })
+            expect(result).toEqual({ id: 1, uploadStatus: 'uploading', s3Key: 'users/user-1/uuid/photo.jpg' })
+        })
+
+        test('업로드 토큰 길이가 다르면 UNAUTHORIZED 에러를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'preparing', uploadToken: 'valid-token' })))
+            const service = createDriveAssetService(deps)
+
+            await expect(service.updateUploadStatus(1, 'valid', 'uploading')).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+            expect(deps.db.update).not.toHaveBeenCalled()
+        })
+
+        test('저장된 업로드 토큰이 null 이면 빈 토큰으로도 통과하지 못한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'preparing', uploadToken: null })))
+            const service = createDriveAssetService(deps)
+
+            await expect(service.updateUploadStatus(1, '', 'uploading')).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+        })
+    })
+
+    describe('getAssetForTokenExchange', () => {
+        test('토큰이 일치하고 preparing 상태면 asset 을 반환한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'preparing', uploadToken: 'valid-token' })))
+            const service = createDriveAssetService(deps)
+
+            expect(await service.getAssetForTokenExchange(1, 'valid-token')).toEqual({ id: 1, userId: 'user-1' })
+        })
+
+        test('토큰이 불일치하면 null 을 반환한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'preparing', uploadToken: 'valid-token' })))
+            const service = createDriveAssetService(deps)
+
+            expect(await service.getAssetForTokenExchange(1, 'wrong-token')).toBeNull()
+        })
+
+        test('저장된 토큰이 null 이면 null 을 반환한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ uploadStatus: 'preparing', uploadToken: null })))
+            const service = createDriveAssetService(deps)
+
+            expect(await service.getAssetForTokenExchange(1, '')).toBeNull()
         })
     })
 })

@@ -1,4 +1,5 @@
 import { createAppError } from '../../../lib/error'
+import { isSecretMatch } from '../../../lib/cron-auth'
 import { sanitizeFilename } from '../../../lib/mail-utils'
 
 type DriveStorageService = {
@@ -338,15 +339,16 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         if (status !== 'uploading') throw createAppError('VALIDATION_ERROR')
         const asset = await deps.db.getById(assetId)
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
-        if (asset.uploadToken !== uploadToken) throw createAppError('UNAUTHORIZED')
+        if (!isSecretMatch(uploadToken ?? '', asset.uploadToken ?? '')) throw createAppError('UNAUTHORIZED')
         if (asset.uploadStatus !== 'preparing') throw createAppError('DRIVE_UPLOAD_EVENT_FAILED')
         await deps.db.update(assetId, { uploadStatus: status })
+        return { id: asset.id, uploadStatus: status, s3Key: asset.s3Key }
     },
 
     getAssetForTokenExchange: async (assetId: number, uploadToken: string) => {
         const asset = await deps.db.getById(assetId)
         if (!asset) return null
-        if (asset.uploadToken !== uploadToken) return null
+        if (!isSecretMatch(uploadToken ?? '', asset.uploadToken ?? '')) return null
         if (asset.uploadStatus !== 'preparing' && asset.uploadStatus !== 'uploading') return null
         return { id: asset.id, userId: asset.userId }
     },
@@ -365,7 +367,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         const asset = await deps.db.getById(assetId)
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
 
-        if (asset.uploadToken !== secret) {
+        if (!isSecretMatch(secret ?? '', asset.uploadToken ?? '')) {
             throw createAppError('UNAUTHORIZED')
         }
 

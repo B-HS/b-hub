@@ -3,6 +3,7 @@ import { describeRoute, validator } from 'hono-openapi'
 import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
+import { isSecretMatch } from '../../lib/cron-auth'
 import { successResponse, paginatedResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
 import { driveAssetListQuerySchema, driveAssetParamSchema, driveAssetUpdateSchema } from '../../dto/drive/asset'
@@ -17,9 +18,9 @@ type DriveAssetRouteDeps = {
 }
 
 const requireUploadServer = (c: { req: { header: (name: string) => string | undefined } }, secret: string) => {
-    if (!secret) return
+    if (!secret) throw createAppError('SERVICE_NOT_CONFIGURED')
     const provided = c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.header('x-upload-server-secret')
-    if (!provided || provided !== secret) throw createAppError('UNAUTHORIZED')
+    if (!isSecretMatch(provided ?? '', secret)) throw createAppError('UNAUTHORIZED')
 }
 
 export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
@@ -79,10 +80,11 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         '/assets/:assetId/status',
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
-            await deps.driveAssetService.updateUploadStatus(assetId, body.uploadToken, body.status)
-            return c.json(successResponse({ id: assetId, uploadStatus: body.status }))
+            const result = await deps.driveAssetService.updateUploadStatus(assetId, body.uploadToken, body.status)
+            return c.json(successResponse({ id: assetId, uploadStatus: body.status, s3Key: result.s3Key }))
         }),
     )
 
@@ -98,6 +100,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
         }),
         validator('param', driveAssetParamSchema),
         withErrorHandling(async (c) => {
+            requireUploadServer(c, deps.uploadServerSecret)
             const { assetId } = c.req.valid('param' as never) as z.infer<typeof driveAssetParamSchema>
             const body = await c.req.json()
 
