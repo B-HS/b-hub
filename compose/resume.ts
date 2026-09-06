@@ -63,6 +63,7 @@ export const composeResume = ({ db }: ComposeResumeArgs) => {
                 if (data.title !== undefined) updateData.title = data.title
                 if (data.data !== undefined) updateData.data = data.data
                 if (data.isPublic !== undefined) updateData.isPublic = data.isPublic
+                if (Object.keys(updateData).length === 0) return
                 await db.update(schema.resumes).set(updateData).where(eq(schema.resumes.id, id))
             },
 

@@ -91,3 +91,40 @@ describe('composeResume', () => {
         expect(updates[0].id).toBe(adminWebResume.id)
     })
 })
+
+describe('composeResume updateResume', () => {
+    const createUpdateRecorderDb = (rows: unknown[]) => {
+        const setValues: Array<Record<string, unknown>> = []
+        const { db } = createRecorderDb(rows)
+        const dbWithUpdate = {
+            ...db,
+            update: () => ({
+                set: (values: Record<string, unknown>) => {
+                    setValues.push(values)
+                    return { where: () => Promise.resolve() }
+                },
+            }),
+        }
+        return { db: dbWithUpdate, setValues }
+    }
+
+    test('갱신할 값이 없으면 UPDATE를 실행하지 않고 성공한다', async () => {
+        const { db, setValues } = createUpdateRecorderDb([adminWebResume])
+        const { resumeService } = composeResume({ db } as never)
+
+        const result = await resumeService.update(adminWebResume.id, adminWebResume.userId, {})
+
+        expect(result.success).toBe(true)
+        expect(setValues).toHaveLength(0)
+    })
+
+    test('갱신할 값이 있으면 UPDATE를 실행한다', async () => {
+        const { db, setValues } = createUpdateRecorderDb([adminWebResume])
+        const { resumeService } = composeResume({ db } as never)
+
+        const result = await resumeService.update(adminWebResume.id, adminWebResume.userId, { title: '새 제목' })
+
+        expect(result.success).toBe(true)
+        expect(setValues).toEqual([{ title: '새 제목' }])
+    })
+})
