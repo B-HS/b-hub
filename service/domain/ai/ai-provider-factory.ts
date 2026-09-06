@@ -9,6 +9,16 @@ import { createAppError, isAppError } from '../../../lib/error'
 import { decodeJwtPayloadUnverified, getJwtExpiryMs } from '../../../lib/jwt-decode'
 
 const CODEX_REFRESH_WINDOW_MS = 5 * 60 * 1000
+const REAUTH_OAUTH_ERRORS = ['invalid_grant']
+const REAUTH_OAUTH_ERROR_PREFIX = 'refresh_token'
+
+const isReauthRefreshError = (error: unknown) => {
+    if (!isAppError(error)) return false
+    const oauthError = error.details?.error
+    if (typeof oauthError !== 'string') return false
+    const normalized = oauthError.toLowerCase()
+    return REAUTH_OAUTH_ERRORS.includes(normalized) || normalized.startsWith(REAUTH_OAUTH_ERROR_PREFIX)
+}
 
 export type StoredCodexCredentials = {
     idToken?: string
@@ -103,7 +113,8 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
                     try {
                         refreshed = await refreshWithLock(opts.providerId, refreshToken, (fresh) => persistRotated(fresh, refreshToken))
                     } catch (error) {
-                        throw await markReauth(providerErrorMessage(error))
+                        if (isReauthRefreshError(error)) throw await markReauth(providerErrorMessage(error))
+                        throw isAppError(error) ? error : createAppError('AI_TOKEN_REFRESH_FAILED', { detail: providerErrorMessage(error) })
                     }
                     current = rotate(refreshed, refreshToken)
                 }

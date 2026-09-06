@@ -1,13 +1,18 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import { describeRoute } from 'hono-openapi'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { withAuth } from '../../lib/with-auth'
 import { withRateLimit } from '../../lib/with-rate-limit'
 import { createAppError } from '../../lib/error'
-import { successResponse } from '../../lib/api-response'
+import { errorResponse, successResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
 import type { AiAttachmentService } from '../../service/domain/ai/ai-attachment'
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+const MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+const UPLOAD_BODY_LIMIT_BYTES = MAX_ATTACHMENT_BYTES + MULTIPART_OVERHEAD_BYTES
 
 type AiAttachmentRouteDeps = {
     aiAttachmentService: AiAttachmentService
@@ -34,6 +39,13 @@ export const createAiAttachmentRoute = (deps: AiAttachmentRouteDeps) => {
             responses: {
                 200: { description: '업로드 결과' },
                 ...errorResponses(['UNAUTHORIZED', 'RATE_LIMIT_EXCEEDED', 'AI_ATTACHMENT_TOO_LARGE', 'AI_ATTACHMENT_INVALID_TYPE']),
+            },
+        }),
+        bodyLimit({
+            maxSize: UPLOAD_BODY_LIMIT_BYTES,
+            onError: (c) => {
+                const error = createAppError('AI_ATTACHMENT_TOO_LARGE')
+                return c.json(errorResponse(error.code, error.message), error.statusCode as 413)
             },
         }),
         withErrorHandling(

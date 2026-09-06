@@ -60,6 +60,8 @@ const defaultUpstream = () =>
         { type: 'done', result: { content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 } },
     ])
 
+const flushPendingTasks = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 const collect = async (events: AsyncIterable<AiChatStreamEvent>) => {
     const collected: AiChatStreamEvent[] = []
     for await (const event of events) collected.push(event)
@@ -423,6 +425,30 @@ describe('createAiChatService', () => {
             const result = await service.send('user-1', 'sess-1', { content: 'hello world' })
             expect(result.content).toBe('answer')
             expect(deps.logUsage.mock.calls[0][0].severity).toBe(20)
+        })
+
+        test('사용량 로그 기록이 끝나기 전에는 send가 완료되지 않는다', async () => {
+            const deps = createDeps()
+            let releaseLog = () => {}
+            const logWrite = new Promise<void>((resolve) => {
+                releaseLog = resolve
+            })
+            deps.logUsage = mock((_entry: Parameters<AiUsageLogger>[0]) => logWrite as never)
+            const service = createAiChatService(deps as never)
+
+            let isSettled = false
+            const sending = service.send('user-1', 'sess-1', { content: 'hello world' }).then((result) => {
+                isSettled = true
+                return result
+            })
+
+            await flushPendingTasks()
+            expect(deps.logUsage).toHaveBeenCalled()
+            expect(isSettled).toBe(false)
+
+            releaseLog()
+            await sending
+            expect(isSettled).toBe(true)
         })
     })
 })

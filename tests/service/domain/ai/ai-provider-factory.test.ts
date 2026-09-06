@@ -1,6 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import type { AiProvider } from '../../../../db/schema'
 import { createCredentialCrypto } from '../../../../lib/credential-crypto'
+import { createAppError } from '../../../../lib/error'
 import {
     createAiProviderFactory,
     getCodexAccountId,
@@ -211,30 +212,64 @@ describe('createAiProviderFactory.create (codex refresh)', () => {
         expect(refreshCodexToken.mock.calls.length).toBe(0)
     })
 
-    test('refresh가 실패하면 markReauthRequired 후 AI_REAUTH_REQUIRED를 던진다', async () => {
-        const crypto = createCredentialCrypto(CRYPTO_KEY)
+    const refreshFailureFactory = (crypto: ReturnType<typeof createCredentialCrypto>, rejection: unknown, markReauthRequired: () => Promise<void>) =>
+        createAiProviderFactory({
+            crypto,
+            refreshCodexToken: mock(() => Promise.reject(rejection)),
+            persistCodexCredentials: mock(async () => {}),
+            markReauthRequired,
+            fetchFn: mock(() => Promise.resolve(jsonOk({ models: [] }))),
+        })
+
+    const nearExpiryRow = (crypto: ReturnType<typeof createCredentialCrypto>) => {
         const stored: StoredCodexCredentials = {
             idToken: buildJwt({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1' } }),
             accessToken: buildJwt({ exp: nowSec() + 60 }),
             refreshToken: 'old-refresh',
             accountId: 'acct-1',
         }
-        const refreshCodexToken = mock(() => Promise.reject(new Error('refresh boom')))
-        const markReauthRequired = mock(async () => {})
-        const factory = createAiProviderFactory({
-            crypto,
-            refreshCodexToken,
-            persistCodexCredentials: mock(async () => {}),
-            markReauthRequired,
-            fetchFn: mock(() => Promise.resolve(jsonOk({ models: [] }))),
-        })
+        return buildRow({ provider: 'codex', credentials: crypto.encrypt(JSON.stringify(stored)) })
+    }
 
-        const row = buildRow({ provider: 'codex', credentials: crypto.encrypt(JSON.stringify(stored)) })
-        const client = factory.create(row)
+    test('refresh가 invalid_grant로 실패하면 markReauthRequired 후 AI_REAUTH_REQUIRED를 던진다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const rejection = createAppError('AI_TOKEN_REFRESH_FAILED', { status: 400, error: 'invalid_grant' })
+        const row = nearExpiryRow(crypto)
+        const client = refreshFailureFactory(crypto, rejection, markReauthRequired).create(row)
+
         await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_REAUTH_REQUIRED' })
         expect(markReauthRequired.mock.calls.length).toBe(1)
         expect(markReauthRequired.mock.calls[0][0]).toBe(row.id)
-        expect(markReauthRequired.mock.calls[0][1]).toBe('refresh boom')
+    })
+
+    test('refresh가 refresh_token_expired로 실패해도 reauth_required로 마킹한다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const rejection = createAppError('AI_TOKEN_REFRESH_FAILED', { status: 400, error: 'refresh_token_expired' })
+        const client = refreshFailureFactory(crypto, rejection, markReauthRequired).create(nearExpiryRow(crypto))
+
+        await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_REAUTH_REQUIRED' })
+        expect(markReauthRequired.mock.calls.length).toBe(1)
+    })
+
+    test('refresh가 429로 실패하면 마킹하지 않고 AI_TOKEN_REFRESH_FAILED를 그대로 던진다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const rejection = createAppError('AI_TOKEN_REFRESH_FAILED', { status: 429 })
+        const client = refreshFailureFactory(crypto, rejection, markReauthRequired).create(nearExpiryRow(crypto))
+
+        await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_TOKEN_REFRESH_FAILED', statusCode: 502 })
+        expect(markReauthRequired).not.toHaveBeenCalled()
+    })
+
+    test('refresh가 네트워크 오류로 실패하면 마킹하지 않고 AI_TOKEN_REFRESH_FAILED로 감싼다', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const markReauthRequired = mock(async () => {})
+        const client = refreshFailureFactory(crypto, new Error('refresh boom'), markReauthRequired).create(nearExpiryRow(crypto))
+
+        await expect(client.listModels()).rejects.toMatchObject({ code: 'AI_TOKEN_REFRESH_FAILED' })
+        expect(markReauthRequired).not.toHaveBeenCalled()
     })
 })
 

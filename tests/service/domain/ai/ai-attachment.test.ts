@@ -91,6 +91,24 @@ describe('createAiAttachmentService', () => {
             await expect(service.upload(file, 'user-1')).rejects.toMatchObject({ code: 'AI_ATTACHMENT_INVALID_TYPE' })
             expect(deps.storage.upload).not.toHaveBeenCalled()
         })
+
+        test('db.insert가 실패하면 업로드한 R2 오브젝트를 정리하고 에러를 다시 던진다', async () => {
+            const deps = createDeps()
+            deps.db.insert = mock((_data: AiAttachmentInsert) => Promise.reject(new Error('insert boom')))
+            const service = createAiAttachmentService(deps)
+
+            await expect(service.upload(pngFile(), 'user-1')).rejects.toThrow('insert boom')
+            expect(deps.storage.delete).toHaveBeenCalledWith('ai/attachments/user-1/uuid-1/photo.png')
+        })
+
+        test('정리용 storage.delete가 실패해도 원래 insert 에러를 던진다', async () => {
+            const deps = createDeps()
+            deps.db.insert = mock((_data: AiAttachmentInsert) => Promise.reject(new Error('insert boom')))
+            deps.storage.delete = mock((_key: string) => Promise.reject(new Error('cleanup boom')))
+            const service = createAiAttachmentService(deps)
+
+            await expect(service.upload(pngFile(), 'user-1')).rejects.toThrow('insert boom')
+        })
     })
 
     describe('resolveImages', () => {
@@ -148,13 +166,22 @@ describe('createAiAttachmentService', () => {
     })
 
     describe('remove', () => {
-        test('소유자가 삭제하면 storage.delete·db.deleteById를 호출한다', async () => {
+        test('소유자가 삭제하면 db.deleteById·storage.delete를 DB 우선 순서로 호출한다', async () => {
+            const order: string[] = []
             const deps = createDeps()
+            deps.db.deleteById = mock(async (_id: number) => {
+                order.push('db')
+            })
+            deps.storage.delete = mock((_key: string) => {
+                order.push('storage')
+                return Promise.resolve()
+            })
             const service = createAiAttachmentService(deps)
 
             await service.remove('user-1', 1)
             expect(deps.storage.delete).toHaveBeenCalledWith('ai/attachments/user-1/uuid-1/photo.png')
             expect(deps.db.deleteById).toHaveBeenCalledWith(1)
+            expect(order).toEqual(['db', 'storage'])
         })
 
         test('타 유저 첨부 삭제는 AI_ATTACHMENT_NOT_FOUND를 throw한다', async () => {

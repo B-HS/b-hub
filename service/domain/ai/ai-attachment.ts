@@ -1,6 +1,7 @@
 import type { AiAttachment } from '../../../db/schema'
 import type { AiImagePart } from './ai-provider'
 import { createAppError } from '../../../lib/error'
+import { captureException } from '../../../lib/sentry'
 import { sanitizeFilename } from '../../../lib/mail-utils'
 
 type StorageService = {
@@ -63,8 +64,15 @@ export const createAiAttachmentService = ({ storage, db, generateId, getUserQuot
         const r2Key = `ai/attachments/${userId}/${generateId()}/${safeName}`
         await storage.upload(r2Key, buffer, file.type)
 
-        const { id } = await db.insert({ userId, filename: safeName, mimeType: file.type, sizeBytes: buffer.length, r2Key })
-        return { id, url: storage.getUrl(r2Key), filename: safeName, mimeType: file.type, sizeBytes: buffer.length }
+        let insertedId: number
+        try {
+            const inserted = await db.insert({ userId, filename: safeName, mimeType: file.type, sizeBytes: buffer.length, r2Key })
+            insertedId = inserted.id
+        } catch (error) {
+            await storage.delete(r2Key).catch((cleanupError) => captureException(cleanupError))
+            throw error
+        }
+        return { id: insertedId, url: storage.getUrl(r2Key), filename: safeName, mimeType: file.type, sizeBytes: buffer.length }
     }
 
     const getOwnedRecords = async (userId: string, ids: number[]) => {
@@ -97,8 +105,8 @@ export const createAiAttachmentService = ({ storage, db, generateId, getUserQuot
     const remove = async (userId: string, id: number) => {
         const record = await db.getById(id)
         if (!record || record.userId !== userId) throw createAppError('AI_ATTACHMENT_NOT_FOUND')
-        await storage.delete(record.r2Key)
         await db.deleteById(id)
+        await storage.delete(record.r2Key)
     }
 
     return { upload, resolveImages, attachToMessage, remove }

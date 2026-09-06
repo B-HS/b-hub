@@ -10,7 +10,12 @@ import type { AiChatSend, AiCompletion } from '../../../dto/ai/chat'
 
 const HISTORY_LIMIT = 50
 
-export type AiUsageLogger = (entry: { errorCode: string; severity: number; errorDescription?: string; details: Record<string, unknown> }) => void
+export type AiUsageLogger = (entry: {
+    errorCode: string
+    severity: number
+    errorDescription?: string
+    details: Record<string, unknown>
+}) => Promise<void>
 
 export type AiChatStreamDone = {
     id?: number
@@ -148,7 +153,7 @@ export const createAiChatService = ({
         await settleQuietly(sessionService.touchLastMessage(sessionId))
         await settleQuietly(connectionService.touchUsed(rowId))
 
-        logUsage({
+        await logUsage({
             errorCode: 'AI_CHAT_COMPLETED',
             severity: 20,
             details: {
@@ -173,7 +178,7 @@ export const createAiChatService = ({
     }) => {
         const { provider, featureKey, rowId, result, durationMs } = args
         await settleQuietly(connectionService.touchUsed(rowId))
-        logUsage({
+        await logUsage({
             errorCode: 'AI_COMPLETION_COMPLETED',
             severity: 20,
             details: {
@@ -205,7 +210,7 @@ export const createAiChatService = ({
         try {
             result = await client.complete({ modelId, system, messages, maxTokens: input.maxTokens, temperature: input.temperature })
         } catch (error) {
-            logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
+            await logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
             throw error
         }
         const durationMs = Date.now() - startedAt
@@ -231,7 +236,7 @@ export const createAiChatService = ({
         try {
             upstream = await client.completeStream({ modelId, system, messages, maxTokens: input.maxTokens, temperature: input.temperature, signal })
         } catch (error) {
-            logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
+            await logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
             throw error
         }
 
@@ -240,7 +245,7 @@ export const createAiChatService = ({
             try {
                 result = yield* relayDeltas(upstream)
             } catch (error) {
-                logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
+                await logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
                 throw error
             }
             const durationMs = Date.now() - startedAt
@@ -269,7 +274,7 @@ export const createAiChatService = ({
         try {
             result = await client.complete({ modelId: input.modelId, system, messages, maxTokens: input.maxTokens, temperature: input.temperature })
         } catch (error) {
-            logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })
+            await logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })
             throw error
         }
         const durationMs = Date.now() - startedAt
@@ -294,7 +299,7 @@ export const createAiChatService = ({
                 signal,
             })
         } catch (error) {
-            logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })
+            await logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })
             throw error
         }
 
@@ -303,7 +308,7 @@ export const createAiChatService = ({
             try {
                 result = yield* relayDeltas(upstream)
             } catch (error) {
-                logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })
+                await logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })
                 throw error
             }
             const durationMs = Date.now() - startedAt

@@ -17,7 +17,16 @@ import type { ComposeAiArgs } from './types'
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token'
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 
-export const composeAi = ({ db, env, storageService, logEventService }: ComposeAiArgs) => {
+const parseOauthErrorCode = (body: string) => {
+    try {
+        const parsed = JSON.parse(body) as { error?: unknown }
+        return typeof parsed.error === 'string' ? parsed.error : null
+    } catch {
+        return null
+    }
+}
+
+export const composeAi = ({ db, env, storageService, logEventService, rateLimitStore }: ComposeAiArgs) => {
     if (!env.AI_ENCRYPTION_KEY) return {}
 
     const crypto = createCredentialCrypto(env.AI_ENCRYPTION_KEY)
@@ -31,7 +40,9 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
                 body: JSON.stringify({ client_id: CODEX_CLIENT_ID, grant_type: 'refresh_token', refresh_token: refreshToken }),
             })
             if (!res.ok) {
-                throw createAppError('AI_TOKEN_REFRESH_FAILED', { status: res.status })
+                const body = await res.text().catch(() => '')
+                const oauthError = parseOauthErrorCode(body)
+                throw createAppError('AI_TOKEN_REFRESH_FAILED', oauthError ? { status: res.status, error: oauthError } : { status: res.status })
             }
             const data = (await res.json()) as { access_token?: string; refresh_token?: string; id_token?: string }
             if (!data.access_token) throw createAppError('AI_TOKEN_REFRESH_FAILED', { detail: 'missing access_token' })
@@ -192,7 +203,7 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
                 .select()
                 .from(schema.aiMessages)
                 .where(where)
-                .orderBy(schema.aiMessages.createdAt)
+                .orderBy(schema.aiMessages.createdAt, schema.aiMessages.id)
                 .limit(filter.limit)
                 .offset((filter.page - 1) * filter.limit)
             return { rows, total: Number(total) }
@@ -202,7 +213,7 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
                 .select()
                 .from(schema.aiMessages)
                 .where(eq(schema.aiMessages.sessionId, sessionId))
-                .orderBy(desc(schema.aiMessages.createdAt))
+                .orderBy(desc(schema.aiMessages.createdAt), desc(schema.aiMessages.id))
                 .limit(limit)
             return rows.reverse()
         },
@@ -260,9 +271,9 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
         },
     })
 
-    const logUsage: AiUsageLogger = (entry) => {
-        logEventService
-            .ingest(
+    const logUsage: AiUsageLogger = async (entry) => {
+        try {
+            await logEventService.ingest(
                 {
                     service: 'b-hub-ai',
                     errorCode: entry.errorCode,
@@ -273,7 +284,9 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
                 },
                 { source: 'server' },
             )
-            .catch((err) => captureException(err))
+        } catch (err) {
+            captureException(err)
+        }
     }
 
     const insertMessagePair: AiMessagePairInserter = async (pair) =>
@@ -307,7 +320,7 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
 
     const chatService = createAiChatService({ connectionService, promptService, sessionService, attachmentService, insertMessagePair, logUsage })
 
-    const aiRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30 })
+    const aiRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30 }, rateLimitStore)
     const aiCheckLimit = (key: string, path: string) => aiRateLimiter.checkLimit(`ai:${key}:${path}`)
 
     return {
