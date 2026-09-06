@@ -173,3 +173,97 @@ describe('composeDrive assetDb 유니크 위반 처리', () => {
         ).rejects.toMatchObject({ code: 'DRIVE_DUPLICATE_FILE', statusCode: 409 })
     })
 })
+
+const createCapturingCompose = (respond: (sql: string) => { rows: unknown[][] }) => {
+    const queries: { sql: string; params: unknown[] }[] = []
+    const db = drizzle(
+        async (sql, params) => {
+            queries.push({ sql, params })
+            return respond(sql)
+        },
+        { schema, mode: 'default' },
+    ) as unknown as ComposeDriveArgs['db']
+
+    const composed = composeDrive({
+        db,
+        env: { UPLOAD_SERVER_SECRET: 'secret' } as unknown as ComposeDriveArgs['env'],
+        storageService: {
+            del: async () => {},
+            upload: async () => ({ key: 'k', url: 'https://cdn.example.com/k' }),
+            getUrl: (key: string) => `https://cdn.example.com/${key}`,
+            getPresignedUrl: async () => 'https://presigned.example.com/f',
+            getObjectStream: async () => null,
+        } as unknown as ComposeDriveArgs['storageService'],
+        imageProcessor: {} as unknown as ComposeDriveArgs['imageProcessor'],
+        gdriveStorageService: null,
+        initGdriveStorage: async () => null as unknown as Awaited<ReturnType<ComposeDriveArgs['initGdriveStorage']>>,
+    })
+
+    return { composed, queries }
+}
+
+describe('composeDrive assetDb.touchAccess', () => {
+    test('accessCount 를 읽지 않고 access_count + 1 로 원자 증가시킨다', async () => {
+        const { composed, queries } = createCapturingCompose((sql) => {
+            if (sql.startsWith('select `id`, `user_id`')) return { rows: [ASSET_ROW] }
+            return { rows: [{ insertId: 0, affectedRows: 1 }] as unknown as unknown[][] }
+        })
+
+        await composed.driveAssetService.getDetail(1, 'user-1')
+
+        const updateQuery = queries.find((q) => q.sql.startsWith('update `cloud_assets`'))
+        expect(updateQuery?.sql).toContain('`access_count` = `cloud_assets`.`access_count` + 1')
+        expect(updateQuery?.sql).toContain('`last_viewed_at` = ?')
+        expect(updateQuery?.params.at(-1)).toBe(1)
+        expect(updateQuery?.params).not.toContain(0)
+    })
+
+    test('download 도 같은 원자 증가 쿼리를 사용한다', async () => {
+        const { composed, queries } = createCapturingCompose((sql) => {
+            if (sql.startsWith('select `id`, `user_id`')) return { rows: [ASSET_ROW] }
+            return { rows: [{ insertId: 0, affectedRows: 1 }] as unknown as unknown[][] }
+        })
+
+        await expect(composed.driveAssetService.download(1, 'user-1')).rejects.toMatchObject({ code: 'DRIVE_ALL_TIERS_FAILED' })
+
+        const updateQuery = queries.find((q) => q.sql.startsWith('update `cloud_assets`'))
+        expect(updateQuery?.sql).toContain('`access_count` = `cloud_assets`.`access_count` + 1')
+    })
+})
+
+describe('composeDrive assetDb.list stale 필터', () => {
+    test('stale 조건을 drizzle 연산자(not in · >=)로 만들고 Date 를 파라미터로 바인딩한다', async () => {
+        const { composed, queries } = createCapturingCompose((sql) => {
+            if (sql.includes('COUNT(*)')) return { rows: [[0]] }
+            return { rows: [] }
+        })
+
+        await composed.driveAssetService.list('user-1', { page: 1, limit: 20, sort: 'created', order: 'desc' })
+
+        const listQuery = queries[0]
+        expect(listQuery.sql).toContain('`cloud_assets`.`upload_status` not in (?, ?)')
+        expect(listQuery.sql).toContain('`cloud_assets`.`created_at` >= ?')
+        expect(listQuery.sql).not.toContain('NOT (')
+        expect(listQuery.params.slice(0, 4)).toEqual(['user-1', 'preparing', 'failed', expect.any(String)])
+    })
+
+    test('folderId=root 와 mimeType 필터를 stale 조건과 함께 AND 로 결합한다', async () => {
+        const { composed, queries } = createCapturingCompose((sql) => {
+            if (sql.includes('COUNT(*)')) return { rows: [[0]] }
+            return { rows: [] }
+        })
+
+        await composed.driveAssetService.list('user-1', {
+            page: 1,
+            limit: 20,
+            sort: 'name',
+            order: 'asc',
+            folderId: 'root',
+            mimeType: 'image/',
+        })
+
+        expect(queries[0].sql).toContain('`cloud_assets`.`folder_id` is null')
+        expect(queries[0].sql).toContain('`cloud_assets`.`mime_type` like ?')
+        expect(queries[0].sql).toContain('`cloud_assets`.`upload_status` not in (?, ?)')
+    })
+})

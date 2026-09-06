@@ -1,6 +1,7 @@
 import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand, ListObjectsCommand, type S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createAppError } from '../../lib/error'
+import { captureException } from '../../lib/sentry'
 
 type StorageDeps = {
     s3: S3Client
@@ -20,6 +21,7 @@ export const createStorageService = (deps: StorageDeps) => {
             await deps.s3.send(command)
             return { key, url: `${deps.cdnDomain}/${key}` }
         } catch (error) {
+            captureException(error)
             throw createAppError('STORAGE_UPLOAD_FAILED')
         }
     }
@@ -32,6 +34,7 @@ export const createStorageService = (deps: StorageDeps) => {
             })
             await deps.s3.send(command)
         } catch (error) {
+            captureException(error)
             throw createAppError('STORAGE_DELETE_FAILED')
         }
     }
@@ -55,6 +58,7 @@ export const createStorageService = (deps: StorageDeps) => {
             })
             return await getSignedUrl(deps.s3, command, { expiresIn })
         } catch (error) {
+            captureException(error)
             throw createAppError('STORAGE_PRESIGN_FAILED')
         }
     }
@@ -70,6 +74,7 @@ export const createStorageService = (deps: StorageDeps) => {
             const bytes = await result.Body.transformToByteArray()
             return Buffer.from(bytes)
         } catch (error) {
+            captureException(error)
             return null
         }
     }
@@ -84,6 +89,7 @@ export const createStorageService = (deps: StorageDeps) => {
             if (!result.Body) return null
             return result.Body.transformToWebStream()
         } catch (error) {
+            captureException(error)
             return null
         }
     }

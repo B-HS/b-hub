@@ -1,4 +1,5 @@
 import { createAppError } from '../../../lib/error'
+import { captureException } from '../../../lib/sentry'
 
 type DriveFolderRow = {
     id: string
@@ -158,7 +159,9 @@ export const createDriveFolderService = (deps: DriveFolderServiceDeps) => ({
             for (const asset of assets) {
                 try {
                     await deps.deleteAssetFromTiers(asset)
-                } catch {}
+                } catch (error) {
+                    captureException(error)
+                }
                 await deps.removeAssetFromDb(asset.id)
             }
 

@@ -1,10 +1,15 @@
-import { asc, desc, eq, gte, like, lt, or, sql, and, isNull, isNotNull } from 'drizzle-orm'
+import { asc, desc, eq, gte, like, lt, notInArray, or, sql, and, isNull, isNotNull } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { createDriveAssetService } from '../service/domain/drive/drive-asset'
 import { createDriveFolderService } from '../service/domain/drive/drive-folder'
 import { createStorageLifecycleService } from '../service/shared/storage-lifecycle'
 import { isDuplicateKeyError } from '../lib/db-helper'
+import { captureException } from '../lib/sentry'
 import type { ComposeDriveArgs } from './types'
+
+const STALE_UPLOAD_WINDOW_MS = 10 * 60 * 1000
+
+const STALE_UPLOAD_STATUSES = ['preparing', 'failed']
 
 export const composeDrive = ({ db, env, storageService, imageProcessor, initGdriveStorage }: ComposeDriveArgs) => {
     const folderDb = {
@@ -77,13 +82,17 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
             if (tiers.has('L1')) {
                 try {
                     await storageService.del(asset.s3Key)
-                } catch {}
+                } catch (error) {
+                    captureException(error)
+                }
             }
             if (tiers.has('L3') && asset.gdriveFileId) {
                 try {
                     const gdrive = await initGdriveStorage()
                     if (gdrive) await gdrive.del(asset.gdriveFileId)
-                } catch {}
+                } catch (error) {
+                    captureException(error)
+                }
             }
         },
         removeAssetFromDb: async (assetId: number) => {
@@ -160,10 +169,10 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
             sort: string
             order: string
         }) => {
-            const staleThreshold = new Date(Date.now() - 10 * 60 * 1000)
+            const staleThreshold = new Date(Date.now() - STALE_UPLOAD_WINDOW_MS)
             const conditions = [
                 eq(schema.cloudAssets.userId, params.userId),
-                sql`NOT (${schema.cloudAssets.uploadStatus} IN ('preparing', 'failed') AND ${schema.cloudAssets.createdAt} < ${staleThreshold})`,
+                or(notInArray(schema.cloudAssets.uploadStatus, STALE_UPLOAD_STATUSES), gte(schema.cloudAssets.createdAt, staleThreshold)),
             ]
             if (params.mimeType) {
                 conditions.push(like(schema.cloudAssets.mimeType, `${params.mimeType}%`))
@@ -209,7 +218,6 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                 isPublic: boolean
                 folderId: string | null
                 lastViewedAt: Date
-                accessCount: number
                 storageTiers: string
                 uploadStatus: string
                 uploadToken: string | null
@@ -227,6 +235,13 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                 if (isDuplicateKeyError(error)) return null
                 throw error
             }
+        },
+
+        touchAccess: async (id: number, lastViewedAt: Date) => {
+            await db
+                .update(schema.cloudAssets)
+                .set({ lastViewedAt, accessCount: sql`${schema.cloudAssets.accessCount} + 1` })
+                .where(eq(schema.cloudAssets.id, id))
         },
 
         remove: async (id: number) => {

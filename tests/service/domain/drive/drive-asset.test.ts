@@ -1,4 +1,5 @@
-import { describe, expect, test, mock, beforeEach } from 'bun:test'
+import { describe, expect, test, mock, beforeEach, spyOn } from 'bun:test'
+import * as sentry from '../../../../lib/sentry'
 import { createDriveAssetService } from '../../../../service/domain/drive/drive-asset'
 
 const now = new Date()
@@ -48,6 +49,7 @@ const createMockDeps = () => ({
         getByUserAndHash: mock(() => Promise.resolve(null as ReturnType<typeof mockAssetRow> | null)),
         list: mock(() => Promise.resolve({ data: [mockAssetRow()], total: 1 })),
         update: mock(() => Promise.resolve({ id: 1 } as { id: number } | null)),
+        touchAccess: mock((_id: number, _lastViewedAt: Date) => Promise.resolve()),
         remove: mock(() => Promise.resolve()),
         getTotalSizeByUser: mock(() => Promise.resolve(1000)),
     },
@@ -245,7 +247,18 @@ describe('createDriveAssetService', () => {
 
             await service.getDetail(1, 'user-1')
 
-            expect(deps.db.update).toHaveBeenCalledWith(1, expect.objectContaining({ lastViewedAt: expect.any(Date) }))
+            expect(deps.db.touchAccess).toHaveBeenCalledWith(1, expect.any(Date))
+        })
+
+        test('accessCount 를 읽어서 다시 쓰지 않고 touchAccess 에 위임한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ accessCount: 41 })))
+            const service = createDriveAssetService(deps)
+
+            await service.getDetail(1, 'user-1')
+
+            expect(deps.db.touchAccess).toHaveBeenCalledTimes(1)
+            expect(deps.db.update).not.toHaveBeenCalled()
         })
     })
 
@@ -467,7 +480,7 @@ describe('createDriveAssetService', () => {
     })
 
     describe('무결성: 삭제 순서', () => {
-        test('DB를 먼저 삭제하고 S3를 삭제한다', async () => {
+        test('실물(S3)을 먼저 삭제하고 DB 행을 삭제한다', async () => {
             const deps = createMockDeps()
             const callOrder: string[] = []
             deps.db.remove = mock(() => {
@@ -482,7 +495,7 @@ describe('createDriveAssetService', () => {
 
             await service.remove(1, 'user-1')
 
-            expect(callOrder).toEqual(['db', 's3'])
+            expect(callOrder).toEqual(['s3', 'db'])
         })
 
         test('S3 삭제 실패해도 DB 삭제는 유지된다', async () => {
@@ -494,6 +507,40 @@ describe('createDriveAssetService', () => {
 
             expect(result.id).toBe(1)
             expect(deps.db.remove).toHaveBeenCalledWith(1)
+        })
+
+        test('S3 삭제 실패를 captureException 으로 기록한다', async () => {
+            const deps = createMockDeps()
+            const s3Error = new Error('S3 error')
+            deps.storage.del = mock(() => Promise.reject(s3Error))
+            const captureSpy = spyOn(sentry, 'captureException')
+            const service = createDriveAssetService(deps)
+
+            await service.remove(1, 'user-1')
+
+            expect(captureSpy).toHaveBeenCalledWith(s3Error)
+            captureSpy.mockRestore()
+        })
+
+        test('GDrive 삭제 실패도 captureException 으로 기록하고 DB 행은 삭제한다', async () => {
+            const deps = createMockDeps()
+            const gdriveError = new Error('GDrive error')
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L1,L3', gdriveFileId: 'gdrive-1' })))
+            deps.getGdriveStorage = mock(() =>
+                Promise.resolve({
+                    download: () => Promise.resolve(new ReadableStream()),
+                    del: () => Promise.reject(gdriveError),
+                }),
+            )
+            const captureSpy = spyOn(sentry, 'captureException')
+            const service = createDriveAssetService(deps)
+
+            const result = await service.remove(1, 'user-1')
+
+            expect(captureSpy).toHaveBeenCalledWith(gdriveError)
+            expect(deps.db.remove).toHaveBeenCalledWith(1)
+            expect(result).toEqual({ id: 1 })
+            captureSpy.mockRestore()
         })
     })
 

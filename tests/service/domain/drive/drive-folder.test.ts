@@ -1,4 +1,5 @@
-import { describe, expect, test, mock } from 'bun:test'
+import { describe, expect, test, mock, spyOn } from 'bun:test'
+import * as sentry from '../../../../lib/sentry'
 import { createDriveFolderService } from '../../../../service/domain/drive/drive-folder'
 
 const now = new Date()
@@ -18,14 +19,16 @@ const createMockDeps = () => ({
         insert: mock(() => Promise.resolve()),
         getById: mock((_id: string): Promise<ReturnType<typeof makeFolder> | null> => Promise.resolve(makeFolder())),
         getByParent: mock((_userId: string, _parentId: string | null) => Promise.resolve([] as ReturnType<typeof makeFolder>[])),
-        getByNameAndParent: mock(
-            (_userId: string, _name: string, _parentId: string | null): Promise<ReturnType<typeof makeFolder> | null> => Promise.resolve(null),
+        getByNameAndParent: mock((_userId: string, _name: string, _parentId: string | null): Promise<ReturnType<typeof makeFolder> | null> =>
+            Promise.resolve(null),
         ),
         update: mock(() => Promise.resolve()),
         remove: mock(() => Promise.resolve()),
     },
     generateId: () => 'new-uuid',
-    getAssetsByFolderId: mock((_folderId: string) => Promise.resolve([] as { id: number; s3Key: string; storageTiers: string; gdriveFileId: string | null }[])),
+    getAssetsByFolderId: mock((_folderId: string) =>
+        Promise.resolve([] as { id: number; s3Key: string; storageTiers: string; gdriveFileId: string | null }[]),
+    ),
     deleteAssetFromTiers: mock(() => Promise.resolve()),
     removeAssetFromDb: mock((_assetId: number) => Promise.resolve()),
 })
@@ -178,8 +181,8 @@ describe('createDriveFolderService', () => {
 
         test('루트로 이동할 수 있다', async () => {
             const deps = createMockDeps()
-            deps.db.getById = mock(
-                (_id: string): Promise<ReturnType<typeof makeFolder> | null> => Promise.resolve(makeFolder({ parentId: 'some-parent' })),
+            deps.db.getById = mock((_id: string): Promise<ReturnType<typeof makeFolder> | null> =>
+                Promise.resolve(makeFolder({ parentId: 'some-parent' })),
             )
             const service = createDriveFolderService(deps)
 
@@ -275,9 +278,12 @@ describe('createDriveFolderService', () => {
                 return Promise.resolve([])
             })
             deps.getAssetsByFolderId = mock((folderId: string) => {
-                if (folderId === 'grandchild-1') return Promise.resolve([{ id: 10, s3Key: 'users/u1/uuid/deep.pdf', storageTiers: 'L1,L3', gdriveFileId: 'g-10' }])
-                if (folderId === 'child-1') return Promise.resolve([{ id: 11, s3Key: 'users/u1/uuid/mid.pdf', storageTiers: 'L3', gdriveFileId: 'g-11' }])
-                if (folderId === 'folder-1') return Promise.resolve([{ id: 12, s3Key: 'users/u1/uuid/top.pdf', storageTiers: 'L1', gdriveFileId: null }])
+                if (folderId === 'grandchild-1')
+                    return Promise.resolve([{ id: 10, s3Key: 'users/u1/uuid/deep.pdf', storageTiers: 'L1,L3', gdriveFileId: 'g-10' }])
+                if (folderId === 'child-1')
+                    return Promise.resolve([{ id: 11, s3Key: 'users/u1/uuid/mid.pdf', storageTiers: 'L3', gdriveFileId: 'g-11' }])
+                if (folderId === 'folder-1')
+                    return Promise.resolve([{ id: 12, s3Key: 'users/u1/uuid/top.pdf', storageTiers: 'L1', gdriveFileId: null }])
                 return Promise.resolve([])
             })
             const service = createDriveFolderService(deps)
@@ -309,9 +315,7 @@ describe('createDriveFolderService', () => {
 
         test('tier 삭제 실패해도 DB 삭제는 계속 진행된다', async () => {
             const deps = createMockDeps()
-            deps.getAssetsByFolderId = mock(() =>
-                Promise.resolve([{ id: 1, s3Key: 'users/u1/uuid/a.pdf', storageTiers: 'L1', gdriveFileId: null }]),
-            )
+            deps.getAssetsByFolderId = mock(() => Promise.resolve([{ id: 1, s3Key: 'users/u1/uuid/a.pdf', storageTiers: 'L1', gdriveFileId: null }]))
             deps.deleteAssetFromTiers = mock(() => Promise.reject(new Error('R2 error')))
             const service = createDriveFolderService(deps)
 
@@ -319,6 +323,20 @@ describe('createDriveFolderService', () => {
 
             expect(deps.removeAssetFromDb).toHaveBeenCalledWith(1)
             expect(deps.db.remove).toHaveBeenCalledWith('folder-1')
+        })
+
+        test('tier 삭제 실패를 captureException 으로 기록한다', async () => {
+            const deps = createMockDeps()
+            const tierError = new Error('R2 error')
+            deps.getAssetsByFolderId = mock(() => Promise.resolve([{ id: 1, s3Key: 'users/u1/uuid/a.pdf', storageTiers: 'L1', gdriveFileId: null }]))
+            deps.deleteAssetFromTiers = mock(() => Promise.reject(tierError))
+            const captureSpy = spyOn(sentry, 'captureException')
+            const service = createDriveFolderService(deps)
+
+            await service.remove('folder-1', 'user-1')
+
+            expect(captureSpy).toHaveBeenCalledWith(tierError)
+            captureSpy.mockRestore()
         })
 
         test('하위 폴더의 파일 tier 삭제 실패해도 상위 폴더까지 삭제 완료된다', async () => {

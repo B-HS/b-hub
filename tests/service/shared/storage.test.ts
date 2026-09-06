@@ -1,4 +1,5 @@
-import { describe, expect, test, mock } from 'bun:test'
+import { describe, expect, test, mock, spyOn } from 'bun:test'
+import * as sentry from '../../../lib/sentry'
 import { createStorageService } from '../../../service/shared/storage'
 
 const createMockS3 = () => ({
@@ -129,5 +130,54 @@ describe('createStorageService', () => {
             expect(appError.code).toBe('STORAGE_DELETE_FAILED')
             expect(appError.statusCode).toBe(500)
         }
+    })
+})
+
+describe('createStorageService 실패 기록', () => {
+    const S3_ERROR = new Error('S3 error')
+
+    const createFailingStorage = () =>
+        createStorageService({
+            s3: { send: mock(() => Promise.reject(S3_ERROR)) } as never,
+            bucket: 'test-bucket',
+            cdnDomain: 'https://cdn.test.com',
+        })
+
+    test('del 실패를 captureException 으로 기록하고 STORAGE_DELETE_FAILED 를 던진다', async () => {
+        const captureSpy = spyOn(sentry, 'captureException')
+
+        await expect(createFailingStorage().del('test.webp')).rejects.toMatchObject({ code: 'STORAGE_DELETE_FAILED' })
+
+        expect(captureSpy).toHaveBeenCalledWith(S3_ERROR)
+        captureSpy.mockRestore()
+    })
+
+    test('upload 실패를 captureException 으로 기록하고 STORAGE_UPLOAD_FAILED 를 던진다', async () => {
+        const captureSpy = spyOn(sentry, 'captureException')
+
+        await expect(createFailingStorage().upload('test.webp', Buffer.from('data'), 'image/webp')).rejects.toMatchObject({
+            code: 'STORAGE_UPLOAD_FAILED',
+        })
+
+        expect(captureSpy).toHaveBeenCalledWith(S3_ERROR)
+        captureSpy.mockRestore()
+    })
+
+    test('getObjectStream 실패를 captureException 으로 기록하고 null 을 유지한다', async () => {
+        const captureSpy = spyOn(sentry, 'captureException')
+
+        expect(await createFailingStorage().getObjectStream('missing')).toBeNull()
+
+        expect(captureSpy).toHaveBeenCalledWith(S3_ERROR)
+        captureSpy.mockRestore()
+    })
+
+    test('getObject 실패를 captureException 으로 기록하고 null 을 유지한다', async () => {
+        const captureSpy = spyOn(sentry, 'captureException')
+
+        expect(await createFailingStorage().getObject('missing')).toBeNull()
+
+        expect(captureSpy).toHaveBeenCalledWith(S3_ERROR)
+        captureSpy.mockRestore()
     })
 })

@@ -3,7 +3,40 @@ import { createReadStream, statSync } from 'fs'
 const DRIVE_API = 'https://www.googleapis.com/drive/v3'
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3'
 
-const folderCache = new Map<string, string>()
+const FOLDER_CACHE_MAX_ENTRIES = 500
+
+/**
+ * Bounded LRU cache: reading or writing a key marks it most recently used,
+ * and the least recently used entry is evicted once maxEntries is exceeded.
+ */
+export const createBoundedLruCache = (maxEntries: number) => {
+    const entries = new Map<string, string>()
+
+    return {
+        get: (key: string) => {
+            const value = entries.get(key)
+            if (value === undefined) return undefined
+            entries.delete(key)
+            entries.set(key, value)
+            return value
+        },
+        set: (key: string, value: string) => {
+            entries.delete(key)
+            entries.set(key, value)
+            while (entries.size > maxEntries) {
+                const oldestKey = entries.keys().next().value
+                if (oldestKey === undefined) break
+                entries.delete(oldestKey)
+            }
+        },
+        has: (key: string) => entries.has(key),
+        get size() {
+            return entries.size
+        },
+    }
+}
+
+const folderCache = createBoundedLruCache(FOLDER_CACHE_MAX_ENTRIES)
 
 const ensureFolder = async (accessToken: string, parentId: string, folderName: string): Promise<string> => {
     const cacheKey = `${parentId}/${folderName}`
@@ -23,7 +56,7 @@ const ensureFolder = async (accessToken: string, parentId: string, folderName: s
 
     const createRes = await fetch(`${DRIVE_API}/files?supportsAllDrives=true`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
             name: folderName,
             mimeType: 'application/vnd.google-apps.folder',
@@ -93,7 +126,7 @@ export const createGdriveClient = () => ({
             const res = await fetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id&supportsAllDrives=true`, {
                 method: 'POST',
                 headers: {
-                    Authorization: `Bearer ${accessToken}`,
+                    'Authorization': `Bearer ${accessToken}`,
                     'Content-Type': `multipart/related; boundary=${boundary}`,
                     'Content-Length': String(totalSize),
                 },

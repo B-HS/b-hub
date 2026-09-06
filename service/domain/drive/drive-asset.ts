@@ -1,6 +1,7 @@
 import { createAppError } from '../../../lib/error'
 import { isSecretMatch } from '../../../lib/cron-auth'
 import { sanitizeFilename } from '../../../lib/mail-utils'
+import { captureException } from '../../../lib/sentry'
 
 type DriveStorageService = {
     upload: (key: string, body: Buffer | Uint8Array, contentType: string) => Promise<{ key: string; url: string }>
@@ -80,7 +81,6 @@ type DriveAssetServiceDb = {
             isPublic: boolean
             folderId: string | null
             lastViewedAt: Date
-            accessCount: number
             storageTiers: string
             uploadStatus: string
             uploadToken: string | null
@@ -91,6 +91,7 @@ type DriveAssetServiceDb = {
             sizeBytes: number
         }>,
     ) => Promise<{ id: number } | null>
+    touchAccess: (id: number, lastViewedAt: Date) => Promise<void>
     remove: (id: number) => Promise<void>
     getTotalSizeByUser: (userId: string) => Promise<number>
 }
@@ -181,7 +182,9 @@ const parseTiers = (storageTiers: string): Set<string> => new Set(storageTiers.s
 const removeStorageObjectQuietly = async (storage: DriveStorageService, s3Key: string) => {
     try {
         await storage.del(s3Key)
-    } catch {}
+    } catch (error) {
+        captureException(error)
+    }
 }
 
 const cleanupUploadedTiers = async (deps: DriveAssetServiceDeps, target: { s3Key: string; storageTiers: string; gdriveFileId: string | null }) => {
@@ -195,7 +198,9 @@ const cleanupUploadedTiers = async (deps: DriveAssetServiceDeps, target: { s3Key
         try {
             const gdriveStorage = await deps.getGdriveStorage()
             if (gdriveStorage) await gdriveStorage.del(target.gdriveFileId)
-        } catch {}
+        } catch (error) {
+            captureException(error)
+        }
     }
 }
 
@@ -475,7 +480,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
         if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
 
-        await deps.db.update(assetId, { lastViewedAt: new Date(), accessCount: asset.accessCount + 1 })
+        await deps.db.touchAccess(assetId, new Date())
 
         const tiers = parseTiers(asset.storageTiers)
         let url: string
@@ -512,7 +517,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
         if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
 
-        await deps.db.update(assetId, { lastViewedAt: new Date(), accessCount: asset.accessCount + 1 })
+        await deps.db.touchAccess(assetId, new Date())
 
         const tiers = parseTiers(asset.storageTiers)
 
@@ -561,22 +566,8 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
         if (!asset) throw createAppError('DRIVE_ASSET_NOT_FOUND')
         if (asset.userId !== userId) throw createAppError('DRIVE_ASSET_NOT_FOUND')
 
+        await cleanupUploadedTiers(deps, asset)
         await deps.db.remove(assetId)
-
-        const tiers = parseTiers(asset.storageTiers)
-
-        if (tiers.has('L1')) {
-            try {
-                await deps.storage.del(asset.s3Key)
-            } catch {}
-        }
-
-        if (tiers.has('L3') && asset.gdriveFileId) {
-            try {
-                const gdriveStorage = await deps.getGdriveStorage()
-                if (gdriveStorage) await gdriveStorage.del(asset.gdriveFileId)
-            } catch {}
-        }
 
         return { id: assetId }
     },
