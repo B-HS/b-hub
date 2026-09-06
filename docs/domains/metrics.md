@@ -1,6 +1,6 @@
 # metrics 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/metrics/ingest.ts`, `route/metrics/token.ts`, `route/metrics/query.ts`, `service/domain/metrics/token.ts`, `service/domain/metrics/log.ts`, `dto/metrics/token.ts`, `dto/metrics/ingest.ts`, `dto/metrics/query.ts`, `compose/metrics.ts`, `compose/types.ts`, `compose/index.ts`, `middleware/require-metrics-token.ts`, `db/schema.ts`(`metrics_token`), `db/mongo.ts`, `route/index.ts`, `index.ts`, `page/admin/pages/metrics.tsx`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/metrics/ingest.ts`, `route/metrics/token.ts`, `route/metrics/query.ts`, `service/domain/metrics/token.ts`, `service/domain/metrics/log.ts`, `dto/metrics/token.ts`, `dto/metrics/ingest.ts`, `dto/metrics/query.ts`, `compose/metrics.ts`, `compose/types.ts`, `compose/index.ts`, `middleware/require-metrics-token.ts`, `db/schema.ts`(`metrics_token`), `db/mongo.ts`, `route/index.ts`, `index.ts`, `page/admin/pages/metrics.tsx`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -27,7 +27,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| `route/metrics/ingest.ts` | HTTP 경계 — `createMetricsIngestRoute`. 단건 POST `/` + 배치 POST `/batch`(둘 다 `requireMetricsToken` client scope + rate limit). payload 직렬화 64KB 초과 413, 배치 50건 초과 413 |
+| `route/metrics/ingest.ts` | HTTP 경계 — `createMetricsIngestRoute`. 단건 POST `/` + 배치 POST `/batch`(둘 다 `requireMetricsToken` client scope + rate limit). payload 직렬화 **바이트 길이**(`Buffer.byteLength`) 64KB 초과 413, 배치 50건 초과 413 |
 | `route/metrics/token.ts` | HTTP 경계 — `createMetricsTokenRoute`. 토큰 GET/POST/DELETE, 전부 `requireMetricsToken` **admin scope**. POST 응답 `{ id, token }`(평문 1회) |
 | `route/metrics/query.ts` | HTTP 경계 — `createMetricsQueryRoute`. GET `/devices`·`/logs`(`paginatedResponse`)·`/series`, 전부 admin scope. series 는 디바이스 미존재 시 404 |
 | `route/metrics/archive.ts` | HTTP 경계 — `createMetricsArchiveRoute`. GET+POST `/archive`, `verifyCronAuth`(cron 인증). `archiveOldLogs` 호출 → 아카이브 요약 |
@@ -53,7 +53,7 @@
 
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
-| POST | `/api/metrics/ingest` | metrics-token(client)+rate limit | 단건 수집. payload 직렬화 64KB 초과 시 413 `METRICS_PAYLOAD_TOO_LARGE`. 응답 `{ count }` |
+| POST | `/api/metrics/ingest` | metrics-token(client)+rate limit | 단건 수집. payload 직렬화 바이트 길이 64KB 초과 시 413 `METRICS_PAYLOAD_TOO_LARGE`. 응답 `{ count }` |
 | POST | `/api/metrics/ingest/batch` | metrics-token(client)+rate limit | 배치 수집(events 1~50, 50 초과 413 `METRICS_BATCH_TOO_LARGE`). 응답 `{ count }` |
 | GET | `/api/metrics/tokens` | metrics-token(admin) | 토큰 목록 조회 |
 | POST | `/api/metrics/tokens` | metrics-token(admin) | 토큰 발급. 평문 토큰은 응답 `{ id, token }`로 1회만 반환 |
@@ -65,9 +65,13 @@
 
 ## 핵심 흐름
 
-- **수집**: 클라이언트가 `Authorization: Bearer <token>` 또는 `X-Metrics-Token` 으로 POST `/api/metrics/ingest`(단건)·`/api/metrics/ingest/batch`(≤50) → `requireMetricsToken`(client scope 검증 + rolling 24h rate limit) → payload 크기 검사(직렬화 >64KB 413) → `metricsLogService.ingest` 가 `receivedAt` 서버시각으로 `metrics_logs` insert + 디바이스별 최신 이벤트로 `metrics_devices` upsert.
+- **수집**: 클라이언트가 `Authorization: Bearer <token>` 또는 `X-Metrics-Token` 으로 POST `/api/metrics/ingest`(단건)·`/api/metrics/ingest/batch`(≤50) → `requireMetricsToken`(client scope 검증 + rolling 24h rate limit) → payload 크기 검사(`Buffer.byteLength(JSON.stringify(payload))` >64KB 413, `route/metrics/ingest.ts:23`) → `metricsLogService.ingest` 가 `receivedAt` 서버시각으로 `metrics_logs` insert + 디바이스별 최신 이벤트로 `metrics_devices` upsert.
 - **디바이스 메타 보존**: `upsertDevice` 는 null 메타를 `$set` 이 아니라 `$setOnInsert` 로 보내 **기존 메타를 null 로 덮지 않는다**(간헐적으로 메타 없는 이벤트가 와도 최초 등록값 유지).
 - **조회·시계열**: admin scope 토큰으로 GET `/api/metrics/devices`(online = `now-lastSeenAt < max(3×intervalSec, 5분)`), `/api/metrics/logs`(페이지네이션), `/api/metrics/series`(aggregate: `payload.<field>` 가 number 인 문서만 → 최신순 limit → `{t,v}` 매핑 후 시간 오름차순 reverse).
+- **series 파이프라인은 `buildSeriesPipeline`(`compose/metrics.ts:37-46`)이 만든다.** `$match`(deviceId + `payload.<field>` 가 number + `receivedAt` 범위) → `$sort receivedAt:-1` → `$limit` → `$project { t, v }` 4단계다. `v` 표현식은 `buildSeriesValueExpression` 이 dot-path 를 재귀 분해해 만든다.
+  - 경로 세그먼트가 **전부 비숫자면** 단순 `$payload.a.b` 문자열 경로다.
+  - 숫자 세그먼트(`^(0|[1-9][0-9]*)$`)를 만나면 그 지점에서 `$let` + `$cond`(`$isArray`)로 갈라, **배열이면 `$arrayElemAt`, 객체면 숫자 키 접근**으로 처리하고 나머지 경로를 같은 방식으로 이어 붙인다. 즉 `cpu.cores.0.usage` 처럼 배열 인덱스가 낀 경로도 `v` 를 뽑아낸다.
+  - 이전 구현은 `$project` 에 `"$payload." + field` 문자열만 넣어, 배열 인덱스 경로에서 `v` 가 누락된 `{t}` 만 나가고 대시보드 역직렬화가 실패할 수 있었다(C-11). `$match` 쪽은 여전히 `payload.<field>` 문자열 경로이며, Mongo 는 이 형태에서 배열 요소를 암묵적으로 훑으므로 필터는 그대로 동작한다.
 - **아카이브(2026-07-22 사용자 결정: R2·핫 7일·매일)**: Vercel cron 이 매일 `/api/metrics/archive`(cron 인증) 호출 → `archiveOldLogs` 가 UTC 자정 기준 7일(`HOT_RETENTION_DAYS`) 이전의 **완결된 일자만** 순회하며, 일자별 전체 문서를 JSONL 로 직렬화 → gzip → R2 업로드 → **업로드 성공 후에만** 해당 일자 삭제. 실패 시 삭제가 실행되지 않아 데이터 유실이 없다.
 - **아카이브 키는 일자별 디렉터리 + 파트 번호**다: `metrics-archive/<YYYY-MM-DD>/<n>.jsonl.gz`. 업로드 전에 `metrics-archive/<day>/` 접두사를 나열해(`MetricsArchiveStorage.listKeys`) 비어 있는 가장 작은 `n`(0부터)을 고르므로, 같은 날짜를 다시 아카이브해도 **기존 파트를 덮어쓰지 않고** 새 파트로 쌓인다(이전 방식은 `metrics-archive/<day>.jsonl.gz` 단일 키를 덮어썼다). 이전 형식으로 이미 올라간 평면 키(`metrics-archive/<day>.jsonl.gz`)는 접두사가 달라 목록에 잡히지 않고 그대로 남는다.
 - **집계 불일치는 보고한다**: 아카이브한 문서 수와 삭제된 문서 수가 다르면 `captureException` 으로 `metrics archive mismatch on <day>` 를 남긴다(응답의 `{ day, count, deleted }` 에도 그대로 드러난다). 어드민 차트(최대 7d)는 핫 데이터 범위와 일치한다. Mongo TTL(90일)은 아카이브 미동작 시의 백스톱으로 유지.

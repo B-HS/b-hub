@@ -16,7 +16,8 @@
 - [x] e2. 1차 후속(Workflow 13 에이전트 완료, 독립 검증 tsc 0·2864 pass·0 fail) — 검증자 지적 반영: F-7 Gmail 식별자 범위 유지(계정 단위 1행), F-1 이동 원자성(unique 충돌 방지), F-2 증분 동기화 폴더 카운트 생략, F-3 status 콜백 s3Key 대조, F-4 로그 배치 사전 검사 원복, F-5 라우터 env 게이트(E-26)
 - [x] e3-1. 소비자별 독립 회귀 리뷰(워크플로 7 리뷰어) — 미승인 차이 3건(부트스트랩 throw·mail 이동 오삭제·font 실패 캐시) 조정자가 직접 수정, 재검증 tsc 0·2864 pass·prettier 통과. 상세: acknowledge 문서
 - [x] e3-2. 1차 문서 갱신(에이전트, 문서 20 수정 + history 신규) — domains/{drive,mail,calendar,logs,resume}.md·reference/shared-services.md·consumer-contracts §1.5·findings 상태. **주의: `db:push` 필요(mail_messages unique 가 (accountId, folderId, remoteMessageId) 로 변경). e2 완료 전 실행 금지**
-- [ ] f. 2차 수정 — 즉시 500 계열(page 클램프, 댓글 FK, 빈 PATCH, wasm 레이스, fontSize 0 등)
+- [x] e3-3. 2차 문서 갱신 완료 — domains/{blog,badge,resume,weather,spotify,mail,ai,drive,calendar,metrics}.md · admin-features · deploy · metrics-client-contract · reference/{api-endpoints,lib-utilities,shared-services,consumer-contracts} · findings 상태 표기 + history/2026-09-07-audit-batch2.md 신규
+- [x] f. 2차 수정 완료(독립 회귀 리뷰 6 리뷰어 → 미승인 차이 4건 HEAD 의미로 원복, 재검증 tsc 0·3011 pass·prettier 통과) — 브랜치 `fix/audit-batch2-immediate-errors`, 워크플로 27 에이전트 · 파일 비겹침 10그룹. E-01~E-08·E-10~E-12·E-14~E-21·E-23~E-25·E-28 + 승인 A-1~A-5 + C-01·C-04·C-10·C-11 반영. 검증 tsc 0 · 3010 pass / 0 fail. E-13 은 보류(`posts` 에 작성자 컬럼 없음), E-09 는 4차 이월. 요약: [history/2026-09-07-audit-batch2.md](./history/2026-09-07-audit-batch2.md)
 - [ ] g. 3차 수정 — 서버리스 적합성(fire-and-forget, DB 풀, Redis 지연 생성, rate limiter)
 - [ ] h. 4차 수정 — PERF(Promise.all, 인덱스, 지연 import, CDN 캐시 헤더)
 - [ ] i. 검증 — 단계마다 `bunx tsc --noEmit` · `bun test` · 계약 문서 대조, 소비자별 실동작 확인 체크리스트

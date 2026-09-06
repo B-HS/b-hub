@@ -1,6 +1,6 @@
 # blog 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
 
 ## 개요
 
@@ -67,9 +67,9 @@
 
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/blog/posts` | 없음 | 게시글 목록. `paginatedResponse`. 쿼리: `page`/`limit`/`keyword`/`categoryId`/`tagId`/`isPublished`/`isHide`/`isNotice` |
-| GET | `/api/blog/posts/:id` | 없음 | 게시글 상세. 조회 시 `views` +1 |
-| GET | `/api/blog/posts/:id/thumbnail` | 없음 | 1200×630 OG PNG 생성(satori+resvg, Noto Sans KR). `Cache-Control: public, max-age=2592000, immutable` |
+| GET | `/api/blog/posts` | 없음(admin 세션이면 필터 해제) | 게시글 목록. `paginatedResponse`. 쿼리: `page`/`limit`/`keyword`/`categoryId`/`tagId`/`isPublished`/`isHide`/`isNotice`. **비admin 요청은 서버가 `isPublished=true`·`isHide=false` 를 강제**해 쿼리로 넘어온 값을 덮어쓴다(`route/blog/post.ts:29-31`) |
+| GET | `/api/blog/posts/:id` | 없음(admin 세션이면 비공개도 조회) | 게시글 상세. 조회 시 `views` +1. **비admin 요청은 미발행(`isPublished=false`)·숨김(`isHide=true`) 글이면 `BLOG_POST_NOT_FOUND`(404)**(`route/blog/post.ts:56-58`, `service/domain/blog/post.ts:80-86`) |
+| GET | `/api/blog/posts/:id/thumbnail` | 없음 | 1200×630 OG PNG 생성(satori+resvg, Noto Sans KR). `Cache-Control: public, max-age=2592000, immutable`. `getByIdWithoutView` 를 쓰므로 **조회수를 올리지 않는다** |
 | POST | `/api/blog/posts` | admin | 게시글 생성(태그 연결 트랜잭션) |
 | PUT | `/api/blog/posts/:id` | admin | 게시글 수정(`tagIds` 전달 시 재설정) |
 
@@ -127,11 +127,13 @@
 ## 핵심 흐름
 
 ### 게시글 목록/상세
-- `createPostRoute` → `postService.list(query)`(`service/domain/blog/post.ts`) → `compose/blog.ts` `getPostList`. Drizzle 서브쿼리로 태그를 `JSON_ARRAYAGG` 집계, `categories` 조인, 동적 조건(keyword `LIKE`, category/tag/isPublished/isHide/isNotice) 후 `created_at`·`postId` desc 정렬 + `limit/offset`. 별도 count 쿼리로 total 산출.
-- 상세: `postService.getById(id)` → 존재하면 `incrementViews(id)`(`views = views + 1`) 실행 후 반환. 없으면 라우트가 `BLOG_POST_NOT_FOUND` throw.
+- `createPostRoute` → 먼저 `deps.getSession(c)` 로 admin 여부를 판정한다. 비admin이면 `{ ...query, isPublished: true, isHide: false }` 로 덮어써 `postService.list()` 를 호출한다(`route/blog/post.ts:29-31`) → `compose/blog.ts` `getPostList`. Drizzle 서브쿼리로 태그를 `JSON_ARRAYAGG` 집계, `categories` 조인, 동적 조건(keyword `LIKE`, category/tag/isPublished/isHide/isNotice) 후 `created_at`·`postId` desc 정렬 + `limit/offset`. 별도 count 쿼리로 total 산출.
+- 상세: `postService.getById(id, { publicOnly: session?.user.role !== 'admin' })`(`route/blog/post.ts:56-57`). 서비스는 행을 읽은 뒤 `publicOnly` 이고 `!isPublished || isHide` 면 `null` 을 반환하며, 이때 `incrementViews` 도 실행하지 않는다(`service/domain/blog/post.ts:80-86`). `null` 이면 라우트가 `BLOG_POST_NOT_FOUND` throw.
+- 조회수 없는 읽기: `postService.getByIdWithoutView(id)`(`service/domain/blog/post.ts:88`)는 `getPostById` 만 호출한다. 썸네일 라우트 전용 경로다.
 
-### 게시글 생성/수정
+### 게시글 생성/수정/삭제
 - `create`/`update` 는 admin 게이팅. `insertPost`/`updatePost` 는 `db.transaction` 안에서 `posts` upsert + `post_tags` 재설정(`tagIds` 전달 시 기존 삭제 후 재삽입).
+- `deletePost`(`compose/blog.ts:157-165`)도 `db.transaction` 이다. `comments` 를 `postId` 로 먼저 지운 뒤 `posts` 를 지운다. `comments.postId` 가 `posts.postId` 를 FK 로 참조(cascade 없음)하므로, 댓글이 달린 글을 지울 때 FK 제약 위반으로 500 이 나던 경로가 제거됐다. `post_tags` 는 `ON DELETE CASCADE` 라 별도 삭제가 없다.
 
 ### 댓글 소유권
 - `commentService.update`/`delete` 는 `getCommentById` 로 존재 확인 후 `existing.userId !== userId` 면 `{ success: false, reason: 'not_owner' }` 반환 → 라우트가 `BLOG_COMMENT_NOT_FOUND` 로 변환. admin 라우트의 `adminDelete`/`adminUpdateHide` 는 소유권 무시.
@@ -141,8 +143,11 @@
 2. 클라이언트가 원본 파일을 `deploy/upload-server` 로 업로드 → upload-server 가 webp 변환·R2 업로드 후 `POST {hubBaseUrl}/api/blog/images/complete` 로 콜백(`deploy/upload-server/blog-image-handler.ts`).
 3. `blogImageService.complete` 가 토큰을 상수시간 비교로 검증 + `s3Key === <assetId>.webp` 확인 후 `image_assets` 로우 삽입, 공개 URL(`storageService.getUrl`) 반환. 토큰 불일치 시 `UNAUTHORIZED`, s3Key 불일치 시 `VALIDATION_ERROR`.
 
+- complete 요청의 `width`/`height` 는 `int().nonnegative().nullable()` 이며 **`0` 은 `null` 로 변환**된다(`dto/blog/image.ts:16-27`). upload-server 는 sharp 메타데이터 추출에 실패하면 `0` 을 보내는데, 이전 `positive()` 스키마에서는 그 요청 전체가 400 으로 떨어져 업로드가 실패했다. `sizeBytes` 는 여전히 `int().positive()` 다.
+
 ### 썸네일 OG 이미지
-- `createThumbnailRoute` → `postService.getById(id)` 로 제목/카테고리/첫 태그를 얻어(이때도 `views` +1) 정적 그리드 배경 위에 satori(JSX→SVG) + resvg(SVG→PNG)로 1200×630 PNG 생성. 폰트는 `fontLoader.load('Noto Sans KR', 400/700)`.
+- `createThumbnailRoute` → `postService.getByIdWithoutView(id)`(`route/blog/thumbnail.ts:44`)로 제목/카테고리/첫 태그를 얻어 정적 그리드 배경 위에 satori(JSX→SVG) + resvg(SVG→PNG)로 1200×630 PNG 생성. 폰트는 `fontLoader.load('Noto Sans KR', 400/700)`. **조회수는 올리지 않는다.**
+- 썸네일 라우트는 공개 필터를 걸지 않는다(`getByIdWithoutView` 에는 `publicOnly` 옵션이 없다). id 를 아는 요청은 미발행 글의 제목·카테고리가 담긴 OG 이미지를 받을 수 있다.
 
 ### 메시지 피드
 - `getMessagesByUserId`: `deleted_at IS NULL` 메시지를 페이지네이션 조회 후 메시지별로 `message_images`→`image_assets` 조인해 이미지 배열 구성. 응답은 `{ content, totalElements, totalPages, prev, next }`. 프로필은 `follows` 서브쿼리로 팔로워/팔로잉 수 계산.
@@ -187,8 +192,9 @@
 
 ## 주의사항 / 함정
 
-- **`GET /api/blog/posts/:id` 는 공개 + 비공개/미발행 필터 없음**: `getById` 는 `isHide`/`isPublished` 를 검사하지 않아 id 만 알면 숨김·미발행 게시글도 반환된다. 목록(`GET /api/blog/posts`)의 `isPublished`/`isHide` 필터는 클라이언트가 넘기는 쿼리이므로, 공개 목록은 프론트가 `isPublished=true`·`isHide=false` 를 명시해야 한다.
-- **조회수 증가 부작용**: `getById` 는 호출마다 `views` 를 +1 한다. 상세 조회뿐 아니라 **썸네일 생성(`/:id/thumbnail`)도** `getById` 를 거치므로 OG 이미지 요청이 조회수를 올린다. 중복 방지 로직 없음.
+- **공개 가시성은 서버가 강제한다**: 목록·상세 모두 admin 세션이 없으면 `isPublished=true`·`isHide=false` 로 좁혀진다(위 [핵심 흐름](#게시글-목록상세)). 클라이언트가 `?isPublished=false` 를 보내도 비admin이면 무시되고, 미발행 글의 id 로 상세를 요청하면 404 다. admin 판정은 세션 쿠키 기반이라 bblog 편집 화면처럼 admin 쿠키가 전달되는 경로는 그대로 초안을 본다. 예외는 `/:id/thumbnail` 로, 이 라우트만 공개 필터가 없다.
+- **조회수 증가 부작용**: `getById` 는 (공개 필터를 통과한 경우) 호출마다 `views` 를 +1 한다. 중복 방지 로직은 없다. 썸네일 라우트는 `getByIdWithoutView` 로 분리돼 조회수에 영향을 주지 않는다.
+- **admin JSON 의 `postsCount` 는 항상 0**: `GET /api/blog/admin/users` 의 `postsCount` 는 `sql<number>\`0\`` 리터럴이다(`compose/blog.ts:534`). `posts` 테이블에 작성자 컬럼이 없어(`db/schema.ts:126-140` — `categoryId`·`title`·`description`·플래그만) 사용자별 게시글 수를 셀 수 없다. 필드를 없애면 응답 계약이 바뀌므로 값 0 을 유지한다(감사 E-13, 보류).
 - **댓글 숨김 = 본문 마스킹**: `getCommentsByPostId` 는 `isHide` 댓글의 `comment` 를 빈 문자열로 바꿔 내려준다(로우 자체는 유지).
 - **마크다운 미배선**: `service/shared/markdown.ts`(마크다운→HTML + `<script>`/이벤트핸들러/위험 href sanitize)는 자체 테스트 외에 compose/route/page 어디에도 import 되지 않는다(grep 확인). 게시글 `description` 은 raw text 로 저장·반환되며, HTML 렌더링은 프론트 책임이다. 서버에서 마크다운/삭제소독을 태우려면 이 서비스를 compose 에 배선해야 한다.
 - **imageProcessor 미사용**: `composeBlog` 는 `imageProcessor`(sharp)를 인자로 받지만 본문에서 호출하지 않는다. webp 변환은 `deploy/upload-server` 에서 일어난다.

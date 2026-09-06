@@ -1,6 +1,6 @@
 # mail 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/mail/*`, `route/mail/*`, `service/domain/mail/**`, `compose/mail.ts`, `lib/mail-utils.ts`, `lib/mail-thread.ts`, `lib/credential-crypto.ts`(자격증명 암복호화 공용 구현), `scripts/backfill-thread-id.ts`, `db/schema.ts`(mail_* 테이블)
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/mail/*`, `route/mail/*`, `service/domain/mail/**`, `compose/mail.ts`, `lib/mail-utils.ts`, `lib/mail-thread.ts`, `lib/credential-crypto.ts`(자격증명 암복호화 공용 구현), `scripts/backfill-thread-id.ts`, `db/schema.ts`(mail_* 테이블)
 
 ## 개요
 
@@ -111,6 +111,8 @@
 1. **Gmail OAuth(`mail-oauth-connect.ts`)**: `GET connect/google` → `generateAuthUrl`(scope: `openid email profile gmail.modify gmail.send`, `access_type=offline`, `prompt=consent`, HMAC state=userId+redirect, TTL 10분) → Google 동의 → `callback` 에서 `handleCallback`: state 검증(userId 일치) → code→토큰 교환 → userinfo 조회 → better-auth `account`(providerId=`google`) upsert → 같은 이메일 mail 계정이 있으면 `better_auth_account_id` 링크, 없으면 provider=`gmail` 로 mail 계정 생성. 자격증명(`credentials`)은 저장하지 않고 better-auth account 의 토큰을 재사용한다.
 2. **IMAP 수동(`POST /api/mail/accounts`)**: provider=`naver`/`daum`(프리셋) 또는 `imap`(host/port 직접). `credentials.password` 필수. `mail-account.ts create` 가 `crypto.encrypt(JSON.stringify(credentials))` 로 암호화해 `credentials` 컬럼에 저장. 계정 수 상한 `MAX_ACCOUNTS_PER_USER=10`.
 
+- **중복 계정은 409 `MAIL_ACCOUNT_ALREADY_EXISTS`**: `mail_accounts` 에 `unique(user_id, email)`(`uq_mail_accounts_user_email`, `db/schema.ts:398`)이 걸려 있다. `compose/mail.ts` 의 `insert` 는 INSERT 를 try/catch 로 감싸 `isDuplicateKeyError`(`lib/db-helper.ts`)면 `null` 을 돌려주고, 서비스가 `null` 을 받으면 `MAIL_ACCOUNT_ALREADY_EXISTS`(409)를 던진다(`service/domain/mail/mail-account.ts:89`). 이전에는 드라이버 `ER_DUP_ENTRY` 가 그대로 올라와 `INTERNAL_ERROR`(500)였다. `POST /api/mail/accounts` 의 OpenAPI 응답 선언에도 이 코드가 포함된다(`route/mail/account.ts:102`).
+
 ### provider 추상화 (`mail-provider-factory.ts`)
 
 - `create(account)`: provider=`gmail` 이면 `betterAuthAccountId` 필수(없으면 `MAIL_CREDENTIALS_INVALID`), OAuth 토큰 getter/refresher 를 넘겨 `createGmailProvider`. 그 외는 `credentials` 복호화 → `IMAP_PRESETS`(naver/daum) 또는 account 의 host/port 로 `createImapProvider`. 두 구현 모두 `MailProvider` 를 만족하므로 상위 서비스는 provider 종류를 모른다.
@@ -124,6 +126,7 @@
 - **메시지 동일성 판정(identityScope)**: `account.provider === 'gmail'` 이면 `account`(계정+remoteMessageId), 그 외(IMAP 계열)는 `folder`(계정+폴더+remoteMessageId) 스코프로 upsert·삭제 대상을 찾는다(`mail-sync.ts` → `compose/mail.ts` `upsertMessage`/`deleteMessagesByRemoteIds`). Gmail 은 message id 가 계정 전역에서 유일하고 라벨(폴더)이 바뀌어도 같은 메일이며, IMAP UID 는 mailbox 안에서만 유일하기 때문이다.
 - **upsert 동작**: 식별자로 기존 행을 찾으면 가변 필드(`subject`·`bodyHtml`·`bodyText`·`snippet`·`isRead`·`isStarred`·`isDraft`·`hasAttachments`·`threadId`·`messageIdHeader`·`inReplyTo`·`referencesHeader`)만 UPDATE 하고 폴더·원격 id 는 건드리지 않는다. 없으면 INSERT(+`onDuplicateKeyUpdate` 로 같은 가변 필드 갱신). account 스코프에서는 INSERT 후 같은 식별자의 행을 `id` 오름차순으로 모아 **가장 오래된 1건만 남기고 나머지를 삭제**해, 라벨 이동으로 생긴 중복 행을 정리한다.
 - **historical(`syncHistorical`)**: `mail_sync_sessions` 기반 과거 메일 역방향 배치. 대상 폴더=지정 folderId 또는 inbox. `fetchMessages({direction:'backward', batchSize, cursor})` → 세션 `synced_count`/`cursor`/`total_estimate` 갱신, 남은 커서 있으면 `paused` 없으면 `completed`. 응답에 `hasMore`·`cursor`·진행 수치 포함.
+- **historical 의 폴더 소유·세션 커서 규칙**(`mail-sync.ts:338·340`): ① 대상 폴더는 `folder.accountId !== accountId` 면 `MAIL_FOLDER_NOT_FOUND` 다 — 다른 계정의 folderId 를 넘겨 남의 폴더를 동기화 대상으로 삼을 수 없다(로컬 폴더·미존재도 같은 코드). ② 재개할 활성 세션이 있어도 `session.folderId !== targetFolderId` 면 그 세션을 무시하고(`session = null`) 새 세션을 만든다. 폴더 A 의 UID 커서를 폴더 B 배치에 그대로 물려 엉뚱한 구간을 읽던 경로를 막는다.
 - **커서 의미**: Gmail=incremental 은 History API `historyId`, backward 는 messages.list `pageToken`. IMAP=UID 숫자(forward `UID+1:*`, backward `1:UID-1`). 커서는 폴더별 `mail_folders.sync_cursor` 가 1차, `mail_accounts.sync_cursor` 는 fallback.
 - **Gmail backward 커서는 목록 조회 전에 확보**한다(`gmail-provider.ts`). `/profile` 의 `historyId` 를 `messages.list` **이전에** 읽어 그 값을 `newSyncCursor` 로 돌려주므로, 조회 도중 도착한 메일이 다음 incremental 에서 누락되지 않는다.
 - **IMAP 배치 정렬**: `${lastUid + 1}:*` 범위는 새 메일이 없어도 최신 1건을 돌려주므로, fetch 결과를 커서 기준(`forward` 는 `uid > lastUid`, `backward` 는 `uid < lastUid`)으로 한 번 더 거른다. 걸러진 후보는 **forward incremental 이면 UID 오름차순**(오래된 새 메일부터 처리해 커서가 건너뛰지 않도록), 그 외(초기·backward)는 내림차순으로 정렬해 `batchSize` 만큼 자른다. backward 의 `hasMore` 판정도 걸러진 후보 수 기준이다.
@@ -218,7 +221,7 @@
 | `MAIL_UPLOAD_NOT_FOUND` | O | 업로드 레코드 없음/소유 불일치 |
 | `MAIL_CONNECTION_FAILED` | 미(OpenAPI 응답 선언만) | test 엔드포인트 문서용 |
 | `MAIL_SYNC_IN_PROGRESS` | 미 | 코드/메시지만 정의 |
-| `MAIL_ACCOUNT_ALREADY_EXISTS` | 미 | 코드/메시지만 정의 |
+| `MAIL_ACCOUNT_ALREADY_EXISTS` | O | `mail-account.ts` create — `unique(user_id, email)` 위반(409) |
 | `MAIL_BLOCKED_HOST` | 미 | host 차단은 DTO `safeHost` refine → `VALIDATION_ERROR` 로 표면화 |
 
 ## 테스트
@@ -244,6 +247,8 @@
     - 재매핑이 **있는** 항목: 대상 폴더에서 같은 새 `remote_message_id` 를 가진 다른 행을 지운 뒤, 옮기는 행의 `folder_id`·`remote_message_id`·`uid` 를 한 번에 갱신한다.
     - 재매핑이 **없는** 항목: 대상 폴더에 같은 `remote_message_id` 행이 이미 있으면 **옮기던 로컬 행을 지우고 대상 행을 보존**한다(그 메시지는 다음 동기화에서 대상 폴더 UID 로 다시 들어온다). 없으면 `folder_id` 만 갱신한다.
     - Gmail 은 계정 스코프라 폴더가 달라도 행이 하나뿐이므로 충돌이 없고 `folder_id` 만 갱신된다. 순차 처리라 한 배치 안에서 UID 가 겹쳐도 새 unique(`account_id`,`folder_id`,`remote_message_id`) 를 위반하지 않는다.
+- **날짜 파싱 실패는 `null` 이다**: Gmail 의 `Date` 헤더·`internalDate`, IMAP 의 `envelope.date`·`internalDate` 는 `toValidDate`(`gmail-provider.ts:24-27`, `imap-provider.ts:18-21`)를 거친다. `new Date(...)` 가 `Invalid Date` 면 `null` 을 반환해 `sent_at`/`received_at` 이 `null` 로 저장된다. 이전에는 `Invalid Date` 가 그대로 INSERT 로 흘러가 그 배치 전체가 실패했다. 목록 정렬(`received_at desc`)에서 이런 행은 뒤로 밀린다.
+- **`.eml` 첨부가 본문을 덮어쓰지 않는다**: Gmail payload 트리 순회(`gmail-helpers.ts:55-68`)가 `mimeType === 'message/rfc822'` 인 파트의 하위 `parts` 로는 **재귀하지 않는다**(`:65`). 메일에 다른 메일이 첨부된 경우 첨부된 메일의 `text/html`·`text/plain` 이 실제 본문을 덮어쓰던 문제를 막는다. 같은 mimeType 파트가 여러 개면 여전히 **마지막 값이 남는다**(`html`/`text` 는 단순 대입).
 - **에러 메시지는 `maskProviderError` 로 IP/내부 호스트를 마스킹**해 노출을 막는다. 계정 생성 시 host 는 `isBlockedHost`(SSRF: localhost/사설 IPv4/IPv6·metadata 엔드포인트 등)로 DTO 단에서 차단된다.
 - **`composeMail` 은 `MAIL_ENCRYPTION_KEY` 없으면 부팅 시 throw** 한다(선택적 서비스 stub 이 아니라 조립 단계에서 실패).
 - 목록 정렬은 `received_at desc`, thread 조회는 `sent_at asc`. 스토리지 캐시 다운로드는 CDN public URL 이 아니라 S3 SDK 로 직접 조회한다(private 버킷 대응, `compose/mail.ts` 주석).

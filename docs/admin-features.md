@@ -1,6 +1,6 @@
 # Admin Features — 어드민 페이지 기능 맵
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `page/admin/**`, `page/manage/**`(공통 `readPage` 소비), `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
 
 `db/schema.ts` 테이블 50개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 대체로 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다. **예외: Metrics Tokens(§5.5)** 는 `AdminDb` 가 아니라 주입된 `metricsTokenService` 를 통해 조회·발급·폐기한다(로그·디바이스가 MongoDB 라 Drizzle 어댑터 밖).
 
@@ -27,8 +27,8 @@
 - **Detail (`/:id`)**: 프로필 카드 + 인라인 폼 3개(Role 변경 · Ban 상태 reason/expires + Ban/Unban · Storage Quota bytes) + 연결된 계정(`account`: providerId/accountId/연결일) + 활성 세션(`session`: IP/UA/Created/Expires + 강제 만료, 하단 "모든 세션 강제 만료") + 최근 API 요청 20건(`apiRequestLog`).
 - **Actions** (form POST → 303, `?flash=ok`):
     - `/admin/users/:id/role` — role(admin/user)
-    - `/admin/users/:id/ban` — action=ban/unban + reason + expires. **ban 시 그 사용자의 세션을 전부 회수**한다(`revokeAllUserSessions`) — 밴 직후에도 기존 세션으로 계속 접근하던 구멍을 막는다. unban 은 회수하지 않는다.
-    - `/admin/users/:id/quota` — bytes
+    - `/admin/users/:id/ban` — action=ban/unban + reason + expires. **ban 시 그 사용자의 세션을 전부 회수**한다(`revokeAllUserSessions`) — 밴 직후에도 기존 세션으로 계속 접근하던 구멍을 막는다. unban 은 회수하지 않는다. `expires` 는 `new Date(body.expires)` 로 파싱하고, **ban 이면서 결과가 `Invalid Date` 면 저장하지 않고 `?flash=err&code=validation` 으로 303**(`page/admin/pages/users.tsx:324-326`) — `Invalid Date` 가 그대로 컬럼에 들어가 500 나던 경로다. 빈 입력은 무기한(`null`)이다.
+    - `/admin/users/:id/quota` — bytes. `parseIntOr(body.bytes, 0)` 결과가 **음수면 저장하지 않고 `?flash=err&code=validation` 303**(`page/admin/pages/users.tsx:335-336`). 이전에는 음수가 그대로 `storage_quota_bytes` 에 저장됐다. 비정수·비숫자 입력은 여전히 `parseIntOr` 의 폴백대로 조용히 `0` 이 된다.
     - `/admin/users/:id/sessions/:sid/revoke` — 세션 단건 만료
     - `/admin/users/:id/sessions/revoke-all` — 해당 사용자 전체 세션 만료
 
@@ -278,6 +278,7 @@ GET  /admin                                → dashboard
 ```
 
 - 페이지 사이즈: `size` 쿼리(기본 20 또는 30, 도메인별 5~100/5~200 클램프). 페이지네이션은 `page` 쿼리.
+- `page` 쿼리는 모든 목록에서 **`readPage`(`page/admin/format.ts:44`)로 정규화**된다: `readPage = Math.max(1, parseIntOr(v, 1))` 이므로 `0`·음수·비정수·비숫자 문자열이 전부 1 로 떨어진다. 이전에는 `parseIntOr(c.req.query('page'), 1)` 를 그대로 써서 `?page=-3` 이 음수 `OFFSET` 을 만들어 SQL 오류로 500 이 났다. 어드민 `page/admin/pages/` 13개 파일 + `page/manage/pages/` 3개 파일에서 총 32곳이 이 함수를 쓴다.
 - 대부분 액션은 처리 후 `returnTo`(또는 기본 경로)에 `?flash=ok` 를 붙여 303 → 페이지가 배너 렌더. mail sync 실패만 `?flash=err`.
 
 ---
@@ -317,7 +318,7 @@ GET  /admin                                → dashboard
 | `components.tsx` | 공통 JSX 컴포넌트(§17). |
 | `dashboard.tsx` | `createDashboardRoute` — Stat 14 + 최근 4 테이블. |
 | `styles.ts` | `ADMIN_DESIGN_TOKENS_CSS` + `ADMIN_DESIGN_TOKENS_CACHE_HEADERS`. |
-| `format.ts` | `formatDate`·`formatDateShort`·`formatBytes`·`maskToken`·`truncate`·`ynLabel`·`parseIntOr`·`parseDateStart`·`parseDateEnd`·`clampPage`. |
+| `format.ts` | `formatDate`·`formatDateShort`·`formatBytes`·`maskToken`·`truncate`·`ynLabel`·`parseIntOr`·`readPage`(목록 `page` 정규화, 최소 1)·`parseDateStart`·`parseDateEnd`·`clampPage`. |
 | `login.tsx` | `createLoginRoute` — social 로그인/로그아웃, set-cookie 포워딩. |
 | `pages/users.tsx` | Users list/detail + role·ban(밴 시 세션 전량 회수)·quota·session revoke(all). |
 | `pages/sessions.tsx` | 전 사용자 세션 list + revoke / revoke-all. |

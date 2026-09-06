@@ -1,6 +1,6 @@
 # lib/ 유틸리티 전수 인벤토리
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
 `lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 29개.
 
@@ -16,10 +16,10 @@
 
 - `lib/external-api.ts`(`fetchWithRetry`) — 비-test 코드에서 import 없음. `service/domain/weather/kma-api.ts` 가 동명 `fetchWithRetry` 를 **로컬로 재구현**(별개 시그니처)해서 쓴다. 새 외부 API 호출은 이 중복을 먼저 정리/통합할지 판단한다.
 - `lib/pagination.ts`(`paginationQuerySchema` 등) — 비-test 코드에서 import 없음. `dto/common.ts` 에 **바이트 동일한** `paginationQuerySchema` 가 따로 정의돼 있다.
-- `lib/db-helper.ts`(`batchInsert`, `chunkArray`) — 비-test 코드에서 import 없음(테스트 전용).
+- `lib/db-helper.ts` 중 `batchInsert`·`chunkArray` — 비-test 코드에서 import 없음(테스트 전용). 같은 파일의 `isDuplicateKeyError` 는 런타임에서 쓰인다(아래 표).
 - `lib/sensitive-filter.ts`(`isSensitiveKey`, `filterSensitiveData`) — 비-test 코드에서 import 없음(테스트 전용).
 
-위 4개는 `tests/lib/` 테스트만 존재하고 런타임 경로에서 안 쓰인다. 유사 기능이 필요하면 새로 만들지 말고 이 파일들을 재사용하거나 중복을 통합한다.
+위 항목들은 `tests/lib/` 테스트만 존재하고 런타임 경로에서 안 쓰인다(`lib/db-helper.ts` 는 `isDuplicateKeyError` 만 예외). 유사 기능이 필요하면 새로 만들지 말고 이 파일들을 재사용하거나 중복을 통합한다.
 
 ---
 
@@ -57,7 +57,7 @@
 | `lib/tailwind-converter.ts` | `convertTailwindToCSS`, `mergeStyles` | Tailwind 클래스→CSS 객체(`tw-to-css`) + 스타일 병합 | `compose/shared.ts` (배지) | `tailwind-converter.test.ts` |
 | `lib/pagination.ts` | `paginationQuerySchema`, `calcOffset`, `calcTotalPages`, `buildPagination` | 페이지네이션 스키마·계산 헬퍼 | (비-test 미사용 — 중복: `dto/common.ts`) | `pagination.test.ts` |
 | `lib/external-api.ts` | `fetchWithRetry`, `fetchBatch` | 재시도·타임아웃 fetch, 배치 fetch | (비-test 미사용 — weather 로컬 재구현) | `external-api.test.ts` |
-| `lib/db-helper.ts` | `batchInsert`, `chunkArray` | 배열 배치 삽입·청크 분할 | (비-test 미사용) | `db-helper.test.ts` |
+| `lib/db-helper.ts` | `batchInsert`, `chunkArray`, `isDuplicateKeyError` | 배열 배치 삽입·청크 분할 + MySQL unique 위반 판별 | `compose/mail.ts`, `compose/drive.ts`(`isDuplicateKeyError` 만. 나머지 2개는 비-test 미사용) | `db-helper.test.ts`, `tests/compose/{mail,drive}.test.ts` |
 | `lib/sensitive-filter.ts` | `isSensitiveKey`, `filterSensitiveData` | 민감 키 값 `[REDACTED]` 마스킹 | (비-test 미사용) | `sensitive-filter.test.ts` |
 | `lib/privacy-policy.ts` | `PRIVACY_POLICY` | 개인정보처리방침 정적 콘텐츠 상수 | `page/policy.tsx` | `tests/page/policy.test.ts` |
 | `lib/terms-of-service.ts` | `TERMS_OF_SERVICE` | 이용약관 정적 콘텐츠 상수 | `page/policy.tsx` | `tests/page/policy.test.ts` |
@@ -200,9 +200,13 @@
 **`lib/sql-utils.ts`**
 - `escapeLikePattern(term)`: `\` `%` `_` 이스케이프 → `LIKE` 검색 인젝션/와일드카드 오작동 방지. 사용처: `compose/blog.ts`, `compose/mail.ts`. 테스트: `sql-utils.test.ts`.
 
-### 미사용/중복 (테스트 전용)
+**`lib/db-helper.ts`**
+- `isDuplicateKeyError(error)`: MySQL unique 키 위반(`ER_DUP_ENTRY`) 판별. 드라이버 오류 객체의 `code` 를 보고, **drizzle 이 `DrizzleQueryError` 로 감싸 원본을 `cause` 에 넣는 경우까지** 확인한다(`lib/db-helper.ts:26-28`). `unknown` 을 받아 좁히므로 `catch (error)` 에서 바로 쓸 수 있다.
+  - 사용처: `compose/mail.ts:85`(메일 계정 insert → `null` → `MAIL_ACCOUNT_ALREADY_EXISTS` 409), `compose/drive.ts:135`(자산 insert)·`:227`(자산 update → `null` → `DRIVE_DUPLICATE_FILE` 409). 규약은 **compose 의 `*ServiceDb` 구현이 중복이면 `null` 을 반환**하고, 서비스가 그 `null` 을 도메인 에러로 바꾸는 것이다(드라이버 오류를 서비스 계층으로 올리지 않는다).
+  - 테스트: `tests/compose/mail.test.ts`, `tests/compose/drive.test.ts`(둘 다 `code: 'ER_DUP_ENTRY'` 오류를 주입해 `null` 반환·에러 변환 검증).
+- `batchInsert(items,inserter,size=100)`, `chunkArray(items,size)`: 비-test 미사용. 테스트: `db-helper.test.ts`.
 
-**`lib/db-helper.ts`** — `batchInsert(items,inserter,size=100)`, `chunkArray(items,size)`. 비-test 미사용. 테스트: `db-helper.test.ts`.
+### 미사용/중복 (테스트 전용)
 
 **`lib/external-api.ts`** — `fetchWithRetry(url,opts)`(재시도 3·타임아웃 10s·선형 백오프 `retryDelay*attempt`), `fetchBatch(ids,fetcher,size=10,delay=100)`. 비-test 미사용(weather 로컬 재구현 존재). 테스트: `external-api.test.ts`.
 

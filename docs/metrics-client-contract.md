@@ -1,6 +1,6 @@
 # metrics 수집 클라이언트 계약 (machboard 에이전트·ESP32)
 
-> 기준: 2026-07-22 코드 검증. 다루는 코드: `dto/metrics/ingest.ts`(`metricsIngestSchema`·`metricsIngestBatchSchema`), `dto/metrics/token.ts`, `route/metrics/ingest.ts`, `middleware/require-metrics-token.ts`, `service/domain/metrics/token.ts`(rate limit)·`service/domain/metrics/log.ts`(online 판정), `lib/error-code.ts`·`lib/error.ts`. 서버 저장·조회 설계는 [domains/metrics.md](./domains/metrics.md).
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/metrics/ingest.ts`(`metricsIngestSchema`·`metricsIngestBatchSchema`), `dto/metrics/token.ts`, `dto/metrics/query.ts`(`metricsSeriesQuerySchema`), `compose/metrics.ts`(`buildSeriesPipeline`), `route/metrics/ingest.ts`, `middleware/require-metrics-token.ts`, `service/domain/metrics/token.ts`(rate limit)·`service/domain/metrics/log.ts`(online 판정), `lib/error-code.ts`·`lib/error.ts`. 서버 저장·조회 설계는 [domains/metrics.md](./domains/metrics.md).
 
 > machboard 클라이언트(Tauri 데스크톱 / headless 데몬 / ESP32)는 **별도 레포**(`~/machboard`, 설계 정본 그쪽 `docs/design.md`)에 있으므로, b-hub 서버가 기대하는 **수집 계약**을 여기에 명세한다.
 > ESP32 등 임베디드 클라이언트도 동일 계약을 따른다(전송량이 작을 뿐 필드·에러·재시도 규약 동일).
@@ -18,7 +18,7 @@
 - 수집은 **`client` scope 토큰으로 충분**하다(admin scope 토큰도 수집 가능). scope 는 발급 시 결정한다.
 - 성공 시 `200` + `{ "success": true, "data": { "count": <n> } }`(단건·배치 공통, `count` = 저장된 이벤트 수).
 - 배치는 스키마상 **1~50건**(빈 배열 → `400`). 50건 초과 시 서버는 **`413 METRICS_BATCH_TOO_LARGE`** → 클라이언트는 배치를 분할(권장: 절반)해 재전송.
-- **payload 크기 제한**: 이벤트별 `payload` JSON 직렬화 길이 **64KB(`METRICS_PAYLOAD_MAX_BYTES`=65536) 초과 시 `413 METRICS_PAYLOAD_TOO_LARGE`**. 배치는 각 이벤트를 개별 검사한다.
+- **payload 크기 제한**: 이벤트별 `payload` JSON 직렬화 결과의 **UTF-8 바이트 길이**가 **64KB(`METRICS_PAYLOAD_MAX_BYTES`=65536) 초과 시 `413 METRICS_PAYLOAD_TOO_LARGE`**. 서버는 `Buffer.byteLength(JSON.stringify(payload))` 로 잰다 — 문자 수가 아니므로 한글·이모지처럼 멀티바이트 문자가 많으면 같은 글자 수라도 더 빨리 상한에 닿는다. 배치는 각 이벤트를 개별 검사한다.
 - **rate limit**: 토큰당 **rolling 24h 이벤트 수 < `dailyLimit`(기본 20000)**. 초과 시 **`429 METRICS_TOKEN_RATE_LIMIT`**. 카운트는 저장된 `metrics_logs` 의 `tokenId` 기준(Mongo 집계)이다.
 - **검사 순서**: 토큰 인증(401) → rate limit(429) → 바디 검증(400) → payload/배치 크기(413).
 
@@ -37,6 +37,7 @@
 - 필드 길이/타입 위반은 **`400`**(standard-validator). 배치 래퍼는 `{ "events": [ ... ] }`, `events` 는 **최소 1건**.
 - **메타(`hostname`/`os`/`arch`/`agentVersion`/`intervalSec`)는 최초 1회만 보내도 된다**: 서버 `upsertDevice` 가 null 메타를 `$setOnInsert` 로만 처리해 **기존 등록값을 null 로 덮지 않는다**. 다만 값이 바뀌면(버전 업 등) 다시 실어 보내면 갱신된다.
 - `payload` 안의 **수치 필드만 시계열 조회 대상**이다: 서버 `series` 는 `payload.<field>` 가 number 인 문서만 집계한다(dot-path, 예 `cpu.usage`). 문자열/객체 값은 시계열에 안 잡히므로, 그래프로 볼 지표는 payload 에 number 로 넣는다.
+- **배열 인덱스 경로도 조회된다**: `field` 는 `^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$`(≤128자, `dto/metrics/query.ts:14-18`)라 숫자 세그먼트를 허용하며, 서버가 `cpu.cores.0.usage` 같은 경로를 배열 인덱스(`$arrayElemAt`)와 숫자 키 객체 양쪽으로 해석한다. 즉 `payload.cpu.cores` 를 배열로 보내도 코어별 시계열을 뽑을 수 있다.
 
 ## 3. 에러 응답과 재시도 정책
 

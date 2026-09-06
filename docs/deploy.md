@@ -1,6 +1,6 @@
 # 배포·운영(Deploy & Ops)
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
 
 ## 개요
 
@@ -77,7 +77,9 @@
 ### 무엇이며 왜 별도인가
 
 - 메인 앱의 CalDAV 경로(`/caldav/*` = `route/calendar/caldav.ts`, `/.well-known/caldav` = `page/well-known.ts`)를 별도 호스트에서 받아 `https://api.gumyo.net` 으로 그대로 전달하는 **얇은 리버스 프록시**다(`deploy/caldav-proxy/proxy.ts`).
-- `proxy.ts` 동작(`Bun.serve`): 모든 요청을 `path + query` 보존하여 `TARGET = https://api.gumyo.net` 으로 포워딩(method·body 그대로). 이때 요청 헤더의 `Host` 를 `api.gumyo.net` 으로 고정하고, `cf-connecting-ip`·`cf-ray`(Cloudflare 주입 헤더)를 삭제하며, `redirect: 'manual'` 로 3xx 를 변형 없이 전달한다.
+- `proxy.ts` 구조: 포워딩 로직은 `createProxyFetch({ target, targetHost, fetchImpl })` 팩토리로 분리돼 export 되고(테스트 주입 가능), `Bun.serve` 기동은 `if (import.meta.main)` 블록 안에서만 일어난다. `TARGET`(`https://api.gumyo.net`)·`TARGET_HOST`·`PORT` 는 그 블록에서 주입한다.
+- 요청 방향: `path + query` 보존하여 `TARGET` 으로 포워딩(method·body 그대로). 요청 헤더의 `Host` 를 `api.gumyo.net` 으로 고정하고, **`Accept-Encoding: identity` 를 세워** 오리진이 압축하지 않은 본문을 보내게 하며, `cf-connecting-ip`·`cf-ray`(Cloudflare 주입 헤더)를 삭제하고 `redirect: 'manual'` 로 3xx 를 변형 없이 전달한다.
+- 응답 방향: 오리진 응답 헤더를 복사하되 **`content-encoding`·`content-length` 를 제거**한 뒤 body 를 그대로 흘린다. `fetch` 가 이미 압축을 푼 본문을 주는데 원본 헤더가 `gzip`·원본 길이를 그대로 달고 나가면 CalDAV 클라이언트가 본문을 해석하지 못해 동기화가 깨진다.
 - 목적: CalDAV 클라이언트(Apple 캘린더 등)에 안정적인 전용 오리진을 제공하고, 오리진(`api.gumyo.net`)으로 넘어가는 요청에서 Cloudflare 계열 헤더를 정리해 전달한다. `TARGET` 은 코드 상수(env 아님).
 
 ### Docker
@@ -120,7 +122,8 @@
   1. `isValidUploadKey(s3Key)` — `users/` 로 시작하고 `\` 를 포함하지 않으며 `/` 로 나눈 세그먼트가 정확히 **4개**(`users/<userId>/<id>/<name>`), 각 세그먼트가 빈 문자열·`.`·`..` 가 아니어야 한다. 실패 시 저장 없이 거부.
   2. hub `POST /api/drive/assets/:id/status` 콜백을 **먼저** 호출하고, (a) 응답이 2xx 이고 (b) 본문 `success === true` 이며 (c) 응답 `data.s3Key` 가 있으면 요청의 `s3Key` 와 **일치**할 때에만 통과시킨다. 하나라도 어긋나면 `{ unauthorized: true }` 로 반환해 **파일을 디스크에 쓰지 않고** 중단한다(라우트가 401 로 응답).
   3. 통과 후 실제 저장 키는 hub 가 돌려준 `data.s3Key`(없으면 요청 값)를 쓰며, R2·Google Drive·local 업로드가 모두 이 키를 사용한다.
-  4. 그 다음 `/tmp/uploads` 디스크 저장 → SHA-256 해시 → 이미지면 100x100 WebP 썸네일(base64) → **R2(L1, `l1MaxFileSize`=100MB 이하)·Google Drive(L3)·local(L2)** 분산 업로드 → 성공 tier 를 CSV 로 집계(tier 명 정렬 후 결합, `L1,L3` 등). 전 tier 실패 시 실패 반환. 처리 후 임시 파일 삭제.
+  4. 그 다음 `/tmp/uploads` 디스크 저장 → **`statSync(tmpPath).size` 로 실제 크기 측정** → SHA-256 해시 → 이미지면 100x100 WebP 썸네일(base64) → **R2(L1, `l1MaxFileSize`=100MB 이하)·Google Drive(L3)·local(L2)** 분산 업로드 → 성공 tier 를 CSV 로 집계(tier 명 정렬 후 결합, `L1,L3` 등). 전 tier 실패 시 실패 반환. 처리 후 임시 파일 삭제.
+  5. R2 업로드 여부 판정(`<= l1MaxFileSize`)과 hub `complete` 콜백 본문의 `sizeBytes` 는 모두 이 **실측 크기**를 쓴다(멀티파트 `file.size` 가 아니다). hub 는 이 값을 `prepare` 때 신고된 크기와 대조해 쿼터를 재검증한다([domains/drive.md](./domains/drive.md) §2).
 - `isValidAssetId`(`upload-handler.ts` export): `^[A-Za-z0-9_-]+$` 만 허용. `/upload` 는 폼의 `assetId` **원문 문자열**을 이 검사에 통과시킨 뒤에야 `Number()` 결과를 쓰고, `/upload-blog-image` 는 라우트와 `blog-image-handler.ts` 양쪽에서 같은 검사를 한다. 불합격은 400.
 - `blog-image-handler.ts`(`createBlogImageHandler`): `isValidAssetId` → mime/크기(≤10MB) 검증 → `s3Key === '{assetId}.webp'` 강제 → 원본을 WebP 변환(`sharp`) → R2 업로드 → 메타(width/height/sizeBytes) 수집.
 
@@ -133,7 +136,7 @@
     |------|-----------|------|
     | `POST /api/drive/assets/:id/status` | `route/drive/asset.ts` | `uploading` 상태 갱신 |
     | `POST /api/drive/assets/:id/gdrive-token` | `route/drive/asset.ts` | Google Drive access token + rootFolderId 발급(upload-server 전용) |
-    | `POST /api/drive/assets/:id/complete` | `route/drive/asset.ts` | 해시·tier·gdriveFileId·썸네일 확정 |
+    | `POST /api/drive/assets/:id/complete` | `route/drive/asset.ts` | 해시·tier·gdriveFileId·썸네일·**실측 `sizeBytes`** 확정. hub 가 쿼터 재검증(초과 시 `DRIVE_QUOTA_EXCEEDED` 413, 해시 중복이면 `DRIVE_DUPLICATE_FILE` 409 로 거절하고 올린 실물을 정리) |
     | `POST /api/blog/images/complete` | `route/blog/image.ts` | 블로그 이미지 메타 저장, `url` 반환 |
 - **인증 방식**: upload-server 는 들어오는 요청 자체를 세션 검증하지 않는다. 매 요청에 실린 `uploadToken`(hub 가 prepare 시 발급)을 hub 콜백이 자산 소유·유효성으로 검증한다(드라이브는 자산 행에 저장된 토큰 대조, 블로그는 서명 토큰). 즉 upload-server 는 상태 없는 중계자이고, 신뢰 경계는 hub 콜백 + CORS 오리진 허용이다.
 - **status 콜백은 게이트다**: `/upload` 는 status 콜백의 성공(2xx + `success` + `s3Key` 일치)을 확인한 뒤에만 파일을 저장·업로드한다. 콜백 실패·네트워크 오류·키 불일치는 전부 401 거부다. 콜백 요청은 `Authorization: Bearer ${UPLOAD_SERVER_SECRET}` 를 싣고, hub 쪽 `status`·`complete`·`gdrive-token` 은 `requireUploadServer` 로 같은 시크릿을 요구한다(hub 에 미설정 시 503).

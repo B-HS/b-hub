@@ -1,6 +1,6 @@
 # API 엔드포인트 전수 인벤토리
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/with-rate-limit.ts`, `vercel.json`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/with-rate-limit.ts`, `vercel.json`
 
 ## 범위
 
@@ -97,11 +97,11 @@
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
-| GET | `/api/blog/posts` | 없음 | 게시글 목록(페이지네이션) | `route/blog/post.ts` |
-| GET | `/api/blog/posts/:id` | 없음 | 게시글 상세 | `route/blog/post.ts` |
+| GET | `/api/blog/posts` | 없음 | 게시글 목록(페이지네이션). 비admin 은 `isPublished=true`·`isHide=false` 강제 | `route/blog/post.ts` |
+| GET | `/api/blog/posts/:id` | 없음 | 게시글 상세(조회수 +1). 비admin 이 미발행·숨김 글을 요청하면 404 | `route/blog/post.ts` |
 | POST | `/api/blog/posts` | 어드민 | 게시글 생성 | `route/blog/post.ts` |
 | PUT | `/api/blog/posts/:id` | 어드민 | 게시글 수정 | `route/blog/post.ts` |
-| GET | `/api/blog/posts/:id/thumbnail` | 없음 | 게시글 OG 썸네일 PNG 생성 | `route/blog/thumbnail.ts` |
+| GET | `/api/blog/posts/:id/thumbnail` | 없음 | 게시글 OG 썸네일 PNG 생성(조회수 미증가, 공개 필터 없음) | `route/blog/thumbnail.ts` |
 | GET | `/api/blog/comments` | 없음 | 댓글 목록(postId 쿼리) | `route/blog/comment.ts` |
 | POST | `/api/blog/comments` | 세션 | 댓글 작성 | `route/blog/comment.ts` |
 | PATCH | `/api/blog/comments/:id` | 세션 | 댓글 수정(작성자 본인) | `route/blog/comment.ts` |
@@ -139,7 +139,7 @@
 |--------|-----------|------|------|-------------|
 | GET | `/api/mail/accounts` | 세션 | 메일 계정 목록 | `route/mail/account.ts` |
 | GET | `/api/mail/accounts/:accountId` | 세션 | 메일 계정 상세 | `route/mail/account.ts` |
-| POST | `/api/mail/accounts` | 세션 | 메일 계정 연결 | `route/mail/account.ts` |
+| POST | `/api/mail/accounts` | 세션 | 메일 계정 연결. 같은 사용자·이메일 중복이면 409 `MAIL_ACCOUNT_ALREADY_EXISTS` | `route/mail/account.ts` |
 | PATCH | `/api/mail/accounts/:accountId` | 세션 | 메일 계정 수정 | `route/mail/account.ts` |
 | DELETE | `/api/mail/accounts/:accountId` | 세션 | 메일 계정 삭제 | `route/mail/account.ts` |
 | POST | `/api/mail/accounts/:accountId/test` | 세션 | 연결 테스트 | `route/mail/account.ts` |
@@ -240,7 +240,7 @@
 | DELETE | `/api/calendar/events/:uid` | 세션 | 이벤트 삭제(204) | `route/calendar/event.ts` |
 | GET | `/api/calendar/groups` | 세션 | 캘린더 그룹 목록 | `route/calendar/group.ts` |
 | POST | `/api/calendar/groups` | 세션 | 그룹 생성(201) | `route/calendar/group.ts` |
-| PATCH | `/api/calendar/groups/:id` | 세션 | 그룹 수정 | `route/calendar/group.ts` |
+| PATCH | `/api/calendar/groups/:id` | 세션 | 그룹 수정. 갱신 후 행을 못 읽으면 404 `CALENDAR_GROUP_NOT_FOUND`(응답 `data` 가 `null` 이 되지 않음) | `route/calendar/group.ts` |
 | DELETE | `/api/calendar/groups/:id` | 세션 | 그룹 삭제(204) | `route/calendar/group.ts` |
 | GET | `/api/calendar/subscription` | 세션 | 구독 정보(caldav/ics URL) 조회 | `route/calendar/subscription.ts` |
 | POST | `/api/calendar/subscription` | 세션 | 구독 생성 | `route/calendar/subscription.ts` |
@@ -281,15 +281,15 @@
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
 | POST | `/api/drive/assets` | 세션 | 파일 업로드(multipart, 직접) | `route/drive/asset.ts` |
-| POST | `/api/drive/assets/prepare` | 세션 | 업로드 사전 등록(preparing) | `route/drive/asset.ts` |
+| POST | `/api/drive/assets/prepare` | 세션 | 업로드 사전 등록(preparing). body `driveAssetPrepareSchema` 검증 | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/:assetId/status` | upload-server secret + 업로드토큰 | 업로드 상태 갱신(upload-server). 응답 `{ id, uploadStatus, s3Key }` | `route/drive/asset.ts` |
-| POST | `/api/drive/assets/:assetId/complete` | 업로드토큰 | 업로드 완료 콜백(Lightsail→hyun-hub) | `route/drive/asset.ts` |
+| POST | `/api/drive/assets/:assetId/complete` | upload-server 시크릿 + 업로드토큰 | 업로드 완료 콜백. `sizeBytes` 실측값으로 쿼터 재검증(초과 413) · 해시 중복 409 | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/:assetId/gdrive-token` | upload-server secret + 업로드토큰 | Google Drive access token 발급(upload-server, `requireUploadServer` 게이트) | `route/drive/asset.ts` |
 | GET | `/api/drive/assets` | 세션 | 파일 목록(페이지네이션) | `route/drive/asset.ts` |
 | GET | `/api/drive/assets/:assetId` | 세션 | 파일 상세 + 다운로드 URL | `route/drive/asset.ts` |
 | PATCH | `/api/drive/assets/:assetId` | 세션 | 파일 수정(공개설정/폴더이동) | `route/drive/asset.ts` |
 | DELETE | `/api/drive/assets/:assetId` | 세션 | 파일 삭제 | `route/drive/asset.ts` |
-| GET | `/api/drive/assets/:assetId/download` | 세션 | 파일 스트림 다운로드(L2/L3 cascade) | `route/drive/asset.ts` |
+| GET | `/api/drive/assets/:assetId/download` | 세션 | 파일 스트림 다운로드(L3 gdrive → L1 R2 폴백) | `route/drive/asset.ts` |
 | GET | `/api/drive/quota` | 세션 | 저장 공간 사용량 | `route/drive/asset.ts` |
 | POST | `/api/drive/folders` | 세션 | 폴더 생성(201) | `route/drive/folder.ts` |
 | GET | `/api/drive/folders` | 세션 | 폴더 목록 | `route/drive/folder.ts` |

@@ -1,6 +1,6 @@
 # 배지(badge) 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `compose/shared.ts`, `route/index.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `compose/shared.ts`, `route/index.ts`
 
 ## 개요
 
@@ -49,7 +49,7 @@
 | `height` | int, 1–4096 | `250` | 이미지 높이(px) |
 | `text` | string, ≤1000 | `'Badge'` | 배지 텍스트 |
 | `font` | string | `'Inter'` | 폰트명 |
-| `fontSize` | int, `0`(auto) 또는 8–500, optional | 미지정 시 `round(height*0.5)` | 글자 크기 |
+| `fontSize` | int, `0`(auto) 또는 8–500, optional | `0`·미지정 시 `round(height*0.5)` | 글자 크기 |
 | `fontWeight` | int, 100–900(100 단위) | `400` | 글자 굵기 |
 | `color` | hex(`#fff`/`#ffffff`) 또는 CSS 색상명 | `'#000000'` | 글자색 |
 | `backgroundColor` | hex 또는 CSS 색상명 | `'#ffffff'` | 배경색 |
@@ -76,15 +76,15 @@
    - `fontLoader.load(font, fontWeight)` 로 폰트 로드(아래 폰트 흐름).
    - 아이콘: `iconUrl` 이 있으면 `iconLoader.loadFromUrl`, 아니면 `icon` 으로 `iconLoader.loadLocal` → data URL.
    - `convertTailwindToCSS(tailwind)` → Tailwind 스타일, `mergeStyles(tailwindStyles, css)` → `computedStyles`(css 가 tailwind 를 덮어씀).
-   - 파생값: `fontSize = fontSize ?? round(height*0.5)`, `iconSize = iconSize || round(fontSize*1.2)`, `gap = round(height*0.08)`.
+   - 파생값: `fontSize = fontSize || round(height*0.5)`, `iconSize = iconSize || round(fontSize*1.2)`, `gap = round(height*0.08)`(`service/domain/badge/badge.ts:90-92`). `fontSize`·`iconSize` 둘 다 `||` 라 `0`·미지정 모두 auto 로 동작한다.
    - `hono/jsx` 엘리먼트 트리 구성: 컨테이너 `div`(flex, center 정렬, `gap`, `backgroundColor`, `...computedStyles`) 안에 아이콘 `img`(있을 때)와 텍스트 `span`(글자색·크기·굵기·`fontFamily`·`ellipsis`).
-   - `imageGenerator.generate(element, { width, height, fonts })` → PNG Buffer.
+   - `imageGenerator.generate(element, { width, height, fonts })` → PNG Buffer. **호출은 try/catch 로 감싸져 있고**, satori/resvg 예외는 `captureException(error)` 후 `createAppError('IMAGE_GENERATE_FAILED')`(500)로 변환된다(`service/domain/badge/badge.ts:142-155`).
    - `cache.set(key, buffer, 24h)` 후 `{ buffer, cacheHit: false }` 반환.
 3. `route/badge.ts`: `Response` 로 PNG 바이트 반환 + 헤더 `Content-Type: image/png`, `X-Cache: HIT|MISS`, `Cache-Control: public, max-age=31536000, immutable`.
 
 ### 이미지 렌더 (`image-generator.ts`)
 
-- `ensureWasm`: 최초 1회 `loadWasm()`(`node_modules/@resvg/resvg-wasm/index_bg.wasm` 읽기) → `initWasm(buffer)` 로 WASM 초기화(모듈 상태 플래그로 중복 방지).
+- `ensureWasm`: 최초 1회 `loadWasm()`(`node_modules/@resvg/resvg-wasm/index_bg.wasm` 읽기) → `initWasm(buffer)` 로 WASM 초기화. 중복 방지는 boolean 플래그가 아니라 **초기화 Promise 메모이즈**(`initPromise ??= (async () => ...)()`)다 — 동시 요청은 같은 Promise 를 await 하고, 실패하면 `initPromise` 를 `null` 로 되돌려 다음 요청이 재시도한다(`service/shared/image-generator.ts:32-46`).
 - `satori(element, { width, height, fonts })` → SVG 문자열.
 - `new Resvg(svg, { fitTo: { mode: 'width', value: width } }).render().asPng()` → `Buffer`.
 
@@ -108,11 +108,11 @@
 
 | 코드 | 상태 | 발생 |
 |------|------|------|
-| `IMAGE_GENERATE_FAILED` | 500 | `GET /image` 의 OpenAPI 응답에 선언(`errorResponses(['IMAGE_GENERATE_FAILED'])`) |
+| `IMAGE_GENERATE_FAILED` | 500 | `badgeService.generate` 의 `imageGenerator.generate` 실패(satori/resvg 예외). `GET /image` 의 OpenAPI 응답에도 선언 |
 | `SERVICE_NOT_CONFIGURED` | 503 | `badgeService` 미구성 시 `route/index.ts` 의 stub `Proxy` 가 호출 시 throw |
 
 - 정의는 `lib/error-code.ts`·`error-message.ts`·`error.ts` 3파일.
-- `IMAGE_GENERATE_FAILED` 는 OpenAPI 문서용으로 **선언만** 되어 있고, 배지 코드 경로(`badge.ts`/`image-generator.ts`)에서 이 코드를 명시적으로 `throw` 하는 지점은 없다(grep 확인). satori/resvg 실패 등 미처리 예외는 `withErrorHandling` 이 `INTERNAL_ERROR`(500)로 변환한다.
+- `IMAGE_GENERATE_FAILED` 는 `service/domain/badge/badge.ts:151` 에서 실제로 throw 된다. 원래 예외는 `captureException` 으로 리포팅되고, 응답에는 `INTERNAL_ERROR` 대신 이 코드가 나간다(상태 코드는 둘 다 500 이라 소비자 영향 없음). 블로그 썸네일 라우트는 이 래핑을 거치지 않아 여전히 `INTERNAL_ERROR` 로 떨어진다.
 
 ## 테스트
 
@@ -132,11 +132,11 @@ bun test tests/dto/badge.test.ts tests/lib/tailwind-converter.test.ts
 ## 주의사항 / 함정
 
 - **응답·인메모리 이중 캐시**: 응답 헤더는 `Cache-Control: public, max-age=31536000, immutable`(1년, 파라미터 조합별 URL 이 곧 캐시키). 서버 측은 `createCache` 인메모리 LRU(`compose/shared.ts` 에서 `maxSize: 200`, TTL 24h)로, 배지 서비스가 `cache.set(key, buffer, 24h)` 저장. 인메모리라 프로세스/서버리스 인스턴스별로 독립이며 재시작 시 사라진다.
-- **`fontSize=0` 은 auto 로 동작하지 않음**: DTO 는 `fontSize=0` 을 "auto" 로 허용하지만, 서비스가 `request.fontSize ?? round(height*0.5)` 로 **nullish 병합**을 쓴다 → `0` 은 그대로 `0` 으로 전달된다. auto 는 파라미터를 **생략(undefined)** 했을 때만 적용된다. (반면 `iconSize` 는 `iconSize || round(...)` 라 `0` 이 auto 로 정상 동작.)
+- **`fontSize=0` 은 auto**: 서비스가 `request.fontSize || round(height*0.5)` 를 쓰므로 `0` 과 미지정이 동일하게 `round(height*0.5)` 로 폴백한다. 이전에는 `??` 여서 `fontSize=0` 이 그대로 전달돼 글자가 보이지 않는 PNG 가 만들어졌고, 그 결과가 응답 캐시(`max-age=31536000`)와 인메모리 캐시에 그대로 고착됐다.
 - **`css` 는 컨테이너(div)에만 적용**: `css`/`tailwind` 로 병합된 `computedStyles` 는 컨테이너 스타일에 스프레드된다. 텍스트색·글자크기·굵기·`fontFamily` 는 별도 `span` 스타일에 전용 파라미터(`color`/`fontSize`/`fontWeight`/`font`)로 들어가므로, `css` 의 `color` 는 텍스트가 아니라 컨테이너에 적용된다.
 - **스타일 우선순위**: 컨테이너 기본값(width/height/flex/gap/backgroundColor) → `...computedStyles` 순서라, 사용자 `tailwind`/`css` 가 기본값(배경색 등)을 덮어쓸 수 있다. `css` 는 `tailwind` 보다 우선(`mergeStyles(tailwindStyles, css)`).
 - **원격 아이콘 SSRF/보안 가드**: `iconUrl` 은 `isPublicUrl`(https 전용, `localhost`·사설/링크로컬 IP 차단)만 허용하고, 원격 SVG 는 `sanitizeSvg` 로 스크립트·이벤트 핸들러를 제거한다. 로컬 `icon` 이름은 `^[a-zA-Z0-9_-]+$` 로 제한.
-- **WASM 초기화 비용**: resvg WASM 은 프로세스당 최초 1회 초기화(`ensureWasm`). 콜드 스타트 첫 요청이 상대적으로 느리다.
+- **WASM 초기화 비용**: resvg WASM 은 프로세스당 최초 1회 초기화(`ensureWasm`). 콜드 스타트 첫 요청이 상대적으로 느리다. 동시 요청은 메모이즈된 Promise 를 공유하므로 `initWasm` 이 두 번 불려 "Already initialized" 로 500 이 나던 레이스는 없다.
 - **공유 서비스 재사용**: `imageGenerator`·`fontLoader` 는 블로그 썸네일 라우트도 사용한다. 이 파일들을 바꿀 때 배지 외 영향 범위를 확인한다.
 
 ## 관련 문서

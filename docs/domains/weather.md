@@ -1,6 +1,6 @@
 # weather 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
 
 ## 개요
 
@@ -23,7 +23,7 @@
 | `route/weather/location.ts` | 위치 목록/검색/좌표변환 라우트(`/`·`/convert`·`/:keyword`). `requireWeatherKey` 적용 |
 | `route/weather/mock.ts` | 실데이터와 동일 인터페이스의 Mock 라우트. `requireWeatherKeyNoLog` 적용(로그·한도 없음). **`route/index.ts` 가 `NODE_ENV !== 'production'` 일 때만 `/weather/mock` 을 마운트** — 프로덕션에는 존재하지 않는다(2026-07-10 보안 게이트) |
 | `route/weather/key.ts` | Weather API 키 CRUD 라우트. 세션(`withAuth`)/관리자(`withAdmin`) 인증 |
-| `service/domain/weather/kma-api.ts` | KMA API 호출·재시도·에러매핑·base time 계산·Redis 캐싱 (`createKmaApiService`) |
+| `service/domain/weather/kma-api.ts` | KMA API 호출·재시도·에러매핑·base time 계산(`getKmaBaseDateTime` — 라우트도 쓰도록 export)·Redis 캐싱 (`createKmaApiService`) |
 | `service/domain/weather/mock-kma-api.ts` | `KmaApiService` 인터페이스를 만족하는 난수 Mock (`createMockKmaApiService`) |
 | `service/domain/weather/grid-converter.ts` | 위경도↔격자 변환 순수 함수 (`latLonToGrid`, `gridToLatLon`) |
 | `service/domain/weather/location.ts` | 마스터데이터 기반 위치 검색/격자·좌표 조회 (`createLocationService`, 공간 인덱스) |
@@ -84,7 +84,7 @@
 1. `requireWeatherKey`(`middleware/require-weather-key.ts`): `X-Weather-Key` 헤더 → `weatherApiKeyService.validate`(sha256 해시 비교, 만료 확인) → `checkRateLimit`(24h 롤링 윈도우 로그 수 < `dailyLimit`). 실패 시 `WEATHER_KEY_INVALID`(401)/`WEATHER_KEY_RATE_LIMIT`(429).
 2. `route/weather/weather.ts` `resolveCoordinates` 로 격자(`gridX`,`gridY`) 확정. `location` 만 온 경우 `locationService.search` 첫 결과 사용.
 3. `kmaApi.getUltraSrtNcst(nx, ny)` 호출:
-   - `getBaseDateTime('ncst')` 로 KST(`Date.now()+9h`) 기준 base date/time 산출.
+   - `getKmaBaseDateTime('ncst')` 로 KST(`nowMs + KST_OFFSET_MS`, UTC getter) 기준 base date/time 산출.
    - `redisCache.get(cacheKey)` 히트 시 즉시 반환, 미스 시 KMA 호출(`fetchWithRetry`, 최대 3회, 지연 `1000ms×시도`).
    - `header.resultCode !== '00'` 이면 `mapKmaErrorCode`(`'03'`→`WEATHER_DATA_NOT_FOUND`, 그 외→`WEATHER_KMA_API_ERROR`).
    - 성공 시 다음 base 경계까지 TTL 로 `redisCache.set`.
@@ -93,7 +93,7 @@
 
 ### 2. KMA API·base time·캐시 규칙 (`kma-api.ts`)
 
-| 메서드 | KMA 오퍼레이션 | `numOfRows` | base time(`getBaseDateTime`, KST) | 캐시 TTL 경계(`getNext*Ttl`) |
+| 메서드 | KMA 오퍼레이션 | `numOfRows` | base time(`getKmaBaseDateTime`, KST) | 캐시 TTL 경계(`getNext*Ttl`) |
 |------|------|:---:|------|------|
 | `getUltraSrtNcst` | `getUltraSrtNcst`(초단기실황) | 10 | 분<40 → 직전 시, 분=`00` | 다음 매시 `:10` |
 | `getUltraSrtFcst` | `getUltraSrtFcst`(초단기예보) | 60 | 분<45 → 직전 시, 분=`30` | 다음 매시 `:45` |
@@ -170,8 +170,8 @@
 
 ## 주의사항 / 함정
 
-- **응답 `baseDate`/`baseTime` ≠ KMA base time**: `route/weather/weather.ts`·`mock.ts` 의 `/current` 응답 `baseDate`/`baseTime` 은 서버 로컬 현재시각을 시(hour) 단위로 자른 값(`${hours}00`)이며, KMA 요청에 쓰인 실제 관측 base time 이 아니다.
-- **시각 기준 불일치**: KMA base time(`getBaseDateTime`)은 `Date.now()+9h`+UTC getter 로 KST 계산하지만, 캐시 TTL(`getNext*Ttl`)과 응답 baseDate/baseTime 은 `Date` 로컬 getter 기반이다. 배포 환경(UTC) 기준이 서로 다르다.
+- **응답 `baseDate`/`baseTime` = KMA ncst base time**: `route/weather/weather.ts:88`·`mock.ts:86` 의 `/current` 응답은 `getKmaBaseDateTime('ncst')` 결과를 그대로 싣는다. 즉 `kmaApi.getUltraSrtNcst` 가 실제로 요청한 base date/time 과 같은 값이다. 이전에는 서버 로컬 `getFullYear`/`getHours` 로 만든 `${hours}00` 이었고, 로컬(KST)에서는 얼추 맞지만 Vercel(UTC)에서는 9시간 어긋난 값이 응답에 실렸다.
+- **시각 기준 불일치는 캐시 TTL 쪽에 남아 있다**: base time(`getKmaBaseDateTime`)은 `nowMs + KST_OFFSET_MS` 에 UTC getter 를 써서 실행 환경과 무관하게 KST 를 계산하지만, TTL 경계 계산(`getNextNcstTtl`·`getNextFcstTtl`·`getNextVilageTtl`)은 여전히 `Date` 로컬 getter 기반이다. UTC 배포에서 TTL 경계가 base 전환 시각과 어긋날 수 있다(감사 P-17).
 - **Mock 은 한도 우회**: `/api/weather/mock/*` 는 `requireWeatherKeyNoLog` 라 `weather_api_log` 에 기록되지 않고 한도 검사도 없다 → 한도 소진/집계에 잡히지 않는다.
 - **한도는 롤링 24h**: `checkRateLimit`/`listByUser` 는 `created_at >= now-24h` 카운트. `daily_limit` 이지만 캘린더일 리셋이 아니다.
 - **PTY 코드 세트 상이**: 초단기(`getPtyText`: 0/1/2/3/5/6/7)와 단기(`getPtyTextShort`: 0/1/2/3/4=소나기)의 강수형태 코드 매핑이 다르다. SKY 는 1/3/4 만 정의(2 없음).

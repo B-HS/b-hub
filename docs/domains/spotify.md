@@ -1,6 +1,6 @@
 # Spotify 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/spotify/*`, `route/spotify/*`, `service/domain/spotify/*`, `compose/spotify.ts`, `lib/with-spotify-auth.ts`, `lib/hmac-state.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/shared/cache.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `middleware/security-headers.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/spotify/*`, `route/spotify/*`, `service/domain/spotify/*`, `compose/spotify.ts`, `lib/with-spotify-auth.ts`, `lib/hmac-state.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/shared/cache.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `middleware/security-headers.ts`
 
 ## 개요
 
@@ -26,7 +26,7 @@
 | `service/domain/spotify/spotify-api-key.ts` | API 키 생성/검증/폐기/목록, 검증 시 `lastUsedAt` 갱신 |
 | `service/domain/spotify/spotify-widget-token.ts` | 위젯 토큰 생성/검증(active 확인)/폐기/목록/토글 |
 | `service/domain/spotify/spotify-oauth-connect.ts` | OAuth authorize URL 생성·콜백(토큰 교환·프로필 조회·계정 upsert) |
-| `service/domain/spotify/spotify-provider.ts` | Spotify API 호출 래퍼(토큰 주입, 401 refresh, 429 backoff) |
+| `service/domain/spotify/spotify-provider.ts` | Spotify API 호출 래퍼(토큰 주입, 401 refresh, 429 backoff) + `createSpotifyProviderFactory`(계정 조회·`isActive` 집행 후 provider 생성) |
 | `service/domain/spotify/spotify-data.ts` | now-playing/playlists 를 도메인 뷰모델로 정규화 |
 | `service/domain/spotify/spotify-widget.ts` | now-playing 데이터로 SVG/HTML 위젯 생성, 앨범아트 base64 인라인 |
 | `compose/spotify.ts` | ServiceDb(Drizzle) 인라인 구현 + provider 팩토리 + 앨범아트 캐시 조립 |
@@ -90,26 +90,41 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
   5. `spotify_accounts` upsert(userId+spotifyUserId 기준: 있으면 displayName/email/betterAuthAccountId 갱신, 없으면 생성).
   6. 성공 시 허용 redirect(또는 baseUrl)로 `?success=true&spotifyUserId=...`.
 
-### 2. 토큰 갱신(`spotify-provider.ts`)
+### 2. provider 생성과 `isActive` 집행(`spotify-provider.ts`)
+
+- provider 는 항상 `createSpotifyProviderFactory`(`service/domain/spotify/spotify-provider.ts:106-115`)가 만든 함수로 생성된다. `compose/spotify.ts:131-168` 이 `findAccount`·`getOAuthToken`·`refreshOAuthToken` 3개 의존성을 주입한다.
+- 팩토리는 `findAccount(spotifyAccountId)` 결과가 **없거나 `isActive === false` 이거나 `betterAuthAccountId` 가 없으면 `SPOTIFY_ACCOUNT_NOT_FOUND`(404)** 를 던진다. 즉 `isActive` 는 **provider 생성 지점 한 곳에서만** 집행된다(`with-spotify-auth.ts`·`spotify-widget-token.ts` 에는 검사가 없다).
+- 영향 경로 3종 — 계정을 `isActive=false` 로 토글하면 아래가 전부 404 로 바뀐다(이전에는 200 으로 정상 응답했다).
+
+  | 경로 | 도달 방식 |
+  |------|-----------|
+  | `GET /api/spotify/now-playing` | `route/spotify/data.ts:42` → `spotifyDataService.getNowPlaying` → `createProvider` |
+  | `GET /api/spotify/playlists` | `route/spotify/data.ts:62` → `spotifyDataService.getPlaylists` → `createProvider` |
+  | `GET /api/spotify/playing/:token`(+ `/widget`·`/data`) | `spotify-widget.ts:80` → `spotifyDataService.getNowPlaying` → `createProvider` |
+
+  위젯 경로는 위젯 토큰 자체의 `isActive`(→ `SPOTIFY_WIDGET_TOKEN_INACTIVE` 403)와 별개다. 토큰은 활성인데 계정이 비활성이면 404 다.
+
+### 3. 토큰 갱신(`spotify-provider.ts`)
 
 - provider 는 `betterAuthAccountId` 로 `account` 테이블에서 access/refresh 토큰을 읽는다(`getOAuthToken`).
 - Spotify API 호출은 `spotifyFetch`(기본 재시도 `MAX_RETRIES=3`):
   - `401` → `refreshToken()` 후 재시도. refresh 는 `POST .../api/token`(`grant_type=refresh_token`)로 새 access token 을 받아 `account.accessToken`·`accessTokenExpiresAt` 갱신.
+  - **refresh 실패는 `SPOTIFY_API_ERROR`(502)**. `refreshOAuthToken` 은 예외를 던지지 않고 `{ accessToken }` 또는 `{ status }`(HTTP 상태) 유니온을 반환하고(`compose/spotify.ts:146-168`), provider 가 `status` 쪽이면 `createAppError('SPOTIFY_API_ERROR', { status })` 를 던진다(`spotify-provider.ts:40`). 저장된 refresh token 이 아예 없을 때도 같은 코드(`detail: 'No refresh token'`)다. 이전에는 `new Error(...)` 라 `INTERNAL_ERROR`(500)로 나갔다.
   - `429` → `Retry-After`(최대 60초로 캡, 기본 1초) 대기 후 재시도.
   - 동시 refresh 는 `refreshPromise` 로 single-flight(중복 방지).
 - 갱신은 **401 반응형**이다. 저장된 `accessTokenExpiresAt` 를 미리 읽어 선제 갱신하지 않는다.
 
-### 3. 데이터 인증(`withSpotifyAuth`)
+### 4. 데이터 인증(`withSpotifyAuth`)
 
 - `X-Spotify-Key` 헤더 있으면 → `spotifyApiKeyService.validate` → `{ spotifyAccountId, userId }`. 무효/만료 → `SPOTIFY_KEY_INVALID`.
 - 헤더 없으면 → 세션 필요(없으면 `UNAUTHORIZED`) + `accountId` 쿼리 필수(누락/비정상 → `VALIDATION_ERROR`), `spotifyAccountService.getById(accountId, userId)` 로 소유권 확인(아니면 `SPOTIFY_ACCOUNT_NOT_FOUND`).
 
-### 4. now-playing / playlists 반환(`spotify-data.ts`)
+### 5. now-playing / playlists 반환(`spotify-data.ts`)
 
 - `getNowPlaying` → `{ isPlaying, track | null, lastPlayedAt | null }`. 재생 중이면 `track`(+ `progressMs`), 아니면 `recently-played[0]` 로 fallback(`track` + `played_at`), 둘 다 없으면 모두 null. `track = { name, artist(아티스트명 join), album, albumArt(첫 이미지 url), externalUrl, durationMs, progressMs }`. 각 호출 후 `provider.disconnect()`.
 - `getPlaylists(limit, offset)` → `{ items[], total, limit, offset }`. `item = { id, name, description, imageUrl(첫 이미지), trackCount(tracks.total), isPublic(public), externalUrl }`.
 
-### 5. 공개 위젯(`playing.ts` + `spotify-widget.ts`)
+### 6. 공개 위젯(`playing.ts` + `spotify-widget.ts`)
 
 - 경로 `:token` 을 `spotifyWidgetTokenService.validate` 로 검증(해시 조회 → 없으면 `SPOTIFY_WIDGET_TOKEN_NOT_FOUND`, 비활성 → `SPOTIFY_WIDGET_TOKEN_INACTIVE`) 후 `spotifyAccountId` 획득.
 - 테마 쿼리(`radius` 0–50, `bg`/`color`/`secondary`/`accent` 는 3–8자리 hex 정규식 통과 시만 적용, 아니면 `DEFAULT_THEME`).
@@ -129,11 +144,11 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
 
 `lib/error-code.ts`·`error-message.ts`·`error.ts` 기준(괄호는 HTTP status).
 
-- `SPOTIFY_ACCOUNT_NOT_FOUND`(404) — 계정 없음/소유자 불일치(`assertOwnership`).
+- `SPOTIFY_ACCOUNT_NOT_FOUND`(404) — 계정 없음/소유자 불일치(`assertOwnership`), **또는 provider 생성 시 계정이 비활성(`isActive=false`)이거나 `betterAuthAccountId` 미연결**(`createSpotifyProviderFactory`).
 - `SPOTIFY_ACCOUNT_ALREADY_EXISTS`(409) — 3파일에 정의되어 있으나 현재 소스에서 throw 되지 않음(연결은 upsert 로 처리).
 - `SPOTIFY_OAUTH_STATE_INVALID`(400) — state 서명/만료/userId 불일치.
 - `SPOTIFY_OAUTH_EXCHANGE_FAILED`(502) — 토큰 교환 또는 프로필 조회 실패.
-- `SPOTIFY_API_ERROR`(502) — Spotify API 호출 실패(토큰 없음 포함).
+- `SPOTIFY_API_ERROR`(502) — Spotify API 호출 실패(토큰 없음, **OAuth refresh 실패** 포함). refresh 실패 시 `details.status` 에 Spotify 토큰 엔드포인트의 HTTP 상태가 담긴다(프로덕션 응답에는 `details` 미노출).
 - `SPOTIFY_KEY_INVALID`(401) — `X-Spotify-Key` 무효/만료.
 - `SPOTIFY_WIDGET_TOKEN_NOT_FOUND`(404) — 위젯 토큰 없음.
 - `SPOTIFY_WIDGET_TOKEN_INACTIVE`(403) — 위젯 토큰 비활성.
@@ -151,6 +166,7 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
 
 - **키 노출은 1회뿐**: API 키/위젯 토큰은 발급 응답에서만 평문(`{ key }` / `{ token }`)을 돌려주고 DB 엔 SHA-256 해시만 저장. 목록 조회에는 토큰이 포함되지 않는다.
 - **API 키 만료 미설정**: `spotify-api-key.ts` `create` 는 `expiresAt` 를 설정하지 않아(insert 페이로드에 미포함, 컬럼 기본 `null`) 항상 `null` 이다. `validate` 는 `expiresAt` 만료를 검사하지만, 발급 경로가 값을 채우지 않으므로 기본적으로 만료되지 않는다.
+- **`isActive=false` 는 404 로 나타난다**: 계정 비활성 토글은 목록 조회·PATCH 에는 영향이 없고, 실제 Spotify 데이터를 읽는 3개 경로에서만 `SPOTIFY_ACCOUNT_NOT_FOUND`(404)로 드러난다(위 §2). 소비자는 "계정 없음" 과 "계정 비활성" 을 응답으로 구분할 수 없다.
 - **위젯 토큰 vs API 키**: 위젯 토큰은 URL 경로 기반 공개 인증(위젯 임베드용, `isActive` 토글로 비활성화 가능), API 키는 `X-Spotify-Key` 헤더 기반(프로그램의 now-playing/playlists 접근용). 발급 시 위젯 토큰은 16바이트(32 hex), API 키는 32바이트(64 hex) 평문.
 - **공개 위젯은 보안 헤더 제외**: `index.ts` 의 `securityExcludePaths: ['/api/spotify/playing', ...]` 로 인해 이 경로만 `X-Frame-Options: DENY` 와 `Content-Security-Policy`(둘 다 iframe 임베드를 막음 — CSP 에 `frame-ancestors 'none'`)가 붙지 않는다(`middleware/security-headers.ts`) — 외부 사이트 iframe/img 임베드 허용 목적.
 - **응답 캐시 없음, 앨범아트만 서버 캐시**: 위젯/데이터 응답은 모두 `Cache-Control: no-cache`(SVG 는 `no-store` 포함). 유일한 캐시는 `compose/spotify.ts` 의 앨범아트 base64 캐시(`createCache`, `maxSize=200`, TTL 5분, 앨범아트 URL 키)로 SVG 생성에만 쓰인다. provider 의 access token 은 인스턴스 메모리에만 있고 요청 처리 후 `disconnect()` 로 비워진다.

@@ -1,6 +1,6 @@
 # 공유 서비스(service/shared) 레퍼런스
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
 
 ## 개요
 
@@ -81,7 +81,7 @@
 
 ### storage.ts
 
-- 역할: R2/S3 객체 업로드·삭제·목록·URL·프리사인드 URL·다운로드. `upload`→`{ key, url }`, `getUrl`(CDN 경로), `getPresignedUrl`(기본 만료 300초), `getObject`→`Buffer|null`(실패 시 null).
+- 역할: R2/S3 객체 업로드·삭제·목록·URL·프리사인드 URL·다운로드. `upload`→`{ key, url }`, `getUrl`(CDN 경로), `getPresignedUrl`(기본 만료 300초), `getObject`→`Buffer|null`(실패 시 null), `getObjectStream`→`ReadableStream|null`(`GetObjectCommand` 결과의 `Body.transformToWebStream()`, 오브젝트 없음·오류면 null — `service/shared/storage.ts:77-89`).
 - 외부 의존: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`.
 - 에러: `STORAGE_UPLOAD_FAILED`, `STORAGE_DELETE_FAILED`, `STORAGE_PRESIGN_FAILED`(모두 `lib/error-code.ts` 등록).
 - env(주입값, `composeShared` 경유): `R2_END_POINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`(기본 `'blog-cloud'`), `R2_CUSTOM_DOMAIN` 또는 `R2_CUSTOME_DOMAIN`(오탈자 키 폴백, 기본 `https://blogimg.gumyo.net`). S3Client 는 `region: 'auto'` 로 `composeShared` 에서 생성.
@@ -160,9 +160,10 @@
 ### image-generator.ts
 
 - 역할: `hono/jsx` 엘리먼트 → **satori** SVG → **@resvg/resvg-wasm** PNG(Buffer). WASM 은 최초 1회만 init(`ensureWasm`).
+- WASM 초기화는 **Promise 메모이즈**다(`service/shared/image-generator.ts:32-46`). `initPromise ??= (async () => { await initWasm(await loadWasm()) })()` 로 한 번만 만들고 모든 호출이 같은 Promise 를 await 한다 — 동시 요청이 `initWasm` 을 중복 호출해 `Already initialized` 로 500 이 나던 레이스가 없다. init 이 실패하면 `initPromise` 를 `null` 로 되돌리고 throw 하므로 다음 요청이 재시도한다(실패 상태가 고착되지 않는다).
 - 외부 의존: `satori`(^0.26), `@resvg/resvg-wasm`(^2.6.2). `composeShared` 가 `loadWasm` 으로 `node_modules/@resvg/resvg-wasm/index_bg.wasm` 을 읽어 주입(`VERCEL` 이면 basePath `/var/task`).
 - 팩토리 시그니처: `createImageGenerator({ satori, initWasm, Resvg, loadWasm })`.
-- 주입: `composeShared` → `imageGenerator` → badgeService.
+- 주입: `composeShared` → `imageGenerator` → badgeService · blog 썸네일 라우트. badgeService 는 `generate` 호출을 try/catch 로 감싸 예외를 `IMAGE_GENERATE_FAILED` 로 변환한다([../domains/badge.md](../domains/badge.md)).
 - 테스트: `tests/service/shared/image-generator.test.ts`.
 
 ### font-loader.ts

@@ -1,6 +1,6 @@
 # calendar 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
 
 ## 개요
 
@@ -72,12 +72,12 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | DELETE | `/api/calendar/events/:uid` | 세션 | 삭제. 204 |
 | GET | `/api/calendar/groups` | 세션 | 그룹 목록(`sort_order` 정렬) |
 | POST | `/api/calendar/groups` | 세션 | 그룹 생성. 201 |
-| PATCH | `/api/calendar/groups/:id` | 세션 | 그룹 수정 |
+| PATCH | `/api/calendar/groups/:id` | 세션 | 그룹 수정. 갱신 후 행 재조회에 실패하면 `CALENDAR_GROUP_NOT_FOUND`(404) |
 | DELETE | `/api/calendar/groups/:id` | 세션 | 그룹 삭제(이벤트 있으면 거부). 204 |
 | GET | `/api/calendar/subscription` | 세션 | 구독 조회 → `token`/`icsToken`/`name`/`caldavUrl`/`icsUrl` |
 | POST | `/api/calendar/subscription` | 세션 | 구독 생성(있으면 기존 반환) |
-| POST | `/api/calendar/subscription/regenerate` | 세션 | CalDAV `token` 재발급 |
-| POST | `/api/calendar/subscription/regenerate-ics` | 세션 | `icsToken` 재발급 |
+| POST | `/api/calendar/subscription/regenerate` | 세션 | CalDAV `token` 재발급. 구독 행이 없으면 `CALENDAR_SUBSCRIPTION_NOT_FOUND`(404) |
+| POST | `/api/calendar/subscription/regenerate-ics` | 세션 | `icsToken` 재발급. 구독 행이 없으면 `CALENDAR_SUBSCRIPTION_NOT_FOUND`(404) |
 | GET | `/api/calendar/:icsToken` | ics 토큰(path) | 공개 ICS 피드. `.ics` 접미사 허용, `attachment` 다운로드, `no-store` |
 
 ### CalDAV (`/caldav` mount, 구독 토큰 인증)
@@ -194,6 +194,8 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 - **ctag/sync-token 은 base36 타임스탬프.** `incrementCtag` = `Date.now().toString(36)`. 삭제 tombstone 의 `sync_token` 비교는 문자열 `gte` 다.
 - **PROPPATCH·MKCALENDAR 는 no-op.** 실제 프로퍼티 변경·컬렉션 생성 없이 성공 응답만 반환한다.
 - **free-busy 는 `OPAQUE` 이벤트만 집계.** compose `getFreeBusyEvents` 가 `transp = 'OPAQUE'` + 기간 겹침(`dtend >= start AND dtstart <= end`)으로 필터한다 → `TRANSPARENT` 이벤트는 바쁨에 안 잡힌다. `status = TENTATIVE` 는 `BUSY-TENTATIVE`, 그 외는 `BUSY` 로 표기(`getFreeBusy`).
+- **토큰 재발급은 구독 존재를 먼저 확인한다.** `regenerateSubscriptionToken`·`regenerateIcsToken`(`service/domain/calendar/calendar.ts:486-501`)이 `db.getSubscription(userId)` 로 행을 읽고 없으면 `CALENDAR_SUBSCRIPTION_NOT_FOUND` 를 던진다. 이전에는 UPDATE 가 0행에 적용되고도 새 토큰 문자열을 200 으로 돌려줘, 클라이언트가 아무 데도 연결되지 않는 CalDAV/ICS URL 을 저장했다.
+- **그룹 PATCH 는 갱신 행을 반드시 돌려준다.** `route/calendar/group.ts:55` 가 재조회 결과가 `null` 이면 404 를 던진다. 응답 봉투의 `data` 가 `null` 로 나가 소비자 파싱이 깨지던 경로(C-10)를 막는다.
 - **CalDAV 는 세션 미들웨어 밖.** 토큰이 곧 자격증명이므로 토큰 유출 = 캘린더 노출. `/caldav/`·`/.well-known/caldav` 는 `securityExcludePaths` 로 제외된다.
 
 ## 관련 문서

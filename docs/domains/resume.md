@@ -1,6 +1,6 @@
 # 이력서(Resume) 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/resume/resume.ts`, `dto/resume/resume-data.ts`, `route/resume/resume.ts`, `service/domain/resume/resume.ts`, `compose/resume.ts`, `compose/types.ts`, `route/index.ts`, `index.ts`, `db/schema.ts`, `page/admin/pages/resumes.tsx`, `page/admin/db.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/resume/resume.ts`, `dto/resume/resume-data.ts`, `route/resume/resume.ts`, `service/domain/resume/resume.ts`, `compose/resume.ts`, `compose/types.ts`, `route/index.ts`, `index.ts`, `db/schema.ts`, `page/admin/pages/resumes.tsx`, `page/admin/db.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -105,6 +105,7 @@
 
 - `getById`/`update`/`delete` 모두 `getResumeById(id)`로 행을 먼저 읽고, `resume.userId !== userId`면 `not_owner`를 반환한다.
 - 라우트는 `not_found`와 `not_owner`를 **둘 다 `RESUME_NOT_FOUND`(404)** 로 응답 → 존재·소유 여부를 외부에 구분 노출하지 않는다.
+- `updateResume`(`compose/resume.ts:61-68`)은 `title`·`data`·`isPublic` 중 `undefined` 가 아닌 것만 `updateData` 에 담고, **담긴 게 하나도 없으면 UPDATE 를 실행하지 않고 그대로 반환**한다. `PATCH /api/resume/:id` 의 body 가 `{}` 이거나 전 필드가 생략된 경우 Drizzle `set({})` 이 빈 SET 절 SQL 을 만들어 500 이 나던 경로다. 이 경우 응답은 성공(200)이고 행은 그대로다 — `updated_at` 의 `$onUpdate` 도 돌지 않는다.
 
 ### 생성 (POST /api/resume)
 
@@ -147,6 +148,7 @@
 - **web 행 선택은 admin 우선**: `getLatestResumeByTypePreferringAdmin`(`compose/resume.ts`)이 `resumes` 를 `user` 와 left join 해 `ORDER BY (user.role = 'admin') DESC, resumes.updated_at DESC LIMIT 1` 로 고른다. 조회(`GET /public/web`)와 수정(`PATCH /web`)이 **같은 함수**를 쓰므로 항상 같은 행을 가리킨다. 일반 사용자가 `type='web'` 행을 더 최근에 저장해도 공개 이력서가 그 행으로 바뀌지 않고, admin 행이 하나도 없을 때만 최신 행으로 떨어진다. `resume`·`cv` 타입은 여전히 숫자 `id` + 소유자 세션으로만 접근 가능하고, `is_public`은 read 소비처가 없는 저장 플래그로 남아 있다.
 - **비소유 = 404**: 타인 리소스 접근은 403이 아니라 404(`RESUME_NOT_FOUND`)로 응답한다. 서비스는 `not_owner`를 구분하지만 라우트가 not_found로 합쳐 존재 여부를 숨긴다.
 - **update는 type 재검증 안 함**: `resumeUpdateSchema.data`는 `z.union([resumeDataSchema, cvDataSchema])`(discriminated 아님)이고 `type`은 update 대상이 아니다. 그래서 `'resume'` 행에 cv 형태 `data`를 PATCH해도 스키마·서비스 모두 통과 → 저장된 `type`과 `data` 구조의 정합성은 보장되지 않는다.
+- **빈 PATCH 는 no-op**: `PATCH /api/resume/:id` 에 갱신 필드가 하나도 없으면 UPDATE 자체가 생략된다(위 [소유권 처리](#상세수정삭제의-소유권-처리)). 200 이 오지만 `updated_at` 은 갱신되지 않으므로, 목록 정렬(`updated_at` desc)로 최근 편집을 추적하는 소비자는 빈 PATCH 를 "저장" 으로 취급하면 안 된다.
 - **어드민은 관리 전용**: 어드민 페이지는 생성·본문수정 없이 열람·공개토글·삭제만 한다. 본문 작성/수정은 `/api/resume`를 경유해야 한다.
 - **정렬 기준 차이**: API 목록은 `updated_at` desc, 어드민 목록은 `created_at` desc 로 서로 다르다.
 

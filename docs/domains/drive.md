@@ -1,6 +1,6 @@
 # 드라이브(Drive) 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
 
 ## 개요
 
@@ -27,7 +27,7 @@
 | `route/drive/lifecycle.ts` | 스토리지 lifecycle 라우트 (`createDriveLifecycleRoute`) — evict-r2/evict-local/auto-promote, cron 시크릿 인증 |
 | `service/domain/drive/drive-asset.ts` | 자산 도메인 로직 (`createDriveAssetService`) — 검증(크기/MIME/매직바이트/차단 확장자), 해시 중복, 쿼터, 썸네일, 티어별 URL/다운로드 |
 | `service/domain/drive/drive-folder.ts` | 폴더 도메인 로직 (`createDriveFolderService`) — breadcrumb, 순환참조 가드, 재귀 삭제 |
-| `service/shared/storage.ts` | L1(R2) 스토리지 서비스 (`createStorageService`) — upload/del/list/getUrl/getPresignedUrl/getObject |
+| `service/shared/storage.ts` | L1(R2) 스토리지 서비스 (`createStorageService`) — upload/del/list/getUrl/getPresignedUrl/getObject/getObjectStream |
 | `service/shared/gdrive-storage.ts` | L3(Google Drive) 서비스 (`createGdriveStorageService`) — download/del, access token 캐싱 |
 | `service/shared/storage-lifecycle.ts` | 티어 lifecycle 서비스 (`createStorageLifecycleService`) — evictR2Stale/evictLocalFifo/autoPromote |
 | `compose/drive.ts` | Drive DI 조립 (`composeDrive`) — folderDb/assetDb/lifecycle의 Drizzle 구현, `getUserQuotaBytes` |
@@ -123,15 +123,18 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 
 `deploy/upload-server`(메인 앱과 분리된 독립 상시 컨테이너)가 대용량·다계층(L1/L2/L3) 분배를 처리하며 hyun-hub는 메타데이터/토큰 교환만 담당.
 
-1. `prepare`(session): 클라이언트가 미리 계산한 `fileHash`로 MIME/폴더/중복/쿼터 검증. 기존 행이 `preparing`/`failed`면 삭제 후 재등록. `preparing` 행 insert + 랜덤 32바이트 `uploadToken` 발급 → `{ assetId, s3Key, uploadToken }` 반환.
+1. `prepare`(session): body 는 **`driveAssetPrepareSchema` Zod 검증**을 거친다(`dto/drive/asset.ts:16-22` — `originalName` 1~255, `mimeType` 1~255, `sizeBytes` `coerce.number().int().positive()`, `folderId` nullable 기본 `null`, `fileHash` ≤64 기본 `''`). 이전에는 `c.req.json()` 을 그대로 읽어 `sizeBytes` 가 없거나 문자열이면 `NaN`·`0` 으로 흘러들어 쿼터 계산이 무너졌다. 검증 통과 후 `fileHash`로 MIME/폴더/중복/쿼터 검증, 기존 행이 `preparing`/`failed`면 삭제 후 재등록, `preparing` 행 insert + 랜덤 32바이트 `uploadToken` 발급 → `{ assetId, s3Key, uploadToken }` 반환. insert 가 `uq_cloud_assets_user_hash` 를 위반하면(동시 요청 경합) `DRIVE_DUPLICATE_FILE`(409).
 2. `status`(upload-server secret + uploadToken): `requireUploadServer` 게이트 통과 후 `preparing` → `uploading` 전이. 토큰 불일치 시 `UNAUTHORIZED`, 상태 부정합 시 `DRIVE_UPLOAD_EVENT_FAILED`. 응답에 자산 행의 `s3Key`를 포함해 upload-server가 자신이 올린 키와 대조할 수 있게 한다.
 3. `gdrive-token`(upload-server secret + uploadToken): 먼저 `requireUploadServer`(`UPLOAD_SERVER_SECRET` 헤더) 게이트를 통과해야 하고, 이어 `getAssetForTokenExchange`로 uploadToken·상태 검증 후 `getGdriveAccessToken()`(compose/shared) 호출 → Google access token + `GDRIVE_ROOT_FOLDER_ID` 반환. upload-server가 이 토큰으로 Google Drive에 직접 업로드. (Google access token 유출 방어를 위해 이 콜백만 시크릿 게이트를 추가로 건다 — 2026-07-10.)
-4. `complete`(upload-server secret + uploadToken): `requireUploadServer` 게이트 통과 후 body의 `storageTiers`/`gdriveFileId`/`localPath`/`thumbnailBase64`를 반영. `storageTiers`가 있으면 `ready`, 없으면 `failed`로 마감하고 `uploadToken`을 null로 초기화.
+4. `complete`(upload-server secret + uploadToken): `requireUploadServer` 게이트 통과 후 body의 `storageTiers`/`gdriveFileId`/`localPath`/`thumbnailBase64`/`sizeBytes`를 반영. `storageTiers`가 있으면 `ready`, 없으면 `failed`로 마감하고 `uploadToken`을 null로 초기화.
+   - **크기 재검증**: upload-server 가 디스크에 받아 실측한 `sizeBytes`(`deploy/upload-server/upload-handler.ts` 의 `statSync(tmpPath).size`)를 함께 보낸다. 값이 있고 `> 0` 이며 `prepare` 때 신고한 `asset.sizeBytes` 와 다르면, 그 값으로 쿼터를 다시 계산한다(`현재 사용량 - 신고값 + 실측값 > 쿼터`). 초과하면 자산을 `failed`(+`storage_tiers` 비움)로 마감하고 이미 올라간 티어 실물(L1 R2 오브젝트·L3 gdrive 파일)을 정리한 뒤 `DRIVE_QUOTA_EXCEEDED` 를 던진다. 통과하면 `size_bytes` 를 실측값으로 갱신한다(`service/domain/drive/drive-asset.ts:407-419`).
+   - **해시 중복**: `complete` 가 `fileHash` 를 갱신할 때 `uq_cloud_assets_user_hash` 를 위반하면 UPDATE 는 `null` 을 돌려주고, 서비스가 자산을 `failed` 로 마감 + 업로드된 티어 실물을 정리한 뒤 `DRIVE_DUPLICATE_FILE`(409)을 던진다(`drive-asset.ts:435-439`). 이전에는 드라이버 오류가 그대로 올라와 500 이었고 자산이 `uploading` 상태로 남았다.
+   - 두 실패 경로 모두 `cleanupUploadedTiers`(`drive-asset.ts:187-200`)를 쓴다 — `storage_tiers` 에 `L1` 이 있으면 R2 오브젝트, `L3` + `gdriveFileId` 가 있으면 Google Drive 파일을 지운다(실패는 삼킴). OpenAPI 응답 선언에도 `DRIVE_DUPLICATE_FILE`·`DRIVE_QUOTA_EXCEEDED` 가 추가됐다(`route/drive/asset.ts:93-100`).
 
 ### 3. 상세/다운로드 (티어 cascade)
 
 - `getDetail`(`GET /assets/:assetId`): 소유자 검증 후 `lastViewedAt`/`accessCount` 갱신. **L1 보유 시**: 공개면 CDN URL(`getUrl`), 비공개면 **presigned URL(만료 300초)**. **L1 미보유 시**: `url = /api/drive/assets/{assetId}/download`(프록시 경로) 반환.
-- `download`(`GET /assets/:assetId/download`): `lastViewedAt`/`accessCount` 갱신 후 **L3(gdrive)만** 스트리밍(`gdriveFileId` 있을 때). 그 외에는 `DRIVE_ALL_TIERS_FAILED`. (라우트 요약의 "L2/L3 cascade" 중 L2 서빙은 미구현 — [주의사항](#주의사항--함정) 참조.)
+- `download`(`GET /assets/:assetId/download`): `lastViewedAt`/`accessCount` 갱신 후 티어 순서대로 시도한다 — ① `L3` + `gdriveFileId` 이고 gdrive 서비스가 구성돼 있으면 Google Drive 스트림, ② 그렇지 않고 `L1` 이면 `storage.getObjectStream(s3Key)`(R2, 오브젝트 없음·오류면 `null`). 둘 다 못 얻으면 `DRIVE_ALL_TIERS_FAILED`(`service/domain/drive/drive-asset.ts:517-534`). L1 전용 자산이 이 엔드포인트에서 항상 500 이던 문제가 해소됐다. L2(Mac Studio) 서빙은 여전히 미구현이다.
 
 ### 4. 폴더 (`createDriveFolderService`)
 
@@ -208,7 +211,8 @@ lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `
 
 - **캐시**: 이 도메인은 애플리케이션 캐시(`service/shared/redis-cache.ts`의 `redisCache`, `service/shared/cache.ts`의 `createCache`)를 사용하지 않는다(둘 다 weather·spotify·badge에서만 사용). 드라이브의 캐싱은 (1) 공개 L1 파일의 CDN 배포, (2) 비공개 L1의 **300초 presigned URL**, (3) `gdrive-storage.ts`가 access token을 만료 60초 전까지 클로저에 캐싱하는 정도다.
 - **presigned/직접 URL**: 상세 응답의 `url`은 티어에 따라 달라진다 — L1 공개=CDN, L1 비공개=presigned(300초), L1 없음=`/download` 프록시 경로. 업로드 응답의 `url`은 항상 CDN URL이다.
-- **다운로드는 L3만 서빙**: `download`는 gdrive만 스트리밍한다. 라우트 요약은 "L2/L3 cascade"지만 L2(Mac Studio) 서빙은 미구현이며, L1은 이 엔드포인트가 아니라 상세의 presigned/CDN URL로 받는다.
+- **다운로드는 L3 → L1 순 폴백**: `download` 는 gdrive 를 먼저 보고, L3 사본이 없거나 gdrive 가 미구성이면 R2(`getObjectStream`)로 스트리밍한다. L2(Mac Studio) 서빙만 미구현이다. 일반 경로에서 L1 파일은 여전히 상세 응답의 presigned/CDN URL 로 받는 편이 빠르다(이 엔드포인트는 Vercel 함수를 경유하는 프록시다).
+- **`complete` 는 신고 크기를 믿지 않는다**: `prepare` 의 `sizeBytes` 는 클라이언트 신고값이라 쿼터 우회에 쓰일 수 있어, upload-server 가 보낸 실측 크기와 다르면 `complete` 에서 쿼터를 다시 계산하고 초과 시 자산을 `failed` 로 마감·실물 정리 후 `DRIVE_QUOTA_EXCEEDED` 로 거절한다(위 §2). 즉 쿼터 초과는 업로드가 끝난 뒤에도 뒤늦게 드러날 수 있다.
 - **L2(Mac Studio)는 TODO**: `local_path`·`DRIVE_L2_*` 코드·evict-local 라우트는 존재하나 `evictLocalFifo`는 `0`을 반환하는 stub, `deploy/upload-server/local-client.ts`도 미구현. `deploy/upload-server/plan.md` §4 참조.
 - **cron 스케줄**(`vercel.json`): `evict-r2`=`0 3 * * *`, `auto-promote`=`0 5 * * *`(UTC 매일 03:00·05:00). `evict-local`은 라우트만 있고 cron 미등록. lifecycle 라우트 3개는 `route.on(['GET','POST'], ...)`(`route/drive/lifecycle.ts:12`)로 **GET·POST 모두 수신**한다(Vercel cron 은 GET 으로 호출). 세 메서드 모두 `verifyCronAuth`로 `UPLOAD_SERVER_SECRET`을 상수 시간 검증한다.
 - **자산 ID는 숫자, 폴더 ID는 UUID 문자열**: `driveAssetParamSchema`는 `z.coerce.number().int().positive()`, `driveFolderParamSchema`는 `z.string()`. 스키마상 `cloud_assets.id`는 `int` autoincrement, `drive_folders.id`는 varchar36.

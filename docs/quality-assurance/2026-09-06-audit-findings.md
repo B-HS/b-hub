@@ -6,7 +6,10 @@
 
 ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=조건부 위험, P=성능. 각 항목의 `계약` 열은 d 단계(계약 대조)에서 채운다: 불변 / 코드변경 승인 / 소비자 동시 수정.
 
-> **진행 표기(2026-09-06 1차 배치)**: `계약` 열의 **완료(1차)** 는 1차 수정 배치(+후속·회귀 리뷰 반영)에서 코드에 반영된 항목이다. **부분(1차)** 은 수정 방향의 일부만 반영된 항목이며 남은 범위를 괄호에 적었다. 표기 없는 행은 미착수(2차 이후)다. 배치 요약·검증 결과는 [../history/2026-09-06-audit-batch1.md](../history/2026-09-06-audit-batch1.md). **`mail_messages` unique 변경(D-05)은 `bun run db:push` 전까지 DB 에 반영되지 않는다.**
+> **진행 표기**: `계약` 열의 **완료(1차)** 는 1차 수정 배치(+후속·회귀 리뷰 반영), **완료(2차)** 는 2차 수정 배치(브랜치 `fix/audit-batch2-immediate-errors`)에서 코드에 반영된 항목이다. 승인 표(A-*)는 `번호` 열에 같은 표기를 단다. **부분(1차)** 은 수정 방향의 일부만 반영된 항목이며 남은 범위를 괄호에 적었다. 표기 없는 행은 미착수(3차 이후)다.
+> 배치 요약·검증 결과: 1차 [../history/2026-09-06-audit-batch1.md](../history/2026-09-06-audit-batch1.md), 2차 [../history/2026-09-07-audit-batch2.md](../history/2026-09-07-audit-batch2.md).
+> **`mail_messages` unique 변경(D-05)은 `bun run db:push` 전까지 DB 에 반영되지 않는다.**
+> 2차의 예외 2건: **E-13** 은 `posts` 테이블에 작성자 컬럼이 없어 사용자별 게시글 수를 셀 수 없으므로 보류(응답 계약 유지를 위해 `postsCount: 0` 리터럴 유지), **E-09** 는 raw `sql` 의 `Date` 파라미터를 drizzle 연산자로 바꾸는 작업이라 4차(PERF·쿼리 정리) 배치로 미뤘다.
 
 ## D. 데이터 손실·손상
 
@@ -61,34 +64,34 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 
 | ID | 위치 | 문제 | 수정 방향 | 계약 |
 |----|------|------|-----------|------|
-| E-01 | compose/blog.ts:157, db/schema.ts:146 | 댓글 있는 게시글 삭제 FK 500 | 트랜잭션에서 comments 먼저 삭제 | |
-| E-02 | compose/resume.ts:58-64 | 빈 PATCH `set({})` 500 | early return | |
-| E-03 | page/admin/format.ts:39 + 모든 목록 페이지 | page 미클램프 → 음수 OFFSET 500 | `Math.max(1, …)` | |
-| E-04 | service/shared/image-generator.ts:32-39 | wasm init 레이스 → Already initialized 500 | initPromise 메모이즈 | |
-| E-05 | badge.ts:88 | `fontSize ?? …` 0 통과 → 텍스트 없는 PNG 1년 고착 | `\|\|` | |
-| E-06 | badge.ts:140 | generate 미래핑 → satori 예외 500 | IMAGE_GENERATE_FAILED | |
-| E-07 | route/blog/thumbnail.ts:44 | OG 요청마다 views +1 | 조회수 없는 읽기 메서드 | |
-| E-08 | route/weather/weather.ts:87-89, mock.ts:85-87 | 로컬 getHours → Vercel UTC 9시간 어긋남 | kma-api getBaseDateTime 사용 | |
-| E-09 | db/index.ts, compose/drive.ts:152,256 | raw `sql` 파라미터에 JS Date 를 넣는 두 곳이 프로세스 TZ 에 따라 다른 리터럴을 만든다. `timezone` 옵션은 근본 해법이 아님(A-8 검토) | raw sql Date 비교를 drizzle 연산자(`lt`·`gte`)로 교체. MySQL `@@session.time_zone` 측정은 별도 운영 확인 | 불변 |
-| E-10 | compose/spotify.ts:133,158-161 | new Error → 500 | createAppError | |
-| E-11 | with-spotify-auth.ts:27-41, spotify-widget-token.ts:39-45 | isActive 미집행 | provider 생성 시 검사 | |
-| E-12 | compose/mail.ts:79-82 | 중복 계정 500, 409 코드 미사용 | ER_DUP_ENTRY → 409 | |
-| E-13 | compose/blog.ts:530 | postsCount 항상 0 | 상관 서브쿼리 또는 필드 제거 | |
-| E-14 | route/ai/chat.ts:33-46, providers/*.ts | 클라이언트 끊겨도 업스트림 소비 → 과금 지속 | AbortSignal 전파 + reader.cancel | |
-| E-15 | ai-provider-factory.ts:56-63,82-99 | single-flight persist 전 해제 → 정상 토큰 reauth_required | Map 삭제를 persist 후로 | |
-| E-16 | drive-asset.ts:278-335, route/drive/asset.ts:66-73 | prepare sizeBytes 미검증, 쿼터 신고값, Content-Length 오염 | Zod + complete 에서 실제 크기 재검증 | |
-| E-17 | drive-asset.ts:354-389,213-262 | fileHash 중복 500, uploading 상태 잔존 | ER_DUP_ENTRY → 409, failed 처리 | |
-| E-18 | drive-asset.ts:454-475 | L1 만 있는 자산 download 항상 500 | R2 폴백 | |
-| E-19 | gmail-provider.ts:115, imap-provider.ts:105 | Invalid Date → 배치 실패 | NaN 이면 null | |
-| E-20 | gmail-helpers.ts:53-66 | .eml 첨부 본문이 실제 본문 대체 | message/rfc822 미재귀 | |
-| E-21 | deploy/caldav-proxy/proxy.ts:17-27 | gzip 헤더 잔존 → 응답 깨짐 | Accept-Encoding identity 또는 헤더 제거 | |
+| E-01 | compose/blog.ts:157, db/schema.ts:146 | 댓글 있는 게시글 삭제 FK 500 | 트랜잭션에서 comments 먼저 삭제 | 완료(2차) |
+| E-02 | compose/resume.ts:58-64 | 빈 PATCH `set({})` 500 | early return | 완료(2차) |
+| E-03 | page/admin/format.ts:39 + 모든 목록 페이지 | page 미클램프 → 음수 OFFSET 500 | `Math.max(1, …)` | 완료(2차) |
+| E-04 | service/shared/image-generator.ts:32-39 | wasm init 레이스 → Already initialized 500 | initPromise 메모이즈 | 완료(2차) |
+| E-05 | badge.ts:88 | `fontSize ?? …` 0 통과 → 텍스트 없는 PNG 1년 고착 | `\|\|` | 완료(2차) |
+| E-06 | badge.ts:140 | generate 미래핑 → satori 예외 500 | IMAGE_GENERATE_FAILED | 완료(2차) |
+| E-07 | route/blog/thumbnail.ts:44 | OG 요청마다 views +1 | 조회수 없는 읽기 메서드 | 완료(2차) |
+| E-08 | route/weather/weather.ts:87-89, mock.ts:85-87 | 로컬 getHours → Vercel UTC 9시간 어긋남 | kma-api getBaseDateTime 사용 | 완료(2차) |
+| E-09 | db/index.ts, compose/drive.ts:152,256 | raw `sql` 파라미터에 JS Date 를 넣는 두 곳이 프로세스 TZ 에 따라 다른 리터럴을 만든다. `timezone` 옵션은 근본 해법이 아님(A-8 검토) | raw sql Date 비교를 drizzle 연산자(`lt`·`gte`)로 교체. MySQL `@@session.time_zone` 측정은 별도 운영 확인 | 불변 — 4차 예정 |
+| E-10 | compose/spotify.ts:133,158-161 | new Error → 500 | createAppError | 완료(2차) |
+| E-11 | with-spotify-auth.ts:27-41, spotify-widget-token.ts:39-45 | isActive 미집행 | provider 생성 시 검사 | 완료(2차) |
+| E-12 | compose/mail.ts:79-82 | 중복 계정 500, 409 코드 미사용 | ER_DUP_ENTRY → 409 | 완료(2차) |
+| E-13 | compose/blog.ts:530 | postsCount 항상 0 | 상관 서브쿼리 또는 필드 제거 | 보류(작성자 컬럼 없음) |
+| E-14 | route/ai/chat.ts:33-46, providers/*.ts | 클라이언트 끊겨도 업스트림 소비 → 과금 지속 | AbortSignal 전파 + reader.cancel | 완료(2차) |
+| E-15 | ai-provider-factory.ts:56-63,82-99 | single-flight persist 전 해제 → 정상 토큰 reauth_required | Map 삭제를 persist 후로 | 완료(2차) |
+| E-16 | drive-asset.ts:278-335, route/drive/asset.ts:66-73 | prepare sizeBytes 미검증, 쿼터 신고값, Content-Length 오염 | Zod + complete 에서 실제 크기 재검증 | 완료(2차) |
+| E-17 | drive-asset.ts:354-389,213-262 | fileHash 중복 500, uploading 상태 잔존 | ER_DUP_ENTRY → 409, failed 처리 | 완료(2차) |
+| E-18 | drive-asset.ts:454-475 | L1 만 있는 자산 download 항상 500 | R2 폴백 | 완료(2차) |
+| E-19 | gmail-provider.ts:115, imap-provider.ts:105 | Invalid Date → 배치 실패 | NaN 이면 null | 완료(2차) |
+| E-20 | gmail-helpers.ts:53-66 | .eml 첨부 본문이 실제 본문 대체 | message/rfc822 미재귀 | 완료(2차) |
+| E-21 | deploy/caldav-proxy/proxy.ts:17-27 | gzip 헤더 잔존 → 응답 깨짐 | Accept-Encoding identity 또는 헤더 제거 | 완료(2차) |
 | E-22 | calendar.ts:286-331,443-446 | PUT ETag(JS now) vs GET ETag(DB) 불일치 | 저장 시각 명시 | 완료(1차) |
-| E-23 | route/metrics/ingest.ts:23 | `.length` UTF-16 → 64KB 상한 무효 | Buffer.byteLength | |
-| E-24 | users.tsx:324,332 | Invalid Date 500, 음수 quota | parseDateEnd, 음수 거부 | |
-| E-25 | route/calendar/subscription.ts:70-90 | 구독 없어도 regenerate 성공 | 존재 확인 후 404 | |
+| E-23 | route/metrics/ingest.ts:23 | `.length` UTF-16 → 64KB 상한 무효 | Buffer.byteLength | 완료(2차) |
+| E-24 | users.tsx:324,332 | Invalid Date 500, 음수 quota | parseDateEnd, 음수 거부 | 완료(2차) |
+| E-25 | route/calendar/subscription.ts:70-90 | 구독 없어도 regenerate 성공 | 존재 확인 후 404 | 완료(2차) |
 | E-26 | tests/route/index.test.ts, route/index.ts:101 | DATABASE_URL 없는 환경에서 테스트 실패 | isProduction 을 deps 로 | 완료(1차) |
 | E-27 | mail-sync.ts:264-277 | 실패 시 disconnect 누락 | finally | 완료(1차) |
-| E-28 | mail-sync.ts:301-329 | syncHistorical folderId 소유 미검증, 세션 커서 폴더 오용 | accountId 대조, folderId 불일치 시 세션 무시 | |
+| E-28 | mail-sync.ts:301-329 | syncHistorical folderId 소유 미검증, 세션 커서 폴더 오용 | accountId 대조, folderId 불일치 시 세션 무시 | 완료(2차) |
 | E-29 | route/calendar/caldav.ts:228-229 | free-busy time-range Invalid Date | parseICSDateTime | 완료(1차) |
 | E-30 | lib/ics.ts:90 | 종일 이벤트 UNTIL 값 타입 불일치 | 종일이면 DATE 형식 | 완료(1차) |
 
@@ -180,10 +183,10 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 - R-01~R-06, R-08~R-16, R-18~R-32. R-15 세션 컨텍스트 재사용은 SSR 페이지 내부 변경.
 - P-01~P-03, P-05~P-13, P-15~P-23. P-15·P-17 은 헤더 추가만이라 호환. P-18 ICS `ETag`/304 는 표준 동작이라 호환.
 - 소비자 대조에서 새로 확인된 b-hub 측 결함(불변으로 수정 가능):
-  - C-01 `dto/blog/image.ts:16-17` complete 의 `width/height` 가 `positive().nullable()` 인데 upload-server 는 메타 실패 시 `0` 을 보냄 → 400 으로 업로드 전체 실패. `0 → null` 허용.
-  - C-04 AI providers/models 의 `displayName: null` 이 Calendar·Rirekisyo 의 strict `z.string()` 을 깨뜨려 AI 패널 전체가 숨겨짐. null 대신 `provider`/`modelId` 폴백 문자열로 반환(값 변경만, 타입은 string 유지).
-  - C-10 `route/calendar/group.ts:54-55` PATCH 가 `data: null` 을 돌려줄 수 있음. 갱신 행을 항상 반환.
-  - C-11 `compose/metrics.ts:103` series 의 `$project` 가 `cpu.cores.0.usage` 같은 배열 인덱스 경로에서 `v` 를 못 만들어 dashboard 역직렬화 실패 가능. Mongo 실쿼리로 확인 후 `$arrayElemAt` 계열로 수정.
+  - C-01 `dto/blog/image.ts:16-17` complete 의 `width/height` 가 `positive().nullable()` 인데 upload-server 는 메타 실패 시 `0` 을 보냄 → 400 으로 업로드 전체 실패. `0 → null` 허용. — **완료(2차)**: `nonnegative().nullable().transform(0 → null)`(`dto/blog/image.ts:16-27`).
+  - C-04 AI providers/models 의 `displayName: null` 이 Calendar·Rirekisyo 의 strict `z.string()` 을 깨뜨려 AI 패널 전체가 숨겨짐. null 대신 `provider`/`modelId` 폴백 문자열로 반환(값 변경만, 타입은 string 유지). — **완료(2차)**: `route/ai/connection.ts:23`·`route/ai/model.ts:20` 폴백 + DTO `z.string()`.
+  - C-10 `route/calendar/group.ts:54-55` PATCH 가 `data: null` 을 돌려줄 수 있음. 갱신 행을 항상 반환. — **완료(2차)**: 재조회 결과가 `null` 이면 `CALENDAR_GROUP_NOT_FOUND`(404).
+  - C-11 `compose/metrics.ts:103` series 의 `$project` 가 `cpu.cores.0.usage` 같은 배열 인덱스 경로에서 `v` 를 못 만들어 dashboard 역직렬화 실패 가능. — **완료(2차)**: `buildSeriesPipeline`/`buildSeriesValueExpression`(`compose/metrics.ts:13-46`)이 숫자 세그먼트를 `$let`+`$cond[$isArray]`+`$arrayElemAt` 로 처리(배열·숫자키 객체 양쪽). Mongo 실쿼리 검증은 미수행 — 파이프라인 단위 테스트(`tests/service/domain/metrics/series-pipeline.test.ts`)로만 확인.
   - C-15 `route/drive/asset.ts:78-113` `/status`·`/complete` 가 upload-server 시크릿을 검사하지 않음. upload-server 는 세 콜백 모두 Bearer 를 보내므로 검사 추가는 호환(S-01 과 함께). — **완료(1차)**: 두 콜백에 `requireUploadServer` 적용, 미설정 시 `SERVICE_NOT_CONFIGURED`(503).
   - C-16 `route/mail/upload.ts:35` 가 `inline` 필드를 읽는데 mail 클라이언트는 `isInline` 을 보냄. 둘 다 받도록 하되, 실제 인라인 처리 경로가 켜지면 발송 결과(cid 임베드)가 달라지므로 승인 항목 A-7 로 분리.
 
@@ -191,11 +194,11 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 
 | 번호 | 항목 | 현재 | 제안 | 소비자 영향 |
 |------|------|------|------|-------------|
-| A-1 | E-12 중복 메일 계정 | 500 `INTERNAL_ERROR` | 409 `MAIL_ACCOUNT_ALREADY_EXISTS` | mail 은 `error.message` 만 toast. 호환 |
-| A-2 | E-17 drive fileHash 중복(complete·직접 업로드) | 500 | 409 `DRIVE_DUPLICATE_FILE` | Storage 는 이 코드를 이미 매핑. upload-server 는 `!ok` 만 봄. 호환 |
-| A-3 | E-10 Spotify refresh 실패·미연결 계정 | 500 | 502 `SPOTIFY_API_ERROR` / 404 `SPOTIFY_ACCOUNT_NOT_FOUND` | 위젯·API 키 소비처 미확인. 상태 코드만 바뀜 |
-| A-4 | E-11 Spotify `isActive` 집행 | 비활성 계정도 200 | 비활성이면 404 | 소비처 미확인. 토글의 의도대로 동작하게 됨 |
-| A-5 | R-17 공개 게시글 가시성 | 비로그인도 `?isPublished=false`·숨김 글 id 로 열람 가능 | admin 세션 없으면 `isPublished=true, isHide=false` 강제 | bblog 편집 페이지·초안 URL 은 admin 쿠키가 전달되므로 유지됨. 비로그인 초안 열람만 막힘 |
+| A-1 — 완료(2차) | E-12 중복 메일 계정 | 500 `INTERNAL_ERROR` | 409 `MAIL_ACCOUNT_ALREADY_EXISTS` | mail 은 `error.message` 만 toast. 호환 |
+| A-2 — 완료(2차) | E-17 drive fileHash 중복(complete·직접 업로드) | 500 | 409 `DRIVE_DUPLICATE_FILE` | Storage 는 이 코드를 이미 매핑. upload-server 는 `!ok` 만 봄. 호환 |
+| A-3 — 완료(2차) | E-10 Spotify refresh 실패·미연결 계정 | 500 | 502 `SPOTIFY_API_ERROR` / 404 `SPOTIFY_ACCOUNT_NOT_FOUND` | 위젯·API 키 소비처 미확인. 상태 코드만 바뀜 |
+| A-4 — 완료(2차) | E-11 Spotify `isActive` 집행 | 비활성 계정도 200 | 비활성이면 404 | 소비처 미확인. 토글의 의도대로 동작하게 됨 |
+| A-5 — 완료(2차) | R-17 공개 게시글 가시성 | 비로그인도 `?isPublished=false`·숨김 글 id 로 열람 가능 | admin 세션 없으면 `isPublished=true, isHide=false` 강제 | bblog 편집 페이지·초안 URL 은 admin 쿠키가 전달되므로 유지됨. 비로그인 초안 열람만 막힘 |
 | A-6 | C-03 calendar range 상한 | 366일 초과 400 → Calendar AI 컨텍스트가 25개월을 요청해 항상 실패 | 상한을 800일로 완화 | Calendar AI 컨텍스트가 비로소 동작. 다른 소비자 영향 없음 |
 | A-7 | C-16 mail 업로드 `isInline` 수용 | 에디터 이미지가 첨부 규칙(25MB)으로 처리 | `isInline` 도 읽어 인라인 규칙(10MB·jpeg/png/gif/webp·매직바이트) 적용 | cid 임베드 경로는 존재하지 않음(정정). 10~25MB·HEIC/SVG 등이 새로 거부되는 동작 축소. 검토 결과 미적용 권고 |
 | A-8 | E-09 DB `timezone: 'Z'` | 로컬(KST)·Vercel(UTC) 혼재 기록 | 커넥션 타임존 UTC 고정 | Vercel 이 기록한 기존 행은 이미 UTC. 로컬에서 기록한 개발 데이터만 9시간 차 |

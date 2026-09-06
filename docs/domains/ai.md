@@ -1,6 +1,6 @@
 # ai 도메인
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
+> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
 
 ## 외부 프로바이더 API 계약 (2026-07 조사 확정)
 
@@ -118,6 +118,7 @@
 ### codex OAuth 자동 갱신 (`ai-provider-factory`) — refreshToken 이 있을 때만
 - 매 codex 호출 전 `getAccessToken()` 이 access_token JWT `exp` 를 확인해 **5분 이내 만료면** `refreshCodexToken`(`compose/ai.ts` 가 `POST https://auth.openai.com/oauth/token`, client_id `app_EMoamEEZ73f0CkXaXp7hrann`) 호출.
 - **회전 처리**: 응답에 새 refresh_token 이 오면 교체, 안 오면 기존 유지. 갱신분을 재암호화해 `persistCodexCredentials`(DB `credentials`+`last_refreshed_at`) 저장.
+- **single-flight 는 persist 까지 포함한다**(`ai-provider-factory.ts:56-68`). `refreshWithLock` 이 감싸는 `run()` 은 `refreshCodexToken` → `persist(refreshed)` 순으로 실행하고, `refreshInFlight` Map 의 항목은 그 `run()` 이 끝난 뒤(`finally`) 제거된다. 대기하던 동시 요청은 **DB 저장이 끝난 토큰**을 받는다. 이전에는 refresh HTTP 응답만 공유하고 persist 는 락 밖에서 돌아, 저장 전 토큰으로 진행한 요청이 정상 계정을 `reauth_required` 로 마킹할 수 있었다.
 - 갱신 실패(만료·재사용·네트워크) → `markReauthRequired`(status `reauth_required`+detail) 후 `AI_REAUTH_REQUIRED`(401). 사용자는 auth.json 재등록으로 복구.
 
 ### codex access token 단독 (`ai-provider-factory`) — refreshToken 이 없을 때
@@ -135,6 +136,8 @@
 - provider client 의 `completeStream(request)` 이 upstream(codex Responses SSE · anthropic `/v1/messages` `stream:true` SSE · ollama `/api/chat` `stream:true` NDJSON)을 `AsyncIterable<{type:'delta',text}|{type:'done',result}>` 로 노출. 파서는 `service/domain/ai/ai-sse.ts`(블록 SSE `iterateSseEvents`, 라인 `iterateStreamLines`). codex 의 `complete` 는 `completeStream` 을 드레인해 동일 결과를 반환한다.
 - 서비스 스트림 변형은 **조립·후처리를 send/complete 와 공유**한다: delta 를 그대로 relay 하며 content·usage 를 누적하고, 스트림이 정상 종료(`done`)한 경우에만 세션 메시지 저장(sendStream)·`touchUsed`·`logUsage`(severity 20) 를 수행한다. 중간 실패는 저장 없이 `logUsage`(severity 40) 후 재-throw(고아 방지 동일).
 - 라우트는 `hono/streaming` 의 `streamSSE` 로 relay: `event: delta` `data: {"text":"..."}` (증분), `event: done` `data: {content,modelId,inputTokens,outputTokens,durationMs}`(세션 스트림은 `id` 포함, 어시스턴트 메시지 PK), `event: error` `data: {code,message}`. **스트림 시작 전 오류**(세션/키 미존재·reauth·rate limit·업스트림 연결 실패)는 기존과 동일한 JSON `errorResponse` 로 반환된다.
+- **클라이언트 중단은 업스트림까지 전파된다**(`route/ai/chat.ts:33-35`·`88-90`·`127-129`). 라우트가 요청마다 `new AbortController()` 를 만들어 `sendStream`/`completeStream` 에 `signal` 로 넘기고, `streamSSE` 의 `sse.onAbort(() => controller.abort())` 로 연결이 끊기면 abort 한다. `signal` 은 `AiCompletionRequest.signal`(`ai-provider.ts:18`)을 타고 세 프로바이더의 `fetch` 옵션까지 내려간다(anthropic `complete`·`completeStream`, codex `/responses`, ollama `complete`·`completeStream`).
+- 파서도 스트림을 닫는다: `iterateSseEvents`·`iterateStreamLines` 의 `finally` 가 `releaseLock()` 전에 `await reader.cancel().catch(() => {})` 를 호출한다(`ai-sse.ts:50`·`70`). 소비자가 중간에 빠져나가도 업스트림 body 가 열린 채 남아 토큰이 계속 생성·과금되지 않는다.
 
 ### 사용기록
 - `logUsage` → `logEventService.ingest({ service:'b-hub-ai', errorCode:'AI_CHAT_COMPLETED'|'AI_CHAT_FAILED'|'AI_COMPLETION_*', severity, category:'ai', details:{ provider, model, inputTokens, outputTokens, durationMs, featureKey } })`. **프롬프트 원문·자격증명은 details 에 넣지 않는다.** 실패(severity 40)는 [../logging.md](../logging.md) 규칙으로 Discord 알림 대상.
@@ -163,7 +166,9 @@
 - **첨부는 이미지 전용**(vision): MIME 화이트리스트 + magic bytes + 20MB. 텍스트/기타 파일은 거부.
 - **AI_ENCRYPTION_KEY graceful**: mail(fail-fast)과 달리 AI 는 키 없으면 앱은 정상 부팅하고 AI 라우트만 503. → [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md)
 - **codex 는 temperature/maxTokens 미적용**: `/responses` body 에 이 두 파라미터를 넣지 않는다(Responses API 지원 필드 미확정). anthropic/ollama 세션에선 반영되지만 codex 세션에선 사용자 설정이 무시된다. anthropic 은 temperature 를 0–1 로 클램프(DTO 는 0–2 허용).
-- **codex 동시 refresh single-flight**: 같은 provider 의 동시 만료 요청은 `ai-provider-factory` 의 `refreshInFlight` Map 으로 refresh 를 1회로 합쳐 회전 토큰 재사용(`refresh_token_reused`) 영구 실패를 막는다. 단 **서버리스 다중 인스턴스 간에는 공유되지 않는다**(인메모리, mail 레이트리밋과 동일 한계). 회전 토큰 저장(persist) 실패 시 이번 요청은 진행하되 `reauth_required` 로 마킹해 다음 요청부터 재등록을 유도한다.
+- **codex 동시 refresh single-flight**: 같은 provider 의 동시 만료 요청은 `ai-provider-factory` 의 `refreshInFlight` Map 으로 refresh 를 1회로 합쳐 회전 토큰 재사용(`refresh_token_reused`) 영구 실패를 막는다. **락은 DB persist 까지 끝난 뒤 풀린다** — 대기하던 요청이 미저장 토큰을 쓰는 창이 없다. 단 **서버리스 다중 인스턴스 간에는 공유되지 않는다**(인메모리, mail 레이트리밋과 동일 한계). 회전 토큰 저장 실패 시 이번 요청은 진행하되 `reauth_required` 로 마킹해 다음 요청부터 재등록을 유도한다.
+- **`displayName` 은 응답에서 절대 `null` 이 아니다**: 프로바이더 목록은 `row.displayName ?? row.provider`(`route/ai/connection.ts:23`), 모델 목록은 `row.displayName ?? row.modelId`(`route/ai/model.ts:20`)로 폴백한다. DTO 도 `z.string()`(nullable 제거 — `dto/ai/provider.ts:48`·`dto/ai/model.ts:7`)이다. DB 컬럼은 여전히 nullable 이고 폴백은 응답 매핑 단계에서만 일어난다. 소비자(Calendar·Rirekisyo)의 strict `z.string()` 파싱이 깨져 AI 패널이 통째로 숨겨지던 문제(C-04)를 막는다.
+- **중단된 스트림은 기록도 남지 않는다**: SSE 연결이 끊기면 `AbortSignal` 로 업스트림 fetch 를 취소하고 reader 도 cancel 한다(위 §SSE 스트리밍). 다만 중단 시 `done` 에 도달하지 않으므로 **메시지 저장·`logUsage` 도 수행되지 않는다** — 중단 시점까지의 토큰 사용량은 `log_events` 에 남지 않는다.
 - **user 메시지는 completion 성공 후에만 저장(고아 메시지 방지, f6c65f3)**: `send` 는 `client.complete` 를 먼저 호출하고, 성공한 경우에만 user·assistant 메시지를 insert 한다. 프로바이더 호출이 실패하면 아무 메시지도 남기지 않는다. ephemeral `complete` 는 애초에 메시지를 저장하지 않는다.
 - **메시지 쌍은 트랜잭션**: 저장은 `AiMessagePairInserter`(`service/domain/ai/ai-chat.ts` 타입, 구현은 `compose/ai.ts` 의 `insertMessagePair`)가 담당하고 `db.transaction` 안에서 user → assistant 순으로 insert 한 뒤 `$returningId()` 로 두 PK 를 돌려준다. 중간 실패로 user 메시지만 남는 경우가 없다. `ai-chat.ts` 는 이제 `sessionService.insertMessage` 를 직접 호출하지 않는다(주입된 inserter 만 사용).
 - **연결 등록 verify 실패는 원인 불문 `AI_CREDENTIALS_INVALID`(401)** 로 수렴한다(마스킹된 원인은 응답 `details` 에 포함). 즉 프로바이더의 429/5xx/네트워크 장애도 등록 시엔 자격 무효로 표면화될 수 있으니, 일시 장애면 재시도한다. 검증 실패 시 자격증명은 저장되지 않는다.

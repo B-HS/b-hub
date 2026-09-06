@@ -71,3 +71,24 @@
 리뷰가 승인으로 분류했으나 운영상 인지할 변경: CalDAV REPORT href 접두사가 요청 컬렉션과 일치하도록 바뀜(Apple 클라이언트는 재동기화로 흡수), DST 타임존은 VTIMEZONE 블록 생략, Gmail/IMAP 증분 sync 의 `added` 집합과 커서 값이 달라짐(누락 버그 수정 결과), 배지 아이콘 URL 에 DNS 검사 추가(사설 IP 로 해석되는 호스트는 아이콘 생략).
 
 린트 훅이 편집 중 지적한 기존 코드 2건은 이번 범위 밖이라 유지: `compose/mail.ts:17` 의 `throw new Error('MAIL_ENCRYPTION_KEY …')`(부트스트랩 검증), `service/shared/font-loader.ts`·`icon-loader.ts` 의 `process.env.VERCEL`.
+
+## 2026-09-07 브랜치·커밋 운영 (사용자 지시)
+
+- 1차 배치는 `fix/audit-batch1-data-loss-security` 브랜치에 도메인별 16개 Conventional Commit 으로 나눠 커밋·푸시했다(AI 트레일러 없음, git.md §6.1). dev 에는 머지하지 않았다.
+- 2차는 그 브랜치에서 딴 `fix/audit-batch2-immediate-errors` 에서 진행한다. 이후 배치도 같은 방식(직전 배치 브랜치에서 분기)으로 쌓는다.
+- 2차 착수 전에 두 그룹(mail·drive)이 공용으로 쓰는 `lib/db-helper.ts` 의 `isDuplicateKeyError`(mysql2 `ER_DUP_ENTRY`, drizzle `DrizzleQueryError.cause` 포함)를 조정자가 먼저 추가했다.
+
+## 2026-09-07 2차 배치 독립 회귀 리뷰 결과와 조치
+
+리뷰어 6(bblog-resume·mail-calendar-ai·storage-upload·weather-spotify-metrics·admin-manage·cross-cutting). 승인 목록 밖의 차이 4건을 조정자가 HEAD 의미로 되돌렸다.
+
+1. Gmail 본문 파트 선택 — 같은 MIME 파트가 여러 개일 때 첫 파트 고정(`??=`)으로 바뀐 것을 HEAD 의 마지막 파트 우선으로 원복. `message/rfc822` 하위 재귀 차단(E-20)만 유지.
+2. 드라이브 다운로드 — L3(gdrive) 다운로드 예외를 삼키고 L1 로 폴백하던 것을 제거. HEAD 처럼 예외를 전파하고, 폴백은 gdrive 저장소가 구성되지 않았거나 L3 사본이 없을 때만(E-18 승인 범위).
+3. 어드민 Ban 만료일 — `parseDateEnd`(그날 23:59:59.999) 로 값이 바뀌던 것을 HEAD 의 `new Date(입력)` 으로 원복. 무효 날짜만 validation flash.
+4. 어드민 quota — 비정수·누락 입력을 거부하던 것을 HEAD 의 `parseIntOr(…, 0)` 으로 원복. 음수만 거부.
+
+리뷰가 승인으로 분류했으나 운영상 인지할 사항:
+- 공개 GET `/api/blog/posts`·`/:id` 응답이 admin 쿠키 유무에 따라 달라지는데 `Vary: Cookie` 는 없다. bblog 가 admin 세션으로 ISR 재검증을 하면 초안 포함 목록이 공개 캐시에 남을 수 있다(HEAD 에서도 admin 이 `?isPublished=false` 로 보던 것과 같은 성격). 이 두 엔드포인트에 요청당 세션 조회 1회가 추가된다.
+- `POST /api/drive/assets/prepare` 는 validator 가 앞에 붙어 "미인증 + 무효 바디" 가 401 대신 400 이다(Storage 는 `success` 만 확인).
+- caldav-proxy 가 `content-length` 를 제거하므로 CalDAV 응답 프레이밍이 청크 기반으로 바뀐다. Apple 캘린더 실기기 확인 권장.
+- Spotify `isActive` 토글이 이제 즉시 집행되어 비활성 계정의 위젯 임베드는 깨진 이미지가 된다(A-4 승인 의도).
