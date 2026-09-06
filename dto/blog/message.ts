@@ -12,7 +12,7 @@ export const messageIdParamSchema = z.object({
 
 export const messageCreateSchema = z.object({
     body: z.string().min(1).max(10000),
-    imageIds: z.array(z.string()).default([]),
+    imageIds: z.array(z.uuid()).default([]),
     replyToId: z.string().nullable().default(null),
     retweetOfId: z.string().nullable().default(null),
 })

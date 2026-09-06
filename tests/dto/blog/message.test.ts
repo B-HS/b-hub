@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { messageListQuerySchema, messageCreateSchema, messageIdParamSchema } from '../../../dto/blog/message'
 
+const IMAGE_UUID_A = '3f7d6f2c-1a2b-4c3d-8e9f-0a1b2c3d4e5f'
+const IMAGE_UUID_B = '9c1e0b74-55aa-4b1c-9d2e-7f6a5b4c3d2e'
+
 describe('messageListQuerySchema', () => {
     test('기본값을 적용한다', () => {
         const result = messageListQuerySchema.parse({ userId: 'user-1' })
@@ -50,11 +53,19 @@ describe('messageCreateSchema', () => {
     test('이미지와 답글을 포함할 수 있다', () => {
         const result = messageCreateSchema.parse({
             body: 'Reply with images',
-            imageIds: ['img-1', 'img-2'],
+            imageIds: [IMAGE_UUID_A, IMAGE_UUID_B],
             replyToId: 'msg-parent',
         })
-        expect(result.imageIds).toEqual(['img-1', 'img-2'])
+        expect(result.imageIds).toEqual([IMAGE_UUID_A, IMAGE_UUID_B])
         expect(result.replyToId).toBe('msg-parent')
+    })
+
+    test('uuid 가 아닌 imageIds 는 실패한다', () => {
+        expect(() => messageCreateSchema.parse({ body: 'Hello', imageIds: ['img-1'] })).toThrow()
+    })
+
+    test('uuid 와 비-uuid 가 섞여도 실패한다', () => {
+        expect(() => messageCreateSchema.parse({ body: 'Hello', imageIds: [IMAGE_UUID_A, 'not-a-uuid'] })).toThrow()
     })
 
     test('빈 body는 실패한다', () => {

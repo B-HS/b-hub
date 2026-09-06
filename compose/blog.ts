@@ -348,25 +348,27 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
 
             insertMessage: async (data) => {
                 const messageId = crypto.randomUUID()
-                await db.insert(schema.messages).values({
-                    id: messageId,
-                    userId: data.userId,
-                    body: data.body,
-                    replyToId: data.replyToId,
-                    retweetOfId: data.retweetOfId,
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                })
-                if (data.imageIds.length > 0) {
-                    await db.insert(schema.messageImages).values(
+                const now = new Date()
+                await db.transaction(async (tx) => {
+                    await tx.insert(schema.messages).values({
+                        id: messageId,
+                        userId: data.userId,
+                        body: data.body,
+                        replyToId: data.replyToId,
+                        retweetOfId: data.retweetOfId,
+                        createdAt: now,
+                        updatedAt: now,
+                    })
+                    if (data.imageIds.length === 0) return
+                    await tx.insert(schema.messageImages).values(
                         data.imageIds.map((imageId, index) => ({
                             messageId,
                             imageId,
                             order: index,
-                            createdAt: new Date(),
+                            createdAt: now,
                         })),
                     )
-                }
+                })
                 return { id: messageId }
             },
 
@@ -460,9 +462,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                 await db.delete(schema.imageAssets).where(eq(schema.imageAssets.id, id))
             },
             getImageList: async () => {
-                const usedInMessages = db
-                    .select({ imageId: schema.messageImages.imageId })
-                    .from(schema.messageImages)
+                const usedInMessages = db.select({ imageId: schema.messageImages.imageId }).from(schema.messageImages)
                 const rows = await db
                     .select({
                         id: schema.imageAssets.id,

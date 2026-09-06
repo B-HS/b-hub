@@ -69,12 +69,7 @@ const signToken = (secret: string, assetId: string, s3Key: string, userId: strin
     return `${expiresAt}.${userIdB64}.${sig}`
 }
 
-const verifyToken = (
-    secret: string,
-    token: string,
-    assetId: string,
-    s3Key: string,
-): { ok: false } | { ok: true; userId: string } => {
+const verifyToken = (secret: string, token: string, assetId: string, s3Key: string): { ok: false } | { ok: true; userId: string } => {
     const parts = token.split('.')
     if (parts.length !== 3) return { ok: false }
     const [tsStr, userIdB64, sig] = parts
@@ -95,12 +90,18 @@ const verifyToken = (
     return { ok: true, userId }
 }
 
+const requireTokenSecret = (secret: string) => {
+    if (!secret) throw createAppError('SERVICE_NOT_CONFIGURED')
+    return secret
+}
+
 export const createBlogImageService = (deps: BlogImageDeps) => ({
     prepare: (userId: string): PrepareResult => {
+        const tokenSecret = requireTokenSecret(deps.tokenSecret)
         const assetId = deps.generateId()
         const s3Key = `${assetId}.webp`
         const expiresAt = Date.now() + TOKEN_TTL_MS
-        const uploadToken = signToken(deps.tokenSecret, assetId, s3Key, userId, expiresAt)
+        const uploadToken = signToken(tokenSecret, assetId, s3Key, userId, expiresAt)
         return { assetId, s3Key, uploadToken, uploadUrl: deps.uploadServerUrl, expiresAt }
     },
 
@@ -112,7 +113,7 @@ export const createBlogImageService = (deps: BlogImageDeps) => ({
         width: number | null
         height: number | null
     }): Promise<CompleteResult> => {
-        const result = verifyToken(deps.tokenSecret, data.uploadToken, data.assetId, data.s3Key)
+        const result = verifyToken(requireTokenSecret(deps.tokenSecret), data.uploadToken, data.assetId, data.s3Key)
         if (!result.ok) throw createAppError('UNAUTHORIZED')
 
         const expectedS3Key = `${data.assetId}.webp`

@@ -83,9 +83,9 @@ describe('createBlogImageService.complete', () => {
         const { assetId, s3Key, uploadToken } = service.prepare('user-1')
 
         const tampered = uploadToken.slice(0, -4) + 'xxxx'
-        await expect(
-            service.complete({ assetId, s3Key, uploadToken: tampered, sizeBytes: 1, width: 1, height: 1 }),
-        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+        await expect(service.complete({ assetId, s3Key, uploadToken: tampered, sizeBytes: 1, width: 1, height: 1 })).rejects.toMatchObject({
+            code: 'UNAUTHORIZED',
+        })
     })
 
     test('토큰 형식이 잘못된 경우 UNAUTHORIZED를 throw한다', async () => {
@@ -93,9 +93,9 @@ describe('createBlogImageService.complete', () => {
         const service = createBlogImageService(deps)
         const { assetId, s3Key } = service.prepare('user-1')
 
-        await expect(
-            service.complete({ assetId, s3Key, uploadToken: 'invalid', sizeBytes: 1, width: 1, height: 1 }),
-        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+        await expect(service.complete({ assetId, s3Key, uploadToken: 'invalid', sizeBytes: 1, width: 1, height: 1 })).rejects.toMatchObject({
+            code: 'UNAUTHORIZED',
+        })
     })
 
     test('s3Key가 assetId와 일치하지 않으면 VALIDATION_ERROR를 throw한다', async () => {
@@ -121,9 +121,9 @@ describe('createBlogImageService.complete', () => {
         const service = createBlogImageService(deps)
 
         const { assetId, s3Key, uploadToken } = evilService.prepare('user-1')
-        await expect(
-            service.complete({ assetId, s3Key, uploadToken, sizeBytes: 1, width: 1, height: 1 }),
-        ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+        await expect(service.complete({ assetId, s3Key, uploadToken, sizeBytes: 1, width: 1, height: 1 })).rejects.toMatchObject({
+            code: 'UNAUTHORIZED',
+        })
     })
 })
 
@@ -159,5 +159,33 @@ describe('createBlogImageService.delete', () => {
         const service = createBlogImageService(deps)
         await expect(service.delete('test-uuid-123')).rejects.toMatchObject({ code: 'FORBIDDEN' })
         expect(deps.storage.delete).not.toHaveBeenCalled()
+    })
+})
+
+describe('createBlogImageService 시크릿 미설정', () => {
+    test('tokenSecret이 비어 있으면 prepare는 SERVICE_NOT_CONFIGURED를 throw한다', () => {
+        const service = createBlogImageService({ ...createMockDeps(), tokenSecret: '' })
+        expect(() => service.prepare('user-1')).toThrow()
+        try {
+            service.prepare('user-1')
+        } catch (error) {
+            expect(error).toMatchObject({ code: 'SERVICE_NOT_CONFIGURED', statusCode: 503 })
+        }
+    })
+
+    test('tokenSecret이 비어 있으면 위조 토큰으로도 complete가 SERVICE_NOT_CONFIGURED로 막힌다', async () => {
+        const deps = { ...createMockDeps(), tokenSecret: '' }
+        const service = createBlogImageService(deps)
+        await expect(
+            service.complete({
+                assetId: 'test-uuid-123',
+                s3Key: 'test-uuid-123.webp',
+                uploadToken: `${Date.now() + 60_000}.dXNlci0x.sig`,
+                sizeBytes: 1,
+                width: 1,
+                height: 1,
+            }),
+        ).rejects.toMatchObject({ code: 'SERVICE_NOT_CONFIGURED', statusCode: 503 })
+        expect(deps.db.insertImageAsset).not.toHaveBeenCalled()
     })
 })
