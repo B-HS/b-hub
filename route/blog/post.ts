@@ -26,7 +26,9 @@ export const createPostRoute = (deps: PostRouteDeps) => {
         validator('query', postListQuerySchema),
         withErrorHandling(async (c) => {
             const query = c.req.valid('query' as never) as z.infer<typeof postListQuerySchema>
-            const result = await deps.postService.list(query)
+            const session = await deps.getSession(c)
+            const isAdmin = session?.user.role === 'admin'
+            const result = await deps.postService.list(isAdmin ? query : { ...query, isPublished: true, isHide: false })
             return c.json(
                 paginatedResponse(result.data, {
                     page: result.page,
@@ -51,7 +53,8 @@ export const createPostRoute = (deps: PostRouteDeps) => {
             const id = Number(c.req.param('id'))
             if (isNaN(id)) throw createAppError('BLOG_POST_NOT_FOUND')
 
-            const post = await deps.postService.getById(id)
+            const session = await deps.getSession(c)
+            const post = await deps.postService.getById(id, { publicOnly: session?.user.role !== 'admin' })
             if (!post) throw createAppError('BLOG_POST_NOT_FOUND')
 
             return c.json(successResponse({ post }))

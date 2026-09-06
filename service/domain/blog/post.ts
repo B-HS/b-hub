@@ -77,12 +77,15 @@ export const createPostService = (deps: PostServiceDeps) => ({
         }
     },
 
-    getById: async (id: number) => {
+    getById: async (id: number, options?: { publicOnly?: boolean }) => {
         const post = await deps.db.getPostById(id)
         if (!post) return null
+        if (options?.publicOnly && (!post.isPublished || post.isHide)) return null
         await deps.db.incrementViews(id)
         return post
     },
+
+    getByIdWithoutView: async (id: number) => deps.db.getPostById(id),
 
     create: async (input: PostCreateInput) => {
         return deps.db.insertPost({

@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-    imageCompleteRequestSchema,
-    imageCompleteResponseSchema,
-    imageListResponseSchema,
-    imagePrepareResponseSchema,
-} from '../../../dto/blog/image'
+import { imageCompleteRequestSchema, imageCompleteResponseSchema, imageListResponseSchema, imagePrepareResponseSchema } from '../../../dto/blog/image'
 
 const validUuid = '11111111-1111-4111-8111-111111111111'
 
@@ -117,17 +112,56 @@ describe('imageCompleteRequestSchema', () => {
         ).toThrow()
     })
 
-    test('width가 0이면 거부한다 (positive)', () => {
+    test('width가 0이면 null로 변환한다 (upload-server 메타 실패 대응)', () => {
+        const result = imageCompleteRequestSchema.parse({
+            assetId: validUuid,
+            s3Key: 'k',
+            uploadToken: 't',
+            sizeBytes: 1024,
+            width: 0,
+            height: 100,
+        })
+        expect(result.width).toBeNull()
+        expect(result.height).toBe(100)
+    })
+
+    test('width/height가 모두 0이면 둘 다 null로 변환한다', () => {
+        const result = imageCompleteRequestSchema.parse({
+            assetId: validUuid,
+            s3Key: 'k',
+            uploadToken: 't',
+            sizeBytes: 1024,
+            width: 0,
+            height: 0,
+        })
+        expect(result.width).toBeNull()
+        expect(result.height).toBeNull()
+    })
+
+    test('width가 음수이면 거부한다', () => {
         expect(() =>
             imageCompleteRequestSchema.parse({
                 assetId: validUuid,
                 s3Key: 'k',
                 uploadToken: 't',
                 sizeBytes: 1024,
-                width: 0,
+                width: -1,
                 height: 100,
             }),
         ).toThrow()
+    })
+
+    test('양수 width/height는 그대로 유지한다', () => {
+        const result = imageCompleteRequestSchema.parse({
+            assetId: validUuid,
+            s3Key: 'k',
+            uploadToken: 't',
+            sizeBytes: 1024,
+            width: 1920,
+            height: 1080,
+        })
+        expect(result.width).toBe(1920)
+        expect(result.height).toBe(1080)
     })
 
     test('width가 누락되면 거부한다 (nullable이지만 optional은 아님)', () => {

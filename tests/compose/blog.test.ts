@@ -1,4 +1,5 @@
 import { describe, expect, test, mock } from 'bun:test'
+import { getTableName, sql } from 'drizzle-orm'
 import { composeBlog } from '../../compose/blog'
 
 const IMAGE_UUID_A = '3f7d6f2c-1a2b-4c3d-8e9f-0a1b2c3d4e5f'
@@ -81,5 +82,76 @@ describe('composeBlog messageDb.insertMessage', () => {
             messageService.create('user-1', { body: 'hello', imageIds: [IMAGE_UUID_A], replyToId: null, retweetOfId: null }),
         ).rejects.toThrow('image insert failed')
         expect(fake.stats().committed).toBe(false)
+    })
+})
+
+const mockPostRow = {
+    postId: 1,
+    categoryId: 1,
+    categoryName: 'Tech',
+    title: 'Test',
+    description: 'Content',
+    updatedAt: new Date(),
+    createdAt: new Date(),
+    views: 0,
+    isPublished: true,
+    isHide: false,
+    isNotice: false,
+    isComment: true,
+    tags: [],
+}
+
+const createQueryChain = (rows: unknown[]) => {
+    const chain = {
+        select: () => chain,
+        from: () => chain,
+        leftJoin: () => chain,
+        groupBy: () => chain,
+        where: () => chain,
+        orderBy: () => chain,
+        limit: () => chain,
+        offset: () => chain,
+        $dynamic: () => chain,
+        as: () => ({ postId: sql`post_id`, tags: sql`tags` }),
+        then: (resolve: (value: unknown[]) => void) => resolve(rows),
+    }
+    return chain
+}
+
+const createFakePostDb = () => {
+    const deletedTables: string[] = []
+    let transactionCalls = 0
+    const tx = {
+        delete: (table: unknown) => ({
+            where: async () => {
+                const name = getTableName(table as never)
+                if (name === 'posts' && !deletedTables.includes('comments')) throw new Error('FOREIGN KEY constraint fails (comments)')
+                deletedTables.push(name)
+            },
+        }),
+    }
+    const db = {
+        select: () => createQueryChain([mockPostRow]),
+        delete: () => {
+            throw new Error('delete outside transaction')
+        },
+        transaction: async (fn: (t: typeof tx) => Promise<void>) => {
+            transactionCalls += 1
+            await fn(tx)
+        },
+    }
+    return { db, deletedTables, stats: () => ({ transactionCalls }) }
+}
+
+describe('composeBlog postDb.deletePost', () => {
+    test('댓글을 먼저 지운 뒤 게시글을 같은 트랜잭션에서 삭제한다 (FK 500 방지)', async () => {
+        const fake = createFakePostDb()
+        const { postService } = createServices(fake.db)
+
+        const result = await postService.delete(1)
+
+        expect(result).toEqual({ postId: 1 })
+        expect(fake.stats().transactionCalls).toBe(1)
+        expect(fake.deletedTables).toEqual(['comments', 'posts'])
     })
 })

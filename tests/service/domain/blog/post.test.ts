@@ -249,4 +249,57 @@ describe('createPostService', () => {
         await service.getById(1)
         expect(db.incrementViews).toHaveBeenCalledWith(1)
     })
+
+    test('getByIdWithoutView는 게시글을 반환하되 조회수를 증가시키지 않는다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        const result = await service.getByIdWithoutView(1)
+        expect(result).not.toBeNull()
+        expect(result!.postId).toBe(1)
+        expect(db.incrementViews).not.toHaveBeenCalled()
+    })
+
+    test('getByIdWithoutView는 존재하지 않는 게시글에 null을 반환한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        expect(await service.getByIdWithoutView(999)).toBeNull()
+    })
+
+    test('publicOnly면 미공개 게시글에 null을 반환하고 조회수도 올리지 않는다', async () => {
+        const db = createMockDb()
+        db.getPostById = mock(() => Promise.resolve({ ...mockPostDetail, isPublished: false }))
+        const service = createPostService({ db })
+
+        expect(await service.getById(1, { publicOnly: true })).toBeNull()
+        expect(db.incrementViews).not.toHaveBeenCalled()
+    })
+
+    test('publicOnly면 숨김 게시글에 null을 반환한다', async () => {
+        const db = createMockDb()
+        db.getPostById = mock(() => Promise.resolve({ ...mockPostDetail, isHide: true }))
+        const service = createPostService({ db })
+
+        expect(await service.getById(1, { publicOnly: true })).toBeNull()
+    })
+
+    test('publicOnly가 아니면 미공개·숨김 게시글도 반환한다', async () => {
+        const db = createMockDb()
+        db.getPostById = mock(() => Promise.resolve({ ...mockPostDetail, isPublished: false, isHide: true }))
+        const service = createPostService({ db })
+
+        const result = await service.getById(1)
+        expect(result).not.toBeNull()
+        expect(db.incrementViews).toHaveBeenCalledWith(1)
+    })
+
+    test('publicOnly라도 공개 게시글은 반환하고 조회수를 올린다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        const result = await service.getById(1, { publicOnly: true })
+        expect(result).not.toBeNull()
+        expect(db.incrementViews).toHaveBeenCalledWith(1)
+    })
 })

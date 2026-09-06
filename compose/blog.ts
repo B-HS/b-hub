@@ -155,7 +155,11 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
             },
 
             deletePost: async (postId) => {
-                await db.delete(schema.posts).where(eq(schema.posts.postId, postId))
+                const { posts, comments } = schema
+                await db.transaction(async (tx) => {
+                    await tx.delete(comments).where(eq(comments.postId, postId))
+                    await tx.delete(posts).where(eq(posts.postId, postId))
+                })
                 return { postId }
             },
 

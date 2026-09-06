@@ -6,6 +6,7 @@ const createMockDeps = () => ({
     postService: {
         list: mock(() => Promise.resolve({ data: [], total: 0, page: 1, limit: 20 })),
         getById: mock(() => Promise.resolve(null)),
+        getByIdWithoutView: mock(() => Promise.resolve(null)),
         create: mock(() => Promise.resolve({ postId: 1 })),
         update: mock((id: number) => Promise.resolve(id === 1 ? { postId: 1 } : null)),
         delete: mock((id: number) => Promise.resolve(id === 1 ? { postId: 1 } : null)),

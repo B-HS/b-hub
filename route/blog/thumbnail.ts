@@ -41,7 +41,7 @@ export const createThumbnailRoute = (deps: ThumbnailRouteDeps) => {
             const id = Number(c.req.param('id'))
             if (isNaN(id)) throw createAppError('BLOG_POST_NOT_FOUND')
 
-            const post = await deps.postService.getById(id)
+            const post = await deps.postService.getByIdWithoutView(id)
             if (!post) throw createAppError('BLOG_POST_NOT_FOUND')
 
             const title = post.title

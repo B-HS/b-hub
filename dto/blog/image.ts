@@ -13,8 +13,18 @@ export const imageCompleteRequestSchema = z.object({
     s3Key: z.string(),
     uploadToken: z.string(),
     sizeBytes: z.number().int().positive(),
-    width: z.number().int().positive().nullable(),
-    height: z.number().int().positive().nullable(),
+    width: z
+        .number()
+        .int()
+        .nonnegative()
+        .nullable()
+        .transform((value) => (value === 0 ? null : value)),
+    height: z
+        .number()
+        .int()
+        .nonnegative()
+        .nullable()
+        .transform((value) => (value === 0 ? null : value)),
 })
 
 export const imageCompleteResponseSchema = z.object({
