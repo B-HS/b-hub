@@ -1,20 +1,29 @@
 import { readFile, readdir } from 'fs/promises'
 import { join } from 'path'
-import { isPublicUrl } from '../../lib/url-validator'
+import { isPublicUrlResolved } from '../../lib/url-validator'
+import { createCache } from './cache'
+import type { AddressLookup } from '../../lib/url-validator'
 
 type IconLoaderDeps = {
     fetchFn?: typeof fetch
     iconDir?: string
     parseICO?: (buffer: ArrayBuffer, mime: string) => Promise<Array<{ width: number; buffer: ArrayBuffer }>>
+    lookupFn?: AddressLookup
 }
 
 const basePath = process.env.VERCEL ? '/var/task' : process.cwd()
 const SAFE_ICON_NAME = /^[a-zA-Z0-9_-]+$/
 const FETCH_TIMEOUT_MS = 8000
 const MAX_REDIRECT_HOPS = 3
+const MAX_ICON_BYTES = 2 * 1024 * 1024
+const ICON_CACHE_MAX_SIZE = 300
+const ICON_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const ICON_FAILURE_TTL_MS = 5 * 60 * 1000
+const ALLOWED_ICON_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
 
 export const createIconLoader = (deps: IconLoaderDeps = {}) => {
-    const iconCache = new Map<string, string>()
+    const iconCache = createCache<string>({ maxSize: ICON_CACHE_MAX_SIZE, defaultTtlMs: ICON_CACHE_TTL_MS })
+    const failureCache = createCache<boolean>({ maxSize: ICON_CACHE_MAX_SIZE, defaultTtlMs: ICON_FAILURE_TTL_MS })
     const fetchFn = deps.fetchFn ?? fetch
     const iconDir = deps.iconDir ?? join(basePath, 'public', 'icon')
     let availableIcons: string[] = []
@@ -32,7 +41,8 @@ export const createIconLoader = (deps: IconLoaderDeps = {}) => {
 
     const loadLocal = async (name: string): Promise<string | null> => {
         if (!SAFE_ICON_NAME.test(name)) return null
-        if (iconCache.has(name)) return iconCache.get(name)!
+        const cached = iconCache.get(name)
+        if (cached) return cached
 
         const svgPath = join(iconDir, `${name}.svg`)
         const pngPath = join(iconDir, `${name}.png`)
@@ -91,6 +101,14 @@ export const createIconLoader = (deps: IconLoaderDeps = {}) => {
         if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
         if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif'
         if (bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01 && bytes[3] === 0x00) return 'image/x-icon'
+        if (
+            bytes[0] === 0x52 &&
+            bytes[1] === 0x49 &&
+            bytes[2] === 0x46 &&
+            bytes[3] === 0x46 &&
+            Buffer.from(buffer).subarray(8, 12).toString() === 'WEBP'
+        )
+            return 'image/webp'
 
         const text = Buffer.from(buffer).toString('utf-8').trim()
         if (text.startsWith('<svg') || text.startsWith('<?xml') || text.includes('<svg')) return 'image/svg+xml'
@@ -99,20 +117,18 @@ export const createIconLoader = (deps: IconLoaderDeps = {}) => {
         if (url.endsWith('.png')) return 'image/png'
         if (url.endsWith('.ico')) return 'image/x-icon'
 
-        return contentType || 'image/png'
+        return contentType.split(';')[0].trim().toLowerCase() || 'image/png'
     }
 
-    const loadFromUrl = async (url: string): Promise<string | null> => {
-        if (!isPublicUrl(url)) return null
-        if (iconCache.has(url)) return iconCache.get(url)!
+    const fetchIconFromUrl = async (url: string): Promise<string | null> => {
+        if (!(await isPublicUrlResolved(url, deps.lookupFn))) return null
 
         try {
-            const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+            const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
 
             const doFetch = (target: string) =>
                 fetchFn(target, {
-                    signal: controller.signal,
+                    signal,
                     redirect: 'manual',
                     headers: { 'User-Agent': 'Mozilla/5.0 Badge-Generator/1.0' },
                 })
@@ -122,25 +138,25 @@ export const createIconLoader = (deps: IconLoaderDeps = {}) => {
             let hop = 0
             while (response.status >= 300 && response.status < 400) {
                 const location = response.headers.get('location')
-                if (!location || hop >= MAX_REDIRECT_HOPS) {
-                    clearTimeout(timeoutId)
-                    return null
-                }
+                if (!location || hop >= MAX_REDIRECT_HOPS) return null
+
                 const nextUrl = new URL(location, currentUrl).toString()
-                if (!isPublicUrl(nextUrl)) {
-                    clearTimeout(timeoutId)
-                    return null
-                }
+                if (!(await isPublicUrlResolved(nextUrl, deps.lookupFn))) return null
+
                 currentUrl = nextUrl
                 hop += 1
                 response = await doFetch(currentUrl)
             }
-            clearTimeout(timeoutId)
 
             if (!response.ok) return null
 
+            const declaredLength = Number(response.headers.get('content-length') ?? '')
+            if (Number.isFinite(declaredLength) && declaredLength > MAX_ICON_BYTES) return null
+
             const contentType = response.headers.get('content-type') || ''
             let buffer = await response.arrayBuffer()
+            if (buffer.byteLength > MAX_ICON_BYTES) return null
+
             let mimeType = detectMimeType(buffer, contentType, url)
 
             if (mimeType === 'image/x-icon' && deps.parseICO) {
@@ -152,22 +168,35 @@ export const createIconLoader = (deps: IconLoaderDeps = {}) => {
                 }
             }
 
+            if (!ALLOWED_ICON_MIME_TYPES.includes(mimeType)) return null
+
             if (mimeType === 'image/svg+xml') {
                 const svgText = Buffer.from(buffer).toString('utf-8')
                 const sanitized = sanitizeSvg(svgText)
                 const base64 = Buffer.from(sanitized).toString('base64')
-                const dataUrl = `data:${mimeType};base64,${base64}`
-                iconCache.set(url, dataUrl)
-                return dataUrl
+                return `data:${mimeType};base64,${base64}`
             }
 
             const base64 = Buffer.from(buffer).toString('base64')
-            const dataUrl = `data:${mimeType};base64,${base64}`
-            iconCache.set(url, dataUrl)
-            return dataUrl
+            return `data:${mimeType};base64,${base64}`
         } catch {
             return null
         }
+    }
+
+    const loadFromUrl = async (url: string): Promise<string | null> => {
+        const cached = iconCache.get(url)
+        if (cached) return cached
+        if (failureCache.has(url)) return null
+
+        const dataUrl = await fetchIconFromUrl(url)
+        if (!dataUrl) {
+            failureCache.set(url, true)
+            return null
+        }
+
+        iconCache.set(url, dataUrl)
+        return dataUrl
     }
 
     return { loadLocal, loadFromUrl, loadAvailableIcons }

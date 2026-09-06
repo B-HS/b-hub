@@ -24,8 +24,10 @@ afterAll(() => {
     } catch {}
 })
 
+const publicLookup = async () => [{ address: '93.184.216.34' }]
+
 describe('icon-loader', () => {
-    const loader = createIconLoader({ iconDir: TEST_ICON_DIR })
+    const loader = createIconLoader({ iconDir: TEST_ICON_DIR, lookupFn: publicLookup })
 
     test('loadLocal: 유효한 SVG 아이콘 → data URL', async () => {
         const result = await loader.loadLocal('test')
@@ -74,7 +76,7 @@ describe('icon-loader', () => {
             }
             return new Response('should-not-be-reached', { headers: { 'content-type': 'image/png' } })
         }
-        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
         const result = await loaderWithMock.loadFromUrl('https://example.com/redir.png')
         expect(result).toBeNull()
     })
@@ -87,7 +89,7 @@ describe('icon-loader', () => {
             }
             return new Response(svg, { headers: { 'content-type': 'image/svg+xml' } })
         }
-        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
         const result = await loaderWithMock.loadFromUrl('https://example.com/start.svg')
         expect(result).toStartWith('data:image/svg+xml;base64,')
     })
@@ -104,11 +106,107 @@ describe('icon-loader', () => {
                 headers: { 'content-type': 'image/svg+xml' },
             })
 
-        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
         const result = await loaderWithMock.loadFromUrl('https://example.com/icon.svg')
         expect(result).not.toBeNull()
 
         const decoded = Buffer.from(result!.split(',')[1], 'base64').toString('utf-8')
         expect(decoded).not.toContain('<script')
+    })
+
+    test('loadFromUrl: DNS가 내부 IP로 resolve되면 fetch하지 않는다', async () => {
+        let fetched = false
+        const mockFetch = async () => {
+            fetched = true
+            return new Response('x', { headers: { 'content-type': 'image/png' } })
+        }
+        const loaderWithMock = createIconLoader({
+            iconDir: TEST_ICON_DIR,
+            fetchFn: mockFetch as never,
+            lookupFn: async () => [{ address: '169.254.169.254' }],
+        })
+
+        expect(await loaderWithMock.loadFromUrl('https://rebind.example.com/icon.png')).toBeNull()
+        expect(fetched).toBe(false)
+    })
+
+    test('loadFromUrl: 허용되지 않은 MIME(text/html) → null', async () => {
+        const mockFetch = async () => new Response('<html><body>not an icon</body></html>', { headers: { 'content-type': 'text/html' } })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
+
+        expect(await loaderWithMock.loadFromUrl('https://example.com/icon.html')).toBeNull()
+    })
+
+    test('loadFromUrl: parseICO 없이 ICO → null', async () => {
+        const ico = new Uint8Array([0x00, 0x00, 0x01, 0x00, 0x01, 0x00])
+        const mockFetch = async () => new Response(ico, { headers: { 'content-type': 'image/x-icon' } })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
+
+        expect(await loaderWithMock.loadFromUrl('https://example.com/favicon.ico')).toBeNull()
+    })
+
+    test('loadFromUrl: content-length가 상한을 넘으면 null', async () => {
+        const mockFetch = async () =>
+            new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
+                headers: { 'content-type': 'image/png', 'content-length': String(5 * 1024 * 1024) },
+            })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
+
+        expect(await loaderWithMock.loadFromUrl('https://example.com/huge.png')).toBeNull()
+    })
+
+    test('loadFromUrl: 실제 본문이 상한을 넘으면 null', async () => {
+        const oversized = new Uint8Array(3 * 1024 * 1024)
+        oversized.set([0x89, 0x50, 0x4e, 0x47], 0)
+        const mockFetch = async () => new Response(oversized, { headers: { 'content-type': 'image/png' } })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
+
+        expect(await loaderWithMock.loadFromUrl('https://example.com/oversized.png')).toBeNull()
+    })
+
+    test('loadFromUrl: 본문 다운로드까지 취소 시그널을 유지한다', async () => {
+        const receivedSignals: Array<AbortSignal | null | undefined> = []
+        const mockFetch = async (_target: string | URL, init?: RequestInit) => {
+            receivedSignals.push(init?.signal)
+            return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { 'content-type': 'image/png' } })
+        }
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
+
+        const result = await loaderWithMock.loadFromUrl('https://example.com/ok.png')
+        expect(result).toStartWith('data:image/png;base64,')
+        expect(receivedSignals[0]).toBeInstanceOf(AbortSignal)
+        expect(receivedSignals[0]?.aborted).toBe(false)
+    })
+
+    test('loadFromUrl: webp 아이콘 → data URL', async () => {
+        const webp = new Uint8Array(16)
+        webp.set(Buffer.from('RIFF'), 0)
+        webp.set(Buffer.from('WEBP'), 8)
+        const mockFetch = async () => new Response(webp, { headers: { 'content-type': 'image/webp' } })
+        const loaderWithMock = createIconLoader({ iconDir: TEST_ICON_DIR, fetchFn: mockFetch as never, lookupFn: publicLookup })
+
+        expect(await loaderWithMock.loadFromUrl('https://example.com/icon.webp')).toStartWith('data:image/webp;base64,')
+    })
+
+    test('loadFromUrl: 실패한 URL은 재요청·DNS 조회를 하지 않는다', async () => {
+        let fetchCount = 0
+        let lookupCount = 0
+        const mockFetch = async () => {
+            fetchCount += 1
+            return new Response('nope', { status: 404 })
+        }
+        const loaderWithMock = createIconLoader({
+            iconDir: TEST_ICON_DIR,
+            fetchFn: mockFetch as never,
+            lookupFn: async () => {
+                lookupCount += 1
+                return [{ address: '93.184.216.34' }]
+            },
+        })
+
+        expect(await loaderWithMock.loadFromUrl('https://example.com/missing.png')).toBeNull()
+        expect(await loaderWithMock.loadFromUrl('https://example.com/missing.png')).toBeNull()
+        expect(fetchCount).toBe(1)
+        expect(lookupCount).toBe(1)
     })
 })

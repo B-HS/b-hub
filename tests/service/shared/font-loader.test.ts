@@ -58,12 +58,39 @@ describe('createFontLoader', () => {
             expect(fetchFn).toHaveBeenCalledTimes(2)
         })
 
+        test('Google 폰트 요청에 타임아웃 시그널을 붙인다', async () => {
+            const css = `@font-face { src: url('https://fonts.gstatic.com/s/inter/v1/inter.woff2') format('woff2'); }`
+            const signals: Array<AbortSignal | null | undefined> = []
+            const fetchFn = mock((url: string, init?: RequestInit) => {
+                signals.push(init?.signal)
+                if (url.includes('fonts.googleapis.com')) {
+                    return Promise.resolve({ ok: true, text: () => Promise.resolve(css) } as Response)
+                }
+                return Promise.resolve({ ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) } as Response)
+            })
+            const loader = createFontLoader({ fetchFn })
+
+            await loader.loadGoogle('Inter', 400)
+            expect(signals).toHaveLength(2)
+            expect(signals[0]).toBeInstanceOf(AbortSignal)
+            expect(signals[1]).toBeInstanceOf(AbortSignal)
+        })
+
         test('네트워크 에러 시 null을 반환한다', async () => {
             const fetchFn = mock(() => Promise.reject(new Error('Network error')))
             const loader = createFontLoader({ fetchFn })
 
             const result = await loader.loadGoogle('Inter', 400)
             expect(result).toBeNull()
+        })
+
+        test('실패한 폰트는 다음 요청에서 다시 시도한다', async () => {
+            const fetchFn = mock(() => Promise.reject(new Error('Network error')))
+            const loader = createFontLoader({ fetchFn })
+
+            expect(await loader.loadGoogle('CustomFont', 400)).toBeNull()
+            expect(await loader.loadGoogle('CustomFont', 400)).toBeNull()
+            expect(fetchFn).toHaveBeenCalledTimes(2)
         })
     })
 

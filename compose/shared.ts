@@ -1,5 +1,5 @@
 import { S3Client } from '@aws-sdk/client-s3'
-import { eq, like } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, like, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import satori from 'satori'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
@@ -18,6 +18,10 @@ import { createCache } from '../service/shared/cache'
 import { createBadgeService } from '../service/domain/badge/badge'
 import { convertTailwindToCSS, mergeStyles } from '../lib/tailwind-converter'
 import type { ComposeSharedArgs } from './types'
+
+const ADMIN_ROLE = 'admin'
+const GOOGLE_PROVIDER_ID = 'google'
+const GDRIVE_SCOPE_FRAGMENT = 'drive.file'
 
 export const composeShared = ({ db, env }: ComposeSharedArgs) => {
     const auth = createAuthProvider({
@@ -92,7 +96,15 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         const [row] = await db
             .select({ refreshToken: schema.account.refreshToken })
             .from(schema.account)
-            .where(like(schema.account.scope, '%drive.file%'))
+            .leftJoin(schema.user, eq(schema.account.userId, schema.user.id))
+            .where(
+                and(
+                    eq(schema.account.providerId, GOOGLE_PROVIDER_ID),
+                    like(schema.account.scope, `%${GDRIVE_SCOPE_FRAGMENT}%`),
+                    isNotNull(schema.account.refreshToken),
+                ),
+            )
+            .orderBy(desc(sql`${schema.user.role} = ${ADMIN_ROLE}`), desc(schema.account.updatedAt))
             .limit(1)
         return row?.refreshToken ?? null
     }

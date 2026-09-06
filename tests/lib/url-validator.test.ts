@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isPublicUrl, isAllowedRedirect } from '../../lib/url-validator'
+import { isPublicUrl, isPublicUrlResolved, isAllowedRedirect } from '../../lib/url-validator'
 
 describe('isPublicUrl', () => {
     test('HTTPS public URL을 허용한다', () => {
@@ -62,6 +62,70 @@ describe('isPublicUrl', () => {
         expect(isPublicUrl('')).toBe(false)
         expect(isPublicUrl('ftp://example.com')).toBe(false)
     })
+
+    test('IPv4-mapped IPv6 주소를 거부한다', () => {
+        expect(isPublicUrl('https://[::ffff:127.0.0.1]')).toBe(false)
+        expect(isPublicUrl('https://[::ffff:169.254.169.254]')).toBe(false)
+        expect(isPublicUrl('https://[::ffff:7f00:1]')).toBe(false)
+        expect(isPublicUrl('https://[::ffff:a9fe:a9fe]')).toBe(false)
+    })
+
+    test('100.64/10 CGNAT 대역을 거부한다', () => {
+        expect(isPublicUrl('https://100.64.0.1')).toBe(false)
+        expect(isPublicUrl('https://100.127.255.255')).toBe(false)
+        expect(isPublicUrl('https://100.63.0.1')).toBe(true)
+        expect(isPublicUrl('https://100.128.0.1')).toBe(true)
+    })
+
+    test('멀티캐스트·브로드캐스트 주소를 거부한다', () => {
+        expect(isPublicUrl('https://224.0.0.1')).toBe(false)
+        expect(isPublicUrl('https://239.255.255.250')).toBe(false)
+        expect(isPublicUrl('https://255.255.255.255')).toBe(false)
+    })
+
+    test('IPv6 링크로컬·멀티캐스트·ULA를 거부한다', () => {
+        expect(isPublicUrl('https://[fe80::1]')).toBe(false)
+        expect(isPublicUrl('https://[feb0::1]')).toBe(false)
+        expect(isPublicUrl('https://[ff02::1]')).toBe(false)
+        expect(isPublicUrl('https://[fd00::1]')).toBe(false)
+        expect(isPublicUrl('https://[::]')).toBe(false)
+    })
+})
+
+describe('isPublicUrlResolved', () => {
+    test('공개 IP로 resolve되면 허용한다', async () => {
+        const lookupFn = async () => [{ address: '93.184.216.34' }]
+        expect(await isPublicUrlResolved('https://example.com/icon.png', lookupFn)).toBe(true)
+    })
+
+    test('내부 IP로 resolve되면 거부한다 (DNS rebinding 차단)', async () => {
+        const lookupFn = async () => [{ address: '169.254.169.254' }]
+        expect(await isPublicUrlResolved('https://rebind.example.com/icon.png', lookupFn)).toBe(false)
+    })
+
+    test('resolve 결과에 내부 IP가 하나라도 있으면 거부한다', async () => {
+        const lookupFn = async () => [{ address: '93.184.216.34' }, { address: '::ffff:127.0.0.1' }]
+        expect(await isPublicUrlResolved('https://mixed.example.com', lookupFn)).toBe(false)
+    })
+
+    test('resolve 실패나 빈 결과는 거부한다', async () => {
+        const failing = async () => {
+            throw new Error('ENOTFOUND')
+        }
+        expect(await isPublicUrlResolved('https://example.com', failing)).toBe(false)
+        expect(await isPublicUrlResolved('https://example.com', async () => [])).toBe(false)
+    })
+
+    test('동기 검사에서 이미 막히는 URL은 resolve하지 않는다', async () => {
+        let called = false
+        const lookupFn = async () => {
+            called = true
+            return [{ address: '93.184.216.34' }]
+        }
+        expect(await isPublicUrlResolved('http://example.com', lookupFn)).toBe(false)
+        expect(await isPublicUrlResolved('https://127.0.0.1', lookupFn)).toBe(false)
+        expect(called).toBe(false)
+    })
 })
 
 describe('isAllowedRedirect', () => {
@@ -86,6 +150,12 @@ describe('isAllowedRedirect', () => {
 
     test('protocol-relative URL을 거부한다', () => {
         expect(isAllowedRedirect('//evil.com')).toBe(false)
+    })
+
+    test('백슬래시 기반 protocol-relative URL을 거부한다', () => {
+        expect(isAllowedRedirect('/\\evil.com')).toBe(false)
+        expect(isAllowedRedirect('/\\/evil.com')).toBe(false)
+        expect(isAllowedRedirect('\\\\evil.com')).toBe(false)
     })
 
     test('javascript: 프로토콜을 거부한다', () => {

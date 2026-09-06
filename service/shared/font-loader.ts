@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import { createCache } from './cache'
 
 type FontInfo = {
     name: string
@@ -26,8 +27,12 @@ const LOCAL_FONTS: FontInfo[] = [
     { name: 'Noto Sans KR', weights: [400, 700] },
 ]
 
+const FONT_CACHE_MAX_SIZE = 50
+const FONT_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+const FONT_FETCH_TIMEOUT_MS = 8000
+
 export const createFontLoader = (deps: FontLoaderDeps = {}) => {
-    const fontCache = new Map<string, ArrayBuffer>()
+    const fontCache = createCache<ArrayBuffer>({ maxSize: FONT_CACHE_MAX_SIZE, defaultTtlMs: FONT_CACHE_TTL_MS })
     const fetchFn = deps.fetchFn ?? fetch
 
     const getFontFilePath = (name: string, weight: number) => {
@@ -40,10 +45,7 @@ export const createFontLoader = (deps: FontLoaderDeps = {}) => {
         return ''
     }
 
-    const loadLocal = async (name: string, weight: number): Promise<ArrayBuffer | null> => {
-        const cacheKey = `local-${name}-${weight}`
-        if (fontCache.has(cacheKey)) return fontCache.get(cacheKey)!
-
+    const readLocalFont = async (name: string, weight: number) => {
         const fontInfo = LOCAL_FONTS.find((f) => f.name === name)
         if (!fontInfo) return null
 
@@ -54,23 +56,31 @@ export const createFontLoader = (deps: FontLoaderDeps = {}) => {
 
         try {
             const buffer = await readFile(filePath)
-            const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-            fontCache.set(cacheKey, arrayBuffer)
-            return arrayBuffer
+            return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
         } catch {
             return null
         }
     }
 
-    const loadGoogle = async (name: string, weight: number): Promise<ArrayBuffer | null> => {
-        const cacheKey = `google-${name}-${weight}`
-        if (fontCache.has(cacheKey)) return fontCache.get(cacheKey)!
+    const loadLocal = async (name: string, weight: number): Promise<ArrayBuffer | null> => {
+        const cacheKey = `local-${name}-${weight}`
+        const cached = fontCache.get(cacheKey)
+        if (cached) return cached
 
+        const arrayBuffer = await readLocalFont(name, weight)
+        if (!arrayBuffer) return null
+
+        fontCache.set(cacheKey, arrayBuffer)
+        return arrayBuffer
+    }
+
+    const fetchGoogleFont = async (name: string, weight: number): Promise<ArrayBuffer | null> => {
         try {
             const encodedName = encodeURIComponent(name)
             const cssUrl = `https://fonts.googleapis.com/css2?family=${encodedName}:wght@${weight}&display=swap`
 
             const cssResponse = await fetchFn(cssUrl, {
+                signal: AbortSignal.timeout(FONT_FETCH_TIMEOUT_MS),
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
                 },
@@ -82,15 +92,25 @@ export const createFontLoader = (deps: FontLoaderDeps = {}) => {
             if (!fontUrlMatch) return null
 
             const fontUrl = fontUrlMatch[1].replace(/['"]/g, '')
-            const fontResponse = await fetchFn(fontUrl)
+            const fontResponse = await fetchFn(fontUrl, { signal: AbortSignal.timeout(FONT_FETCH_TIMEOUT_MS) })
             if (!fontResponse.ok) return null
 
-            const arrayBuffer = await fontResponse.arrayBuffer()
-            fontCache.set(cacheKey, arrayBuffer)
-            return arrayBuffer
+            return await fontResponse.arrayBuffer()
         } catch {
             return null
         }
+    }
+
+    const loadGoogle = async (name: string, weight: number): Promise<ArrayBuffer | null> => {
+        const cacheKey = `google-${name}-${weight}`
+        const cached = fontCache.get(cacheKey)
+        if (cached) return cached
+
+        const arrayBuffer = await fetchGoogleFont(name, weight)
+        if (!arrayBuffer) return null
+
+        fontCache.set(cacheKey, arrayBuffer)
+        return arrayBuffer
     }
 
     const load = async (name: string, weight: number): Promise<FontConfig | null> => {
