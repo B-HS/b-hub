@@ -762,6 +762,7 @@ export const calendarSubscription = mysqlTable(
         index('idx_subscription_token').on(table.token),
         index('idx_subscription_ics_token').on(table.icsToken),
         index('idx_subscription_user').on(table.userId),
+        unique('uq_calendar_subscription_user').on(table.userId),
     ],
 )
 

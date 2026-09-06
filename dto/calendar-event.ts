@@ -15,38 +15,44 @@ export const eventStatusSchema = z.enum(['TENTATIVE', 'CONFIRMED', 'CANCELLED'])
 
 export const eventTransparencySchema = z.enum(['TRANSPARENT', 'OPAQUE'])
 
-export const createEventSchema = z.object({
-    summary: z.string().min(1).max(500),
-    dtstart: z.coerce.date(),
-    dtend: z.coerce.date(),
-    isAllDay: z.boolean().default(false),
-    description: z.string().max(5000).optional(),
-    location: z.string().max(500).optional(),
-    rrule: recurrenceRuleSchema.optional(),
-    status: eventStatusSchema.optional(),
-    transp: eventTransparencySchema.optional(),
-    priority: z.number().int().min(0).max(9).optional(),
-    categories: z.array(z.string()).optional(),
-    color: z.string().optional(),
-    groupId: z.string().min(1).optional().nullable(),
-})
+const DATE_RANGE_MESSAGE = 'dtend는 dtstart보다 빠를 수 없습니다'
 
-export const updateEventSchema = z.object({
-    summary: z.string().min(1).max(500).optional(),
-    dtstart: z.coerce.date().optional(),
-    dtend: z.coerce.date().optional(),
-    isAllDay: z.boolean().optional(),
-    description: z.string().max(5000).optional().nullable(),
-    location: z.string().max(500).optional().nullable(),
-    rrule: recurrenceRuleSchema.optional().nullable(),
-    exdate: z.array(z.string()).optional().nullable(),
-    status: eventStatusSchema.optional().nullable(),
-    transp: eventTransparencySchema.optional().nullable(),
-    priority: z.number().int().min(0).max(9).optional().nullable(),
-    categories: z.array(z.string()).optional().nullable(),
-    color: z.string().optional().nullable(),
-    groupId: z.string().min(1).optional().nullable(),
-})
+export const createEventSchema = z
+    .object({
+        summary: z.string().min(1).max(500),
+        dtstart: z.coerce.date(),
+        dtend: z.coerce.date(),
+        isAllDay: z.boolean().default(false),
+        description: z.string().max(5000).optional(),
+        location: z.string().max(500).optional(),
+        rrule: recurrenceRuleSchema.optional(),
+        status: eventStatusSchema.optional(),
+        transp: eventTransparencySchema.optional(),
+        priority: z.number().int().min(0).max(9).optional(),
+        categories: z.array(z.string()).optional(),
+        color: z.string().optional(),
+        groupId: z.string().min(1).optional().nullable(),
+    })
+    .refine((data) => data.dtend >= data.dtstart, { message: DATE_RANGE_MESSAGE, path: ['dtend'] })
+
+export const updateEventSchema = z
+    .object({
+        summary: z.string().min(1).max(500).optional(),
+        dtstart: z.coerce.date().optional(),
+        dtend: z.coerce.date().optional(),
+        isAllDay: z.boolean().optional(),
+        description: z.string().max(5000).optional().nullable(),
+        location: z.string().max(500).optional().nullable(),
+        rrule: recurrenceRuleSchema.optional().nullable(),
+        exdate: z.array(z.string()).optional().nullable(),
+        status: eventStatusSchema.optional().nullable(),
+        transp: eventTransparencySchema.optional().nullable(),
+        priority: z.number().int().min(0).max(9).optional().nullable(),
+        categories: z.array(z.string()).optional().nullable(),
+        color: z.string().optional().nullable(),
+        groupId: z.string().min(1).optional().nullable(),
+    })
+    .refine((data) => !data.dtstart || !data.dtend || data.dtend >= data.dtstart, { message: DATE_RANGE_MESSAGE, path: ['dtend'] })
 
 export const dateRangeQuerySchema = z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

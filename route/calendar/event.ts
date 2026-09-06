@@ -50,6 +50,16 @@ const eventToResponse = (event: CalendarEvent) => ({
 export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
     const route = new Hono()
 
+    const assertGroupOwned = async (userId: string, groupId: string | null | undefined) => {
+        if (!groupId) return
+        const group = await deps.calendarService.getGroupById(userId, groupId)
+        if (!group) throw createAppError('CALENDAR_GROUP_NOT_FOUND')
+    }
+
+    const assertDateRange = (dtstart: Date, dtend: Date) => {
+        if (dtend < dtstart) throw createAppError('VALIDATION_ERROR')
+    }
+
     route.get(
         '/',
         validator('query', monthQuerySchema),
@@ -79,10 +89,7 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             const diffDays = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
             if (diffDays > MAX_DATE_RANGE_DAYS) throw createAppError('CALENDAR_INVALID_DATE_RANGE')
 
-            if (query.groupId) {
-                const group = await deps.calendarService.getGroupById(session.user.id, query.groupId)
-                if (!group) throw createAppError('CALENDAR_GROUP_NOT_FOUND')
-            }
+            await assertGroupOwned(session.user.id, query.groupId)
 
             const events = await deps.calendarService.getEventsByDateRange(session.user.id, startDate, endDate, query.groupId)
             return c.json(successResponse(events.map((e) => toEventResponse(e))))
@@ -111,6 +118,8 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             if (!session) throw createAppError('UNAUTHORIZED')
 
             const data = c.req.valid('json' as never) as z.infer<typeof createEventSchema>
+            await assertGroupOwned(session.user.id, data.groupId)
+
             const event = await deps.calendarService.createEvent(session.user.id, {
                 summary: data.summary,
                 description: data.description,
@@ -150,6 +159,9 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
 
             const data = c.req.valid('json' as never) as z.infer<typeof createEventBodySchema>
             const input = toEventInput(data)
+            assertDateRange(input.dtstart, input.dtend)
+            await assertGroupOwned(session.user.id, input.groupId)
+
             const event = await deps.calendarService.createEvent(session.user.id, input)
 
             return c.json(successResponse(toEventResponse(event)), 201)
@@ -168,6 +180,8 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
             if (!existing) throw createAppError('CALENDAR_EVENT_NOT_FOUND')
 
             const data = c.req.valid('json' as never) as z.infer<typeof updateEventSchema>
+            await assertGroupOwned(session.user.id, data.groupId)
+
             const event = await deps.calendarService.updateEvent(session.user.id, {
                 uid: existing.uid,
                 summary: data.summary ?? existing.summary,
@@ -217,6 +231,9 @@ export const createCalendarEventRoute = (deps: CalendarEventRouteDeps) => {
 
             const data = c.req.valid('json' as never) as z.infer<typeof patchEventBodySchema>
             const merged = toEventPatch(existing, data)
+            if (data.startDate !== undefined && data.endDate !== undefined) assertDateRange(merged.dtstart, merged.dtend)
+            await assertGroupOwned(session.user.id, data.groupId)
+
             const updated = await deps.calendarService.updateEvent(session.user.id, merged)
 
             return c.json(successResponse(toEventResponse(updated)))

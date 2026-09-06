@@ -480,6 +480,9 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
             isActive: true,
         })
 
+        const created = await db.getSubscription(userId)
+        if (created) return created
+
         return { id, userId, token, icsToken, name: name ?? 'Schedule', isActive: true, ctag: '0', lastAccessedAt: null }
     }
 

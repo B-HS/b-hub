@@ -470,3 +470,179 @@ describe('PATCH /events/:uid', () => {
         expect(res.status).toBe(200)
     })
 })
+
+describe('groupId 소유 검증', () => {
+    test('POST /events 에서 남의 그룹이면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getGroupById = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                summary: '새 회의',
+                dtstart: '2024-01-15T10:00:00Z',
+                dtend: '2024-01-15T11:00:00Z',
+                groupId: 'other-user-group',
+            }),
+        })
+        expect(res.status).toBe(404)
+        const body = await res.json()
+        expect(body.error.code).toBe('CALENDAR_GROUP_NOT_FOUND')
+        expect(deps.calendarService.createEvent).not.toHaveBeenCalled()
+    })
+
+    test('POST /events/create 에서 남의 그룹이면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getGroupById = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/events/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: '새 회의',
+                startDate: '2024-01-15',
+                endDate: '2024-01-15',
+                groupId: 'other-user-group',
+            }),
+        })
+        expect(res.status).toBe(404)
+        expect(deps.calendarService.createEvent).not.toHaveBeenCalled()
+    })
+
+    test('PUT /events/:uid 에서 남의 그룹이면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getGroupById = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/events/test-uid', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ groupId: 'other-user-group' }),
+        })
+        expect(res.status).toBe(404)
+        expect(deps.calendarService.updateEvent).not.toHaveBeenCalled()
+    })
+
+    test('PATCH /events/:uid 에서 남의 그룹이면 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getGroupById = mock(() => Promise.resolve(null))
+        const { app } = createApp(deps)
+        const res = await app.request('/events/test-uid', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ groupId: 'other-user-group' }),
+        })
+        expect(res.status).toBe(404)
+        expect(deps.calendarService.updateEvent).not.toHaveBeenCalled()
+    })
+
+    test('PATCH /events/:uid 에서 groupId를 보내지 않으면 그룹을 조회하지 않는다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+        const res = await app.request('/events/test-uid', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: '수정된 회의' }),
+        })
+        expect(res.status).toBe(200)
+        expect(deps.calendarService.getGroupById).not.toHaveBeenCalled()
+    })
+
+    test('자신의 그룹이면 생성에 성공한다', async () => {
+        const { app, deps } = createApp()
+        const res = await app.request('/events/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: '새 회의',
+                startDate: '2024-01-15',
+                endDate: '2024-01-15',
+                groupId: 'group-1',
+            }),
+        })
+        expect(res.status).toBe(201)
+        expect(deps.calendarService.getGroupById).toHaveBeenCalledWith('user-1', 'group-1')
+    })
+})
+
+describe('dtend/dtstart 역전 검증', () => {
+    test('POST /events 에서 dtend가 dtstart보다 빠르면 400을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                summary: '회의',
+                dtstart: '2024-01-15T11:00:00Z',
+                dtend: '2024-01-15T10:00:00Z',
+            }),
+        })
+        expect(res.status).toBe(400)
+    })
+
+    test('POST /events/create 에서 endDate가 startDate보다 빠르면 400을 반환한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+        const res = await app.request('/events/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: '회의',
+                startDate: '2024-01-16',
+                endDate: '2024-01-15',
+            }),
+        })
+        expect(res.status).toBe(400)
+        const body = await res.json()
+        expect(body.error.code).toBe('VALIDATION_ERROR')
+        expect(deps.calendarService.createEvent).not.toHaveBeenCalled()
+    })
+
+    test('POST /events/create 에서 같은 날 endTime이 startTime보다 빠르면 400을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/events/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: '회의',
+                startDate: '2024-01-15',
+                endDate: '2024-01-15',
+                startTime: '11:00',
+                endTime: '10:00',
+            }),
+        })
+        expect(res.status).toBe(400)
+    })
+
+    test('PUT /events/:uid 에서 dtend가 dtstart보다 빠르면 400을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/events/test-uid', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dtstart: '2024-01-15T11:00:00Z', dtend: '2024-01-15T10:00:00Z' }),
+        })
+        expect(res.status).toBe(400)
+    })
+
+    test('PATCH /events/:uid 에서 두 날짜를 모두 보내고 역전되면 400을 반환한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+        const res = await app.request('/events/test-uid', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ startDate: '2024-02-02', endDate: '2024-02-01' }),
+        })
+        expect(res.status).toBe(400)
+        expect(deps.calendarService.updateEvent).not.toHaveBeenCalled()
+    })
+
+    test('PATCH /events/:uid 에서 startDate만 보내면 병합 결과를 검증하지 않는다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/events/test-uid', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ startDate: '2024-02-01' }),
+        })
+        expect(res.status).toBe(200)
+    })
+})

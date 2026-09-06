@@ -136,12 +136,10 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
             },
 
             insertSubscription: async (data) => {
-                await db.transaction(async (tx) => {
-                    const existing = await tx.select().from(schema.calendarSubscription).where(eq(schema.calendarSubscription.userId, data.userId))
-                    if (existing.length === 0) {
-                        await tx.insert(schema.calendarSubscription).values(data)
-                    }
-                })
+                await db
+                    .insert(schema.calendarSubscription)
+                    .values(data)
+                    .onDuplicateKeyUpdate({ set: { userId: data.userId } })
             },
 
             updateSubscription: async (userId, data) => {

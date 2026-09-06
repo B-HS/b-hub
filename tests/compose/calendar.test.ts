@@ -84,3 +84,35 @@ describe('composeCalendar deleteEventWithTombstone', () => {
         expect(fake.stats().committed).toBe(false)
     })
 })
+
+describe('composeCalendar insertSubscription', () => {
+    test('select 없이 onDuplicateKeyUpdate 로 upsert 한다', async () => {
+        const calls: { values: unknown; set: unknown }[] = []
+        let selectCalls = 0
+        const db = {
+            select: () => {
+                selectCalls += 1
+                return { from: () => ({ where: async () => [] }) }
+            },
+            insert: () => ({
+                values: (values: unknown) => ({
+                    onDuplicateKeyUpdate: async (config: { set: unknown }) => {
+                        calls.push({ values, set: config.set })
+                    },
+                }),
+            }),
+            transaction: async () => {
+                throw new Error('transaction should not be used')
+            },
+        }
+        const { calendarService } = createServices(db)
+
+        const subscription = await calendarService.createSubscription('user-1', 'My Calendar')
+
+        expect(calls).toHaveLength(1)
+        expect((calls[0].values as { userId: string }).userId).toBe('user-1')
+        expect((calls[0].set as { userId: string }).userId).toBe('user-1')
+        expect(subscription.name).toBe('My Calendar')
+        expect(selectCalls).toBe(2)
+    })
+})

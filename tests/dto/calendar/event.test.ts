@@ -467,3 +467,43 @@ describe('dateRangeQuerySchema', () => {
         expect(result.success).toBe(false)
     })
 })
+
+describe('createEventSchema 날짜 역전 검증', () => {
+    test('dtend가 dtstart보다 빠르면 실패한다', () => {
+        const result = createEventSchema.safeParse({
+            summary: '회의',
+            dtstart: '2024-01-15T11:00:00Z',
+            dtend: '2024-01-15T10:00:00Z',
+        })
+        expect(result.success).toBe(false)
+    })
+
+    test('dtend와 dtstart가 같으면 성공한다', () => {
+        const result = createEventSchema.safeParse({
+            summary: '회의',
+            dtstart: '2024-01-15T10:00:00Z',
+            dtend: '2024-01-15T10:00:00Z',
+        })
+        expect(result.success).toBe(true)
+    })
+})
+
+describe('updateEventSchema 날짜 역전 검증', () => {
+    test('두 값이 모두 있고 역전되면 실패한다', () => {
+        const result = updateEventSchema.safeParse({
+            dtstart: '2024-01-15T11:00:00Z',
+            dtend: '2024-01-15T10:00:00Z',
+        })
+        expect(result.success).toBe(false)
+    })
+
+    test('dtstart만 있으면 성공한다', () => {
+        const result = updateEventSchema.safeParse({ dtstart: '2024-01-15T11:00:00Z' })
+        expect(result.success).toBe(true)
+    })
+
+    test('dtend만 있으면 성공한다', () => {
+        const result = updateEventSchema.safeParse({ dtend: '2024-01-15T10:00:00Z' })
+        expect(result.success).toBe(true)
+    })
+})
