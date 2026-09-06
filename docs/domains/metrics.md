@@ -1,6 +1,6 @@
 # metrics 도메인
 
-> 기준: 2026-07-22 코드 검증. 다루는 코드: `route/metrics/ingest.ts`, `route/metrics/token.ts`, `route/metrics/query.ts`, `service/domain/metrics/token.ts`, `service/domain/metrics/log.ts`, `dto/metrics/token.ts`, `dto/metrics/ingest.ts`, `dto/metrics/query.ts`, `compose/metrics.ts`, `compose/types.ts`, `compose/index.ts`, `middleware/require-metrics-token.ts`, `db/schema.ts`(`metrics_token`), `db/mongo.ts`, `route/index.ts`, `index.ts`, `page/admin/pages/metrics.tsx`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/metrics/ingest.ts`, `route/metrics/token.ts`, `route/metrics/query.ts`, `service/domain/metrics/token.ts`, `service/domain/metrics/log.ts`, `dto/metrics/token.ts`, `dto/metrics/ingest.ts`, `dto/metrics/query.ts`, `compose/metrics.ts`, `compose/types.ts`, `compose/index.ts`, `middleware/require-metrics-token.ts`, `db/schema.ts`(`metrics_token`), `db/mongo.ts`, `route/index.ts`, `index.ts`, `page/admin/pages/metrics.tsx`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -68,7 +68,9 @@
 - **수집**: 클라이언트가 `Authorization: Bearer <token>` 또는 `X-Metrics-Token` 으로 POST `/api/metrics/ingest`(단건)·`/api/metrics/ingest/batch`(≤50) → `requireMetricsToken`(client scope 검증 + rolling 24h rate limit) → payload 크기 검사(직렬화 >64KB 413) → `metricsLogService.ingest` 가 `receivedAt` 서버시각으로 `metrics_logs` insert + 디바이스별 최신 이벤트로 `metrics_devices` upsert.
 - **디바이스 메타 보존**: `upsertDevice` 는 null 메타를 `$set` 이 아니라 `$setOnInsert` 로 보내 **기존 메타를 null 로 덮지 않는다**(간헐적으로 메타 없는 이벤트가 와도 최초 등록값 유지).
 - **조회·시계열**: admin scope 토큰으로 GET `/api/metrics/devices`(online = `now-lastSeenAt < max(3×intervalSec, 5분)`), `/api/metrics/logs`(페이지네이션), `/api/metrics/series`(aggregate: `payload.<field>` 가 number 인 문서만 → 최신순 limit → `{t,v}` 매핑 후 시간 오름차순 reverse).
-- **아카이브(2026-07-22 사용자 결정: R2·핫 7일·매일)**: Vercel cron 이 매일 `/api/metrics/archive`(cron 인증) 호출 → `archiveOldLogs` 가 UTC 자정 기준 7일(`HOT_RETENTION_DAYS`) 이전의 **완결된 일자만** 순회하며, 일자별 전체 문서를 JSONL 로 직렬화 → gzip → R2 `metrics-archive/YYYY-MM-DD.jsonl.gz` 업로드 → **업로드 성공 후에만** 해당 일자 삭제. 실패 시 삭제가 실행되지 않아 데이터 유실이 없고, 재실행은 같은 키를 덮어써 멱등이다. 어드민 차트(최대 7d)는 핫 데이터 범위와 일치한다. Mongo TTL(90일)은 아카이브 미동작 시의 백스톱으로 유지.
+- **아카이브(2026-07-22 사용자 결정: R2·핫 7일·매일)**: Vercel cron 이 매일 `/api/metrics/archive`(cron 인증) 호출 → `archiveOldLogs` 가 UTC 자정 기준 7일(`HOT_RETENTION_DAYS`) 이전의 **완결된 일자만** 순회하며, 일자별 전체 문서를 JSONL 로 직렬화 → gzip → R2 업로드 → **업로드 성공 후에만** 해당 일자 삭제. 실패 시 삭제가 실행되지 않아 데이터 유실이 없다.
+- **아카이브 키는 일자별 디렉터리 + 파트 번호**다: `metrics-archive/<YYYY-MM-DD>/<n>.jsonl.gz`. 업로드 전에 `metrics-archive/<day>/` 접두사를 나열해(`MetricsArchiveStorage.listKeys`) 비어 있는 가장 작은 `n`(0부터)을 고르므로, 같은 날짜를 다시 아카이브해도 **기존 파트를 덮어쓰지 않고** 새 파트로 쌓인다(이전 방식은 `metrics-archive/<day>.jsonl.gz` 단일 키를 덮어썼다). 이전 형식으로 이미 올라간 평면 키(`metrics-archive/<day>.jsonl.gz`)는 접두사가 달라 목록에 잡히지 않고 그대로 남는다.
+- **집계 불일치는 보고한다**: 아카이브한 문서 수와 삭제된 문서 수가 다르면 `captureException` 으로 `metrics archive mismatch on <day>` 를 남긴다(응답의 `{ day, count, deleted }` 에도 그대로 드러난다). 어드민 차트(최대 7d)는 핫 데이터 범위와 일치한다. Mongo TTL(90일)은 아카이브 미동작 시의 백스톱으로 유지.
 - **토큰 발급·폐기**: 최초 admin 토큰은 `/admin/metrics/tokens` SSR 에서 발급하고, 이후 API(`/api/metrics/tokens`)로도 admin scope 로 발급/폐기한다. 평문 토큰은 발급 응답 1회만 노출된다(sha256 해시 저장).
 
 ## 주의사항 / 함정

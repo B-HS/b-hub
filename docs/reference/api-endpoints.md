@@ -1,6 +1,6 @@
 # API 엔드포인트 전수 인벤토리
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/with-rate-limit.ts`, `vercel.json`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/with-rate-limit.ts`, `vercel.json`
 
 ## 범위
 
@@ -23,7 +23,7 @@
 | `widget-token` | URL 경로 토큰 | `spotifyWidgetTokenService.validate(token)` |
 | `구독토큰` | URL 경로 구독/ICS 토큰 | `getSubscriptionByToken`/`getSubscriptionByIcsToken` |
 | `업로드토큰` | 본문 HMAC `uploadToken` | 서비스가 서명 검증(실패 시 `UNAUTHORIZED`) |
-| `cron-secret` | `Authorization: Bearer`/`x-cron-secret` == `uploadServerSecret` | `route/drive/lifecycle.ts` `verifyCronAuth` |
+| `cron-secret` | `Authorization: Bearer`/`x-cron-secret` == `uploadServerSecret`(상수 시간 비교 `isSecretMatch`) | `route/drive/lifecycle.ts` `verifyCronAuth` |
 
 > `X-API-Token`(`withApiToken`/`requireApiToken`)은 정의·테스트만 있고 **어떤 라우트에도 연결돼 있지 않다**(발급·관리는 세션으로). 상세: [../domains/auth.md](../domains/auth.md).
 
@@ -282,7 +282,7 @@
 |--------|-----------|------|------|-------------|
 | POST | `/api/drive/assets` | 세션 | 파일 업로드(multipart, 직접) | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/prepare` | 세션 | 업로드 사전 등록(preparing) | `route/drive/asset.ts` |
-| POST | `/api/drive/assets/:assetId/status` | 업로드토큰 | 업로드 상태 갱신(upload-server) | `route/drive/asset.ts` |
+| POST | `/api/drive/assets/:assetId/status` | upload-server secret + 업로드토큰 | 업로드 상태 갱신(upload-server). 응답 `{ id, uploadStatus, s3Key }` | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/:assetId/complete` | 업로드토큰 | 업로드 완료 콜백(Lightsail→hyun-hub) | `route/drive/asset.ts` |
 | POST | `/api/drive/assets/:assetId/gdrive-token` | upload-server secret + 업로드토큰 | Google Drive access token 발급(upload-server, `requireUploadServer` 게이트) | `route/drive/asset.ts` |
 | GET | `/api/drive/assets` | 세션 | 파일 목록(페이지네이션) | `route/drive/asset.ts` |
@@ -296,9 +296,9 @@
 | GET | `/api/drive/folders/:folderId` | 세션 | 폴더 상세 + breadcrumb | `route/drive/folder.ts` |
 | PATCH | `/api/drive/folders/:folderId` | 세션 | 폴더 수정(이름/이동) | `route/drive/folder.ts` |
 | DELETE | `/api/drive/folders/:folderId` | 세션 | 폴더 삭제 | `route/drive/folder.ts` |
-| POST | `/api/drive/lifecycle/evict-r2` | cron-secret | R2 stale 축출 — **Vercel cron**(`0 3 * * *`) | `route/drive/lifecycle.ts` |
-| POST | `/api/drive/lifecycle/evict-local` | cron-secret | 로컬 FIFO 축출(cron 미등록) | `route/drive/lifecycle.ts` |
-| POST | `/api/drive/lifecycle/auto-promote` | cron-secret | 계층 자동 승격 — **Vercel cron**(`0 5 * * *`) | `route/drive/lifecycle.ts` |
+| GET·POST | `/api/drive/lifecycle/evict-r2` | cron-secret | R2 stale 축출 — **Vercel cron**(`0 3 * * *`) | `route/drive/lifecycle.ts` |
+| GET·POST | `/api/drive/lifecycle/evict-local` | cron-secret | 로컬 FIFO 축출(cron 미등록) | `route/drive/lifecycle.ts` |
+| GET·POST | `/api/drive/lifecycle/auto-promote` | cron-secret | 계층 자동 승격 — **Vercel cron**(`0 5 * * *`) | `route/drive/lifecycle.ts` |
 
 파일 카운트: `asset.ts` = 11, `folder.ts` = 5, `lifecycle.ts` = 3. 상세: [../domains/drive.md](../domains/drive.md).
 
@@ -411,8 +411,8 @@
 
 | 경로 | 스케줄 | 대응 핸들러 |
 |------|--------|-------------|
-| `/api/drive/lifecycle/evict-r2` | `0 3 * * *` | `route/drive/lifecycle.ts` (POST `/evict-r2`) |
-| `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` (POST `/auto-promote`) |
+| `/api/drive/lifecycle/evict-r2` | `0 3 * * *` | `route/drive/lifecycle.ts` (GET·POST `/evict-r2`) |
+| `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` (GET·POST `/auto-promote`) |
 | `/api/metrics/archive` | `20 4 * * *` | `route/metrics/archive.ts` (GET·POST `/archive`) |
 
 ---

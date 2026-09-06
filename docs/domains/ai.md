@@ -1,6 +1,6 @@
 # ai 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
 
 ## 외부 프로바이더 API 계약 (2026-07 조사 확정)
 
@@ -128,7 +128,7 @@
 ### 채팅 (`ai-chat.send`)
 1. 세션 소유권 확인 → `resolveClient`(status reauth/disabled 가드) → 프롬프트(`session.promptIds`) 조립: stage system/context → system 텍스트, user/assistant → seed 메시지.
 2. `listRecentMessages`(최근 50) + 첨부 이미지(`resolveImages` base64) 로 messages 를 **메모리에서만** 조립(seed → history → 이번 user 메시지). 이 시점엔 DB 에 아무것도 저장하지 않는다.
-3. `client.complete` 호출(시간 측정). **실패 시 `logUsage`(severity 40 → Discord 알림) 후 재-throw — 메시지는 저장하지 않는다(고아 user 메시지 방지, f6c65f3).** 성공한 경우에만 user 메시지 저장(첨부 연결) → assistant 메시지 저장(tokens·durationMs) → `touchLastMessage`·`touchUsed` → `logUsage`(severity 20).
+3. `client.complete` 호출(시간 측정). **실패 시 `logUsage`(severity 40 → Discord 알림) 후 재-throw — 메시지는 저장하지 않는다(고아 user 메시지 방지, f6c65f3).** 성공한 경우에만 `insertMessagePair` 로 **user·assistant 두 행을 한 트랜잭션에서** 저장하고(반환값은 두 PK), 이어서 첨부 연결(user 메시지 PK 기준) → `touchLastMessage`·`touchUsed` → `logUsage`(severity 20).
 - `complete`(ephemeral)는 세션 없이 동일 조립으로 completion 만 반환 — 다른 도메인이 `aiChatService.complete(userId, {...})` 로 융합 호출.
 
 ### SSE 스트리밍 (`ai-chat.sendStream` · `ai-chat.completeStream`)
@@ -164,7 +164,8 @@
 - **AI_ENCRYPTION_KEY graceful**: mail(fail-fast)과 달리 AI 는 키 없으면 앱은 정상 부팅하고 AI 라우트만 503. → [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md)
 - **codex 는 temperature/maxTokens 미적용**: `/responses` body 에 이 두 파라미터를 넣지 않는다(Responses API 지원 필드 미확정). anthropic/ollama 세션에선 반영되지만 codex 세션에선 사용자 설정이 무시된다. anthropic 은 temperature 를 0–1 로 클램프(DTO 는 0–2 허용).
 - **codex 동시 refresh single-flight**: 같은 provider 의 동시 만료 요청은 `ai-provider-factory` 의 `refreshInFlight` Map 으로 refresh 를 1회로 합쳐 회전 토큰 재사용(`refresh_token_reused`) 영구 실패를 막는다. 단 **서버리스 다중 인스턴스 간에는 공유되지 않는다**(인메모리, mail 레이트리밋과 동일 한계). 회전 토큰 저장(persist) 실패 시 이번 요청은 진행하되 `reauth_required` 로 마킹해 다음 요청부터 재등록을 유도한다.
-- **user 메시지는 completion 성공 후에만 저장(고아 메시지 방지, f6c65f3)**: `send` 는 `client.complete` 를 먼저 호출하고, 성공한 경우에만 user·assistant 메시지를 함께 insert 한다. 프로바이더 호출이 실패하면 아무 메시지도 남기지 않는다(과거엔 user 메시지를 먼저 저장해 실패 시 고아 user 메시지가 남던 것을 보완). ephemeral `complete` 는 애초에 메시지를 저장하지 않는다.
+- **user 메시지는 completion 성공 후에만 저장(고아 메시지 방지, f6c65f3)**: `send` 는 `client.complete` 를 먼저 호출하고, 성공한 경우에만 user·assistant 메시지를 insert 한다. 프로바이더 호출이 실패하면 아무 메시지도 남기지 않는다. ephemeral `complete` 는 애초에 메시지를 저장하지 않는다.
+- **메시지 쌍은 트랜잭션**: 저장은 `AiMessagePairInserter`(`service/domain/ai/ai-chat.ts` 타입, 구현은 `compose/ai.ts` 의 `insertMessagePair`)가 담당하고 `db.transaction` 안에서 user → assistant 순으로 insert 한 뒤 `$returningId()` 로 두 PK 를 돌려준다. 중간 실패로 user 메시지만 남는 경우가 없다. `ai-chat.ts` 는 이제 `sessionService.insertMessage` 를 직접 호출하지 않는다(주입된 inserter 만 사용).
 - **연결 등록 verify 실패는 원인 불문 `AI_CREDENTIALS_INVALID`(401)** 로 수렴한다(마스킹된 원인은 응답 `details` 에 포함). 즉 프로바이더의 429/5xx/네트워크 장애도 등록 시엔 자격 무효로 표면화될 수 있으니, 일시 장애면 재시도한다. 검증 실패 시 자격증명은 저장되지 않는다.
 - **첨부 쿼터**: 업로드는 `user.storage_quota_bytes` 게이트를 강제한다(초과 시 `AI_ATTACHMENT_TOO_LARGE`). 단 이 사용량은 `ai_attachments` 만 합산하며 drive(`cloud_assets`)와는 별도로 카운트된다. 업로드 엔드포인트도 사용자당 레이트리밋(`ai:attachment:upload`) 대상이다.
 

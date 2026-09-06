@@ -3,6 +3,26 @@
 > 베이스 룰: `CLAUDE.md` + `~/.claude/convention/*`(arrow only, 반환타입 추론, any/unknown 금지, 코드 주석 금지, named export, Factory DI + ServiceDb, `z.infer`/`ReturnType` 유도, 응답 헬퍼, 에러 3파일).
 > 문서 진입점: [index.md](./index.md) · 완료 작업 이력: [history/](./history/)
 
+## 진행 중 — 전수 감사 후속: 소비자 계약 고정 후 버그·최적화 수정 (2026-09-06)
+
+> 배경: 2026-09-06 전수 감사(7개 도메인 에이전트 + 코어 직접 검토)로 BUG/RISK/PERF 약 150건 도출. 사용자 전제: **요청/응답 계약 불변 + 현재 돌아가는 소비자 동작 100% 보장**. 합의·레포 지도: [acknowledge/2026-09-06-consumer-repos-and-compat.md](./acknowledge/2026-09-06-consumer-repos-and-compat.md). 발견 목록: [quality-assurance/2026-09-06-audit-findings.md](./quality-assurance/2026-09-06-audit-findings.md)
+
+- [x] a. 감사 — 도메인별 발견 목록 작성(스크래치패드 7파일 → quality-assurance 문서로 통합)
+- [x] b. 소비자 레포 파악 — 로컬 2개(bblog·RESUME) + GitHub 코드 검색으로 11개 식별, 전부 `~/development/` 에 클론(사용자 승인)
+- [x] c. 소비자 계약 인벤토리 — 5개 에이전트 결과를 [reference/consumer-contracts.md](./reference/consumer-contracts.md) 로 통합(1,424줄). 소비자 판정: 런타임 소비자 = bblog·RESUME·mail·Calendar·Storage·Rirekisyo·weather·ESP32 2종·dashboard·Banga(auth 만), 비소비 = nextjs-portfolio(docs), hn-alert(대상 도메인 `/api/hn` 삭제됨, 전면 고장)
+- [x] d. 수정 계획 — 계약 대조 분류를 [quality-assurance/2026-09-06-audit-findings.md](./quality-assurance/2026-09-06-audit-findings.md) 말미 "계약 대조 결과" 에 기록. 사용자 결정: A-1~A-5 적용, A-6~A-9 는 심층 영향 검토 후 재결정, A-10 미적용, Rirekisyo 보류(acknowledge 참조)
+- [x] d2. A-6~A-9 심층 영향 검토 — 워크플로 12 에이전트 완료. 결과: A-6 조건부(Calendar FE 선행 필요)·A-7 조건부(동작 축소)·A-8 미적용·A-9 미적용. 근거는 acknowledge 문서. 사용자 재결정 대기
+- [x] e. 1차 수정(Workflow 26 에이전트) — D-01~D-22, S-01~S-15, C-15 구현. 전체 typecheck 0 오류·테스트 2828 pass(베이스라인 1건 제외)·prettier 통과. 91 파일 변경(미커밋). S-16·S-17 은 3차(R-02)로 이동
+- [x] e2. 1차 후속(Workflow 13 에이전트 완료, 독립 검증 tsc 0·2864 pass·0 fail) — 검증자 지적 반영: F-7 Gmail 식별자 범위 유지(계정 단위 1행), F-1 이동 원자성(unique 충돌 방지), F-2 증분 동기화 폴더 카운트 생략, F-3 status 콜백 s3Key 대조, F-4 로그 배치 사전 검사 원복, F-5 라우터 env 게이트(E-26)
+- [x] e3-1. 소비자별 독립 회귀 리뷰(워크플로 7 리뷰어) — 미승인 차이 3건(부트스트랩 throw·mail 이동 오삭제·font 실패 캐시) 조정자가 직접 수정, 재검증 tsc 0·2864 pass·prettier 통과. 상세: acknowledge 문서
+- [x] e3-2. 1차 문서 갱신(에이전트, 문서 20 수정 + history 신규) — domains/{drive,mail,calendar,logs,resume}.md·reference/shared-services.md·consumer-contracts §1.5·findings 상태. **주의: `db:push` 필요(mail_messages unique 가 (accountId, folderId, remoteMessageId) 로 변경). e2 완료 전 실행 금지**
+- [ ] f. 2차 수정 — 즉시 500 계열(page 클램프, 댓글 FK, 빈 PATCH, wasm 레이스, fontSize 0 등)
+- [ ] g. 3차 수정 — 서버리스 적합성(fire-and-forget, DB 풀, Redis 지연 생성, rate limiter)
+- [ ] h. 4차 수정 — PERF(Promise.all, 인덱스, 지연 import, CDN 캐시 헤더)
+- [ ] i. 검증 — 단계마다 `bunx tsc --noEmit` · `bun test` · 계약 문서 대조, 소비자별 실동작 확인 체크리스트
+- 부수: `.claude/settings.json`(gitignored)에 읽기 전용 허용 목록 추가(사용자 요청 "자잘한 조회는 권한 안 묻기")
+- 부수: `tests/route/index.test.ts` 가 `DATABASE_URL` 없는 환경에서 실패(`route/index.ts:101` 의 `getEnv()` 의존). 수정 대상에 포함
+
 ## 최근 완료 작업 — 웹 이력서(resume.gumyo.net) DB 전환: cv 슬롯 재정의 + 공개 조회 (2026-08-29)
 
 > 배경: resume.gumyo.net(별도 레포 RESUME)의 콘텐츠를 정적 번역 파일에서 DB 로 전환. 사용자 결정으로 `resumes.type='cv'`(구 職務経歴書 스키마, 실데이터 없음 전제)를 ko/en/jp 3개 언어 웹 이력서 슬롯으로 재정의한다. 편집은 기존 `/manage/resume` JSON 편집기 그대로. 합의: [acknowledge/2026-08-29-cv-web-resume.md](./acknowledge/2026-08-29-cv-web-resume.md)

@@ -1,6 +1,6 @@
 # 이력서(Resume) 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/resume/resume.ts`, `dto/resume/resume-data.ts`, `route/resume/resume.ts`, `service/domain/resume/resume.ts`, `compose/resume.ts`, `compose/types.ts`, `route/index.ts`, `index.ts`, `db/schema.ts`, `page/admin/pages/resumes.tsx`, `page/admin/db.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/resume/resume.ts`, `dto/resume/resume-data.ts`, `route/resume/resume.ts`, `service/domain/resume/resume.ts`, `compose/resume.ts`, `compose/types.ts`, `route/index.ts`, `index.ts`, `db/schema.ts`, `page/admin/pages/resumes.tsx`, `page/admin/db.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -82,8 +82,8 @@
 
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
-| GET | `/api/resume/public/web` | **없음(공개)** | 최신(`updated_at` desc) `type='web'` 1건의 `{ webResume: data, updatedAt }`. `isPublic` 필터 없음(무조건 공개 합의). 없으면 404 |
-| PATCH | `/api/resume/web` | 세션 + `role==='admin'` | 최신 web 행의 data 전체 교체(`webResumeDataSchema` 검증). 비 admin 403, web 행 없으면 404 |
+| GET | `/api/resume/public/web` | **없음(공개)** | `type='web'` 1건의 `{ webResume: data, updatedAt }`. 선택 순서는 **admin 소유 행 우선 → 그 안에서 `updated_at` desc**. `isPublic` 필터 없음(무조건 공개 합의). 없으면 404 |
+| PATCH | `/api/resume/web` | 세션 + `role==='admin'` | **같은 규칙으로 고른 web 행**의 data 전체 교체(`webResumeDataSchema` 검증). 비 admin 403, web 행 없으면 404 |
 | GET | `/api/resume` | 세션 | 내 이력서 목록. 쿼리 `type?`, `page`(기본 1), `limit`(기본 20, 최대 50). `updated_at` desc, `paginatedResponse` |
 | GET | `/api/resume/:id` | 세션 + 소유 | 상세. 비숫자 id·미존재·비소유 → 404(`RESUME_NOT_FOUND`) |
 | POST | `/api/resume` | 세션 | 생성. body = `resumeCreateSchema`(type + data + title, isPublic 기본 false) |
@@ -143,7 +143,8 @@
 
 ## 주의사항 / 함정
 
-- **공개 read 는 `/public/web` 하나뿐**: 최신 web 이력서 1건을 인증 없이 서빙하며 `is_public` 을 게이트로 쓰지 않는다(무조건 공개 — 사용자 합의). `resume`·`cv` 타입은 여전히 숫자 `id` + 소유자 세션으로만 접근 가능하고, `is_public`은 read 소비처가 없는 저장 플래그로 남아 있다.
+- **공개 read 는 `/public/web` 하나뿐**: web 이력서 1건을 인증 없이 서빙하며 `is_public` 을 게이트로 쓰지 않는다(무조건 공개 — 사용자 합의).
+- **web 행 선택은 admin 우선**: `getLatestResumeByTypePreferringAdmin`(`compose/resume.ts`)이 `resumes` 를 `user` 와 left join 해 `ORDER BY (user.role = 'admin') DESC, resumes.updated_at DESC LIMIT 1` 로 고른다. 조회(`GET /public/web`)와 수정(`PATCH /web`)이 **같은 함수**를 쓰므로 항상 같은 행을 가리킨다. 일반 사용자가 `type='web'` 행을 더 최근에 저장해도 공개 이력서가 그 행으로 바뀌지 않고, admin 행이 하나도 없을 때만 최신 행으로 떨어진다. `resume`·`cv` 타입은 여전히 숫자 `id` + 소유자 세션으로만 접근 가능하고, `is_public`은 read 소비처가 없는 저장 플래그로 남아 있다.
 - **비소유 = 404**: 타인 리소스 접근은 403이 아니라 404(`RESUME_NOT_FOUND`)로 응답한다. 서비스는 `not_owner`를 구분하지만 라우트가 not_found로 합쳐 존재 여부를 숨긴다.
 - **update는 type 재검증 안 함**: `resumeUpdateSchema.data`는 `z.union([resumeDataSchema, cvDataSchema])`(discriminated 아님)이고 `type`은 update 대상이 아니다. 그래서 `'resume'` 행에 cv 형태 `data`를 PATCH해도 스키마·서비스 모두 통과 → 저장된 `type`과 `data` 구조의 정합성은 보장되지 않는다.
 - **어드민은 관리 전용**: 어드민 페이지는 생성·본문수정 없이 열람·공개토글·삭제만 한다. 본문 작성/수정은 `/api/resume`를 경유해야 한다.

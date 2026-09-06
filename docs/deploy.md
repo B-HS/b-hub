@@ -1,6 +1,6 @@
 # 배포·운영(Deploy & Ops)
 
-> 기준: 2026-07-09 (vercel 배포 계약 @ `09e13e1`) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
 
 ## 개요
 
@@ -41,7 +41,8 @@
 | `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` `auto-promote` | `storageLifecycleService.autoPromote()` |
 
 - `route/drive/lifecycle.ts` 에는 엔드포인트가 3개(`evict-r2`·`evict-local`·`auto-promote`) 있으나, `vercel.json` 크론으로 등록된 것은 위 2개뿐이다. `evict-local` 은 스케줄 없이 수동 호출용으로만 존재(동일 인증).
-- 세 엔드포인트 모두 `verifyCronAuth` 로 보호된다: `Authorization: Bearer <secret>` 또는 `x-cron-secret: <secret>` 헤더가 `UPLOAD_SERVER_SECRET`(`compose/drive.ts` → `route/index.ts` 주입) 와 일치해야 하며, 아니면 `UNAUTHORIZED`.
+- 세 엔드포인트는 `route.on(['GET','POST'], ...)`(`route/drive/lifecycle.ts:12`)로 **GET·POST 를 모두 수신**한다(Vercel 크론은 GET 으로 호출).
+- 세 엔드포인트 모두 `verifyCronAuth` 로 보호된다: `Authorization: Bearer <secret>` 또는 `x-cron-secret: <secret>` 헤더가 `UPLOAD_SERVER_SECRET`(`compose/drive.ts` → `route/index.ts` 주입) 와 일치해야 하며, 아니면 `UNAUTHORIZED`. 비교는 `lib/cron-auth.ts` 의 `isSecretMatch`(sha256 + `timingSafeEqual`) 상수 시간 비교다.
 - Vercel 크론은 `Authorization: Bearer $CRON_SECRET` 를 붙여 호출하므로, **Vercel 의 `CRON_SECRET` 값을 `UPLOAD_SERVER_SECRET` 와 동일하게** 설정해야 크론 인증이 통과한다. (스토리지 계층 의미·`evictR2Stale`/`autoPromote` 로직은 [domains/drive.md](./domains/drive.md).)
 
 ### 진입점(`index.ts`) 노출
@@ -100,7 +101,7 @@
 | method·path | 용도 |
 |-------------|------|
 | `GET /health` | 헬스체크(`{ status, timestamp }`) |
-| `POST /upload` | 드라이브 자산 업로드(`upload-handler.ts`) |
+| `POST /upload` | 드라이브 자산 업로드(`upload-handler.ts`). 실패 응답은 hub 콜백 게이트 거부면 **401**, 그 외 500 |
 | `POST /upload-blog-image` | 블로그 이미지 업로드(`blog-image-handler.ts`) |
 
 - CORS: `ALLOWED_ORIGINS`(기본 `https://gumyo.net,https://hyns.dev`) 및 그 서브도메인만 허용, `credentials: true`.
@@ -115,8 +116,13 @@
 
 ### 핸들러 역할
 
-- `upload-handler.ts`(`createUploadHandler`): 파일을 `/tmp/uploads` 에 디스크 저장 → SHA-256 해시 → 이미지면 100x100 WebP 썸네일(base64) → **R2(L1, `l1MaxFileSize`=100MB 이하)·Google Drive(L3)·local(L2)** 로 분산 업로드 → 성공 tier 를 CSV 로 집계. tier 명 정렬 후 결합(`L1,L3` 등). 전 tier 실패 시 실패 반환. 처리 후 임시 파일 삭제.
-- `blog-image-handler.ts`(`createBlogImageHandler`): mime/크기(≤10MB) 검증 → `s3Key === '{assetId}.webp'` 강제 → 원본을 WebP 변환(`sharp`) → R2 업로드 → 메타(width/height/sizeBytes) 수집.
+- `upload-handler.ts`(`createUploadHandler`): **입력 검증 → hub status 콜백 게이트 → 디스크 저장** 순서다.
+  1. `isValidUploadKey(s3Key)` — `users/` 로 시작하고 `\` 를 포함하지 않으며 `/` 로 나눈 세그먼트가 정확히 **4개**(`users/<userId>/<id>/<name>`), 각 세그먼트가 빈 문자열·`.`·`..` 가 아니어야 한다. 실패 시 저장 없이 거부.
+  2. hub `POST /api/drive/assets/:id/status` 콜백을 **먼저** 호출하고, (a) 응답이 2xx 이고 (b) 본문 `success === true` 이며 (c) 응답 `data.s3Key` 가 있으면 요청의 `s3Key` 와 **일치**할 때에만 통과시킨다. 하나라도 어긋나면 `{ unauthorized: true }` 로 반환해 **파일을 디스크에 쓰지 않고** 중단한다(라우트가 401 로 응답).
+  3. 통과 후 실제 저장 키는 hub 가 돌려준 `data.s3Key`(없으면 요청 값)를 쓰며, R2·Google Drive·local 업로드가 모두 이 키를 사용한다.
+  4. 그 다음 `/tmp/uploads` 디스크 저장 → SHA-256 해시 → 이미지면 100x100 WebP 썸네일(base64) → **R2(L1, `l1MaxFileSize`=100MB 이하)·Google Drive(L3)·local(L2)** 분산 업로드 → 성공 tier 를 CSV 로 집계(tier 명 정렬 후 결합, `L1,L3` 등). 전 tier 실패 시 실패 반환. 처리 후 임시 파일 삭제.
+- `isValidAssetId`(`upload-handler.ts` export): `^[A-Za-z0-9_-]+$` 만 허용. `/upload` 는 폼의 `assetId` **원문 문자열**을 이 검사에 통과시킨 뒤에야 `Number()` 결과를 쓰고, `/upload-blog-image` 는 라우트와 `blog-image-handler.ts` 양쪽에서 같은 검사를 한다. 불합격은 400.
+- `blog-image-handler.ts`(`createBlogImageHandler`): `isValidAssetId` → mime/크기(≤10MB) 검증 → `s3Key === '{assetId}.webp'` 강제 → 원본을 WebP 변환(`sharp`) → R2 업로드 → 메타(width/height/sizeBytes) 수집.
 
 ### 메인 앱과의 계약
 
@@ -130,6 +136,7 @@
     | `POST /api/drive/assets/:id/complete` | `route/drive/asset.ts` | 해시·tier·gdriveFileId·썸네일 확정 |
     | `POST /api/blog/images/complete` | `route/blog/image.ts` | 블로그 이미지 메타 저장, `url` 반환 |
 - **인증 방식**: upload-server 는 들어오는 요청 자체를 세션 검증하지 않는다. 매 요청에 실린 `uploadToken`(hub 가 prepare 시 발급)을 hub 콜백이 자산 소유·유효성으로 검증한다(드라이브는 자산 행에 저장된 토큰 대조, 블로그는 서명 토큰). 즉 upload-server 는 상태 없는 중계자이고, 신뢰 경계는 hub 콜백 + CORS 오리진 허용이다.
+- **status 콜백은 게이트다**: `/upload` 는 status 콜백의 성공(2xx + `success` + `s3Key` 일치)을 확인한 뒤에만 파일을 저장·업로드한다. 콜백 실패·네트워크 오류·키 불일치는 전부 401 거부다. 콜백 요청은 `Authorization: Bearer ${UPLOAD_SERVER_SECRET}` 를 싣고, hub 쪽 `status`·`complete`·`gdrive-token` 은 `requireUploadServer` 로 같은 시크릿을 요구한다(hub 에 미설정 시 503).
 - `auth.ts`(`createAuthClient.verifySession` → hub `/api/auth/get-session`)는 정의되어 있으나 `index.ts` 에 **와이어되지 않는다**(미사용, `plan.md` 의 WebDAV Basic Auth 용 예약).
 
 ### Docker

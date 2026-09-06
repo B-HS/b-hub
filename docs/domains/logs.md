@@ -1,6 +1,6 @@
 # 로그(logs) 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/logs/device-key.ts`, `service/domain/logs/log-event.ts`, `service/domain/logs/device-key.ts`, `dto/logs/log-event.ts`, `dto/logs/device-key.ts`, `compose/logs.ts`, `compose/types.ts`, `middleware/require-device-key.ts`, `middleware/log-capture.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `route/index.ts`, `index.ts`, `middleware/index.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/logs/device-key.ts`, `service/domain/logs/log-event.ts`, `service/domain/logs/device-key.ts`, `dto/logs/log-event.ts`, `dto/logs/device-key.ts`, `compose/logs.ts`, `compose/types.ts`, `middleware/require-device-key.ts`, `middleware/log-capture.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `route/index.ts`, `index.ts`, `middleware/index.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -14,7 +14,7 @@
 | `route/logs/log-event.ts` | HTTP 경계 — `createLogEventRoute`. 수집 2개(POST `/`·`/batch`, `requireDeviceKey`) + 어드민 3개(GET `/`·POST `/purge`·PATCH `/:id/resolve`, `withAdmin`) |
 | `route/logs/device-key.ts` | HTTP 경계 — `createDeviceKeyRoute`. 디바이스 키 GET/POST/DELETE, 전부 `withAdmin` |
 | `service/domain/logs/log-event.ts` | 도메인 로직 — `createLogEventService`(ingest/ingestBatch/resolve/list/getById/captureServerError/purgeByPolicy), `LogEventServiceDb`·`LogAlerter` 인터페이스. severity ≥ `SEVERITY.ERROR`(40)일 때만 `alerter` 호출 |
-| `service/domain/logs/device-key.ts` | 도메인 로직 — `createDeviceKeyService`(create/validate/checkRateLimit/revoke/listAll). 토큰은 `hashToken`(sha256) 저장, 24h 내 `log_events` 카운트로 `daily_limit` 레이트리밋 |
+| `service/domain/logs/device-key.ts` | 도메인 로직 — `resolveDeviceIdentity`(키 식별자 = `device_id ?? 'key:<id>'`) + `createDeviceKeyService`(create/validate/checkRateLimit/revoke/listAll). 토큰은 `hashToken`(sha256) 저장, 24h 내 `log_events` 카운트로 `daily_limit` 레이트리밋 |
 | `dto/logs/log-event.ts` | Zod 스키마 — `logEventIngestSchema`·`logEventBatchSchema`·`logEventResolveSchema`·`logEventListQuerySchema`·`logEventResponseSchema`, `SEVERITY` 상수(DEBUG10~FATAL50), 이름/숫자 severity 변환 |
 | `dto/logs/device-key.ts` | Zod 스키마 — `deviceKeyCreateSchema`(deviceId/label optional), `deviceKeyResponseSchema` |
 | `compose/logs.ts` | DI — `composeLogs`가 `LogEventServiceDb`를 Drizzle(`schema.logEvents`)로 인라인 구현하고 `deviceKeyService`(Drizzle `db` 직접 주입)까지 조립. `DISCORD_WEBHOOK_URL` 있으면 `service:errorCode` 키 60초 throttle `alerter` 주입 |
@@ -47,6 +47,8 @@
 ## 핵심 흐름
 
 - **디바이스 수집**: 디바이스가 `X-Device-Key`로 POST `/api/logs`(단건)·`/api/logs/batch`(≤50) 호출 → `requireDeviceKey`(키 검증 + 24h 레이트리밋) → `logEventService.ingest`/`ingestBatch` → `log_events` insert(`source='device'`).
+    - **저장되는 `device_id` 는 키에서 강제**된다. 미들웨어가 `resolveDeviceIdentity`(키의 `device_id`, 없으면 `key:<키 id>`)를 컨텍스트 `deviceKeyDeviceId` 에 넣고, 라우트가 단건·배치 모두 그 값으로 요청 본문의 `deviceId` 를 덮어쓴다. 레이트리밋 집계도 같은 값 기준이라 본문으로 한도를 우회할 수 없다.
+    - 배치 크기 사전 검사(50건 초과 → `LOG_BATCH_TOO_LARGE`)는 종전과 같다.
 - **서버 자동 캡처**: 전역 `logCapture` 미들웨어가 응답 후 `status >= 400`(`/api/logs` 경로는 skip)이면 `serviceNameFromPath`·`severityFromStatus`·`errorCodeFromStatus`로 도출해 `logEventService.captureServerError`를 fire-and-forget 호출 → `log_events` insert(`source='server'`).
 - **어드민 조회·해소**: 관리자가 GET `/api/logs`로 필터 조회, PATCH `/api/logs/:id/resolve`로 해소, POST `/api/logs/purge`로 리텐션 정리하며, 디바이스 키는 `/api/logs/device-keys` 어드민 API로 발급/폐기한다.
 

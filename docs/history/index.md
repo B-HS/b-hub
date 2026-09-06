@@ -6,6 +6,7 @@
 
 | 파일 | 기간 | 요약 |
 |------|------|------|
+| [2026-09-06-audit-batch1.md](./2026-09-06-audit-batch1.md) | 2026-09-06 | 전수 감사 1차 수정 배치 — D-01~D-22 · S-01~S-15 · C-15 + E-22/26/27/29/30 반영(계약 불변 범위). 워크플로 26+13 에이전트 + 회귀 리뷰 7. tsc 0 · 2864 pass. **`db:push` 필요**(mail_messages unique 3열) |
 | [2026-07-10-local-remote-harmonize.md](./2026-07-10-local-remote-harmonize.md) | 2026-07-10 | 로컬 17커밋 ↔ 원격 21커밋 조화 — 원격 base 채택, 보안 재적용(badge SSRF·로그 마스킹·drive gdrive-token 게이트·weather mock 게이트)·calendar rrule/overlap·admin UI·`/manage` 페이지 재적용, AI SSE 스트리밍·codex access token 단독 인증 추가. typecheck 0 |
 | [2026-07-ai-provider-system.md](./2026-07-ai-provider-system.md) | 2026-07-02 | AI Provider 시스템 — codex/anthropic/ollama 멀티 프로바이더, 프로바이더 추상화·OAuth 자동갱신, 채팅 세션·프롬프트·이미지, 자격증명 암호화, log_events 사용기록. db:push·커밋 완료, 2260 tests |
 | [2026-06-logging-system.md](./2026-06-logging-system.md) | 2026-06 | `log_events` 중앙 로깅/에러-이벤트 시스템 — 서버 전 엔드포인트 4xx·5xx 캡처 + 디바이스 수집 + 어드민 + Discord 알림 + 리텐션. dev 배포 완료 |

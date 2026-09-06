@@ -1,6 +1,6 @@
 # 공유 서비스(service/shared) 레퍼런스
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `service/shared/*.ts`(14개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `lib/env.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
 
 ## 개요
 
@@ -94,16 +94,17 @@
 - 역할: Google Drive v3 다운로드·삭제(L3). refresh token → access token 교환(만료 60초 전까지 캐시). `download`→`ReadableStream`(`alt=media&supportsAllDrives=true`), `del`(404 는 무시).
 - 외부 의존: `https://oauth2.googleapis.com/token`, `https://www.googleapis.com/drive/v3`. SDK 없이 `fetch` 직접 호출.
 - 에러: `DRIVE_L3_DOWNLOAD_FAILED`(토큰 교환/다운로드 실패), `STORAGE_DELETE_FAILED`.
-- env: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. `refreshToken` 은 env 가 아니라 **DB `account` 테이블에서 조회** — `composeShared.getGdriveRefreshToken` 이 `scope LIKE '%drive.file%'` 계정의 `refreshToken` 을 읽는다(`compose/shared.ts:91-98`).
+- env: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. `refreshToken` 은 env 가 아니라 **DB `account` 테이블에서 조회**한다 — `composeShared.getGdriveRefreshToken`(`compose/shared.ts:95`)의 선택 규칙: `provider_id = 'google'` **AND** `scope LIKE '%drive.file%'` **AND** `refresh_token IS NOT NULL` 인 행 중 **`user.role = 'admin'` 인 계정을 우선**하고, 동률이면 `account.updated_at` 최신순으로 1건. 다른 provider 행이나 토큰 없는 행이 먼저 잡혀 L3 가 죽는 것을 막고, 여러 사용자가 Drive 를 연결해도 관리자 계정으로 고정된다.
 - 팩토리 시그니처: `createGdriveStorageService({ clientId, clientSecret, refreshToken })`.
 - 주입: `composeShared` 가 **lazy** 로 감싼다 — `initGdriveStorage()`(최초 호출 시 refresh token 이 있으면 생성, `GOOGLE_CLIENT_*` 또는 토큰 없으면 `null`). drive 에 `initGdriveStorage` 로 전달되어 `getGdriveStorage`·`getL3` 로 소비.
 - 테스트: `tests/service/shared/gdrive-storage.test.ts`.
 
 ### storage-lifecycle.ts
 
-- 역할: L1 자산 티어링. `evictR2Stale`(미접근 자산 L1 삭제 후 `storageTiers` 에서 `L1` 제거 + 로그), `autoPromote`(접근 빈도 높은 L3-only 자산을 L3 다운로드→L1 업로드→tier 추가), `evictLocalFifo`(현재 `0` 반환 no-op). `removeTier`/`addTier` 로 `storageTiers`(콤마 문자열) 조작, 각 동작을 lifecycle 로그에 기록.
+- 역할: L1 자산 티어링. `evictR2Stale`(미접근 자산 L1 삭제 후 `storageTiers` 에서 `L1` 제거 + 로그), `autoPromote`(접근 빈도 높고 최근 조회된 L3-only 자산을 L3 다운로드→L1 업로드→tier 추가), `evictLocalFifo`(현재 `0` 반환 no-op). `removeTier`/`addTier` 로 `storageTiers`(콤마 문자열) 조작, 각 동작을 lifecycle 로그에 기록.
+- **축출 가드**: `evictR2Stale` 은 `L1` 을 뺀 결과가 빈 문자열이면(=마지막 남은 티어) 그 자산을 건너뛴다. 후보 쿼리(`compose/drive.ts` `getStaleL1Assets`)도 `gdrive_file_id IS NOT NULL` 로 L3 사본이 있는 자산만 뽑는다. 정책 상세는 [../domains/drive.md](../domains/drive.md).
 - 외부 의존: 없음(주입된 `l1`·`getL3`·`db` 를 통해서만 접근).
-- 팩토리 시그니처: `createStorageLifecycleService({ db, l1, getL3, evictionDays, promotionThreshold, l1MaxFileSize })`. `db` 는 `getStaleL1Assets`·`getPromotionCandidates`·`updateStorageTiers`·`insertLifecycleLog` 4개 메서드 인터페이스.
+- 팩토리 시그니처: `createStorageLifecycleService({ db, l1, getL3, evictionDays, promotionThreshold, l1MaxFileSize })`. `db` 는 `getStaleL1Assets`·`getPromotionCandidates`·`updateStorageTiers`·`insertLifecycleLog` 4개 메서드 인터페이스. **`getPromotionCandidates(minAccessCount, maxSizeBytes, viewedAfter)`** 는 3번째 인자로 조회 하한 시각을 받는다 — `autoPromote` 가 `now - evictionDays` 를 넘겨, 최근에 조회된 자산만 승격 후보가 되게 한다.
 - 주입: **`composeDrive` 만**(`compose/drive.ts:247-295`). `l1: storageService`, `getL3: initGdriveStorage`, db 는 `cloudAssets`·`storageLifecycleLogs` 테이블 Drizzle 인라인 구현. 임계값은 env 가 아니라 **하드코딩 상수**: `evictionDays: 30`, `promotionThreshold: 5`, `l1MaxFileSize: 100 * 1024 * 1024`(100MB).
 - 테스트: `tests/service/shared/storage-lifecycle.test.ts`.
 
@@ -166,17 +167,21 @@
 
 ### font-loader.ts
 
-- 역할: satori 용 폰트 로드. `loadLocal`(로컬 `@fontsource`), `loadGoogle`(Google Fonts CSS→woff), `load`(로컬→Google→Inter 순 폴백). 결과 `fontCache` 캐시.
+- 역할: satori 용 폰트 로드. `loadLocal`(로컬 `@fontsource`), `loadGoogle`(Google Fonts CSS→woff), `load`(로컬→Google→Inter 순 폴백).
+- **캐시**: 무제한 `Map` 이 아니라 `createCache`(아래 캐시 절) 인스턴스 — `maxSize: 50`, TTL 24시간. 성공한 로드만 캐시하고, 실패(`null`)는 캐시하지 않는다.
 - 외부 의존: 로컬 `@fontsource/inter`·`@fontsource/noto-sans-kr`(weights 400/700, 요청 weight 에 가장 가까운 값 선택). 폴백 시 `https://fonts.googleapis.com/css2`. `VERCEL` 이면 basePath `/var/task`.
+- **네트워크 상한**: Google Fonts 의 CSS·폰트 파일 fetch 모두 `AbortSignal.timeout(8000)`(8초).
 - 팩토리 시그니처: `createFontLoader({ fetchFn? })`.
 - 주입: `composeShared` → `fontLoader` → badgeService.
 - 테스트: `tests/service/shared/font-loader.test.ts`.
 
 ### icon-loader.ts
 
-- 역할: 아이콘 로드. `loadLocal`(`public/icon` 의 svg/png → data URL, 파일명 `^[a-zA-Z0-9_-]+$` 검증), `loadFromUrl`(원격 fetch, 8초 타임아웃, 매직바이트 MIME 감지, SVG 새니타이즈, 선택적 `parseICO` 로 ICO→PNG), `loadAvailableIcons`. 결과 `iconCache` 캐시.
-- 외부 의존: 원격 아이콘 URL. **SSRF 가드**로 `lib/url-validator` 의 `isPublicUrl` 을 통과한 URL 만 fetch. SVG 는 `<script>`·`on*`·`xlink:href`·`javascript:` 등 제거 후 사용.
-- 팩토리 시그니처: `createIconLoader({ fetchFn?, iconDir?, parseICO? })`.
+- 역할: 아이콘 로드. `loadLocal`(`public/icon` 의 svg/png → data URL, 파일명 `^[a-zA-Z0-9_-]+$` 검증), `loadFromUrl`(원격 fetch, 8초 타임아웃, 매직바이트 MIME 감지, SVG 새니타이즈, 선택적 `parseICO` 로 ICO→PNG), `loadAvailableIcons`.
+- **캐시 2종**: 성공분 `iconCache`(`createCache`, `maxSize: 300`, TTL 24시간)와 실패분 `failureCache`(같은 크기, TTL 5분). 실패 URL 을 5분간 기억해 죽은 아이콘 URL 로 매 요청 재시도하는 것을 막는다.
+- 외부 의존: 원격 아이콘 URL. **SSRF 가드**로 `lib/url-validator` 의 **`isPublicUrlResolved`**(호스트명을 DNS 조회해 해석된 주소가 전부 공인 대역일 때만 통과 — DNS rebinding 방어)를 쓰며, 리다이렉트(최대 3홉) 각 단계의 URL 도 같은 검사를 통과해야 한다.
+- **응답 상한·형식 검사**: `content-length` 가 2MB 초과면 받지 않고, 실제 본문이 2MB 를 넘어도 버린다. MIME 은 매직바이트(WebP `RIFF….WEBP` 포함)로 판정하고 `content-type` 은 `;` 앞 부분만 소문자로 정규화해 폴백으로 쓰며, 최종 MIME 이 `image/png`·`image/jpeg`·`image/gif`·`image/webp`·`image/svg+xml` 화이트리스트 밖이면 거부한다(ICO 는 `parseICO` 로 PNG 변환된 경우만 통과). SVG 는 `<script>`·`on*`·`xlink:href`·`javascript:` 등 제거 후 사용.
+- 팩토리 시그니처: `createIconLoader({ fetchFn?, iconDir?, parseICO?, lookupFn? })` — `lookupFn` 은 SSRF 검사용 DNS 조회 주입점(테스트에서 대체).
 - 주입: `composeShared` → `iconLoader` → badgeService.
 - 테스트: `tests/service/shared/icon-loader.test.ts`.
 

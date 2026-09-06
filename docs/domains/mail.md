@@ -1,6 +1,6 @@
 # mail 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/mail/*`, `route/mail/*`, `service/domain/mail/**`, `compose/mail.ts`, `lib/mail-utils.ts`, `lib/mail-thread.ts`, `lib/credential-crypto.ts`(자격증명 암복호화 공용 구현), `scripts/backfill-thread-id.ts`, `db/schema.ts`(mail_* 테이블)
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/mail/*`, `route/mail/*`, `service/domain/mail/**`, `compose/mail.ts`, `lib/mail-utils.ts`, `lib/mail-thread.ts`, `lib/credential-crypto.ts`(자격증명 암복호화 공용 구현), `scripts/backfill-thread-id.ts`, `db/schema.ts`(mail_* 테이블)
 
 ## 개요
 
@@ -52,13 +52,14 @@
 |---|---|---|---|
 | `mail_accounts` | `provider`, `email`, `display_name`, `signature`(text, nullable — 계정별 서명), `credentials`(암호화 text), `imap_host/port/tls`, `smtp_host/port/tls`, `last_sync_at/status`, `sync_cursor`, `better_auth_account_id` | idx(`user_id`), unique(`user_id`,`email`) | `user_id`→`user`(cascade) |
 | `mail_folders` | `remote_folder_id`, `name`, `type`, `parent_id`, `message_count`, `unread_count`, `uid_validity`, `sync_cursor` | idx(`account_id`), unique(`account_id`,`remote_folder_id`) | `account_id`→`mail_accounts`(cascade) |
-| `mail_messages` | `remote_message_id`, `message_id_header`, `thread_id`, `in_reply_to`, `references_header`, `from/to/cc/bcc_address`(json), `subject`, `body_html/text`(longtext), `snippet`, `is_read/starred/draft`, `has_attachments`, `sent_at`, `received_at`, `uid` | unique(`account_id`,`remote_message_id`); idx(`folder_id`),(`sent_at`),(`thread_id`),(`account_id`,`is_read`),(`account_id`,`folder_id`,`received_at`),(`account_id`,`received_at`) | `account_id`→`mail_accounts`, `folder_id`→`mail_folders`(cascade) |
+| `mail_messages` | `remote_message_id`, `message_id_header`, `thread_id`, `in_reply_to`, `references_header`, `from/to/cc/bcc_address`(json), `subject`, `body_html/text`(longtext), `snippet`, `is_read/starred/draft`, `has_attachments`, `sent_at`, `received_at`, `uid` | **unique(`account_id`,`folder_id`,`remote_message_id`)**(제약명은 `uq_mail_messages_account_remote` 유지); idx(`folder_id`),(`sent_at`),(`thread_id`),(`account_id`,`is_read`),(`account_id`,`folder_id`,`received_at`),(`account_id`,`received_at`) | `account_id`→`mail_accounts`, `folder_id`→`mail_folders`(cascade) |
 | `mail_attachments` | `remote_attachment_id`, `filename`, `mime_type`, `size_bytes`, `content_id`, `is_inline`, `r2_key`(캐시 키) | idx(`message_id`), unique(`message_id`,`remote_attachment_id`) | `message_id`→`mail_messages`(cascade) |
 | `mail_sync_logs` | `sync_type`, `status`, `folder_id`, `messages_added/updated/deleted`, `duration_ms`, `error_message`, `started_at`, `completed_at` | idx(`account_id`) | `account_id`→`mail_accounts`(cascade) |
 | `mail_sync_sessions` | `sync_type`, `status`, `total_estimate`, `synced_count`, `cursor`, `started_at`, `last_batch_at`, `completed_at` | idx(`account_id`,`status`) | `account_id`→`mail_accounts`(cascade) |
 | `mail_uploads` | `filename`, `mime_type`, `size_bytes`, `r2_key`(unique), `is_inline` | idx(`user_id`) | `user_id`→`user`(cascade) |
 
 - 모든 PK 는 `int autoincrement`. 원격 식별자(`remote_message_id`·`remote_folder_id`·`remote_attachment_id`)는 provider 별 의미가 다르다(Gmail=API id / IMAP=UID·part id).
+- **`mail_messages` unique 는 `(account_id, folder_id, remote_message_id)` 3열이다**(`db/schema.ts:465`). IMAP UID 는 mailbox 단위로만 유일해 서로 다른 폴더가 같은 UID 를 갖는 충돌을 계정 단위 unique 가 막지 못했기 때문이다. **아직 DB 에 반영되지 않았다 — `bun run db:push` 가 필요하다**(마이그레이션 파일 없음, `drizzle/` gitignored).
 - **로컬 임시보관(Drafts)**은 새 테이블 없이 기존 스키마를 재사용한다: `mail_folders` 에 `type='drafts'`·`remote_folder_id='__local_drafts__'` 로컬 폴더 1행 + `mail_messages` 에 `is_draft=true`·`remote_message_id='local-draft:{uuid}'` 행. (→ 아래 "핵심 흐름 › 임시보관(Drafts)" 절)
 
 ## API 엔드포인트
@@ -118,9 +119,14 @@
 
 ### 동기화 (`mail-sync.ts`)
 
-- **incremental(`syncAccount`)**: 활성 세션이 `running` 이면 error 로 정리 → provider connect → 폴더 중 `sync_cursor` 가 하나라도 있으면 incremental, 아니면 초기 동기화(폴더 fetch·upsert 후 폴더별 최초 배치). incremental 은 폴더 병렬, 초기는 순차. 폴더별 `syncFolder`: `fetchMessages({folderId, cursor, batchSize:100})` → `upsertMessagesFromProvider`(메시지·첨부 upsert, 10건마다 이벤트루프 yield) → 삭제 반영 → `sync_cursor` 갱신 → 폴더 카운트 재계산. `mail_sync_logs` 기록, 실패 시 `MAIL_PROVIDER_ERROR`(메시지 마스킹).
+- **incremental(`syncAccount`)**: 활성 세션이 `running` 이면 error 로 정리 → provider connect → 기존 폴더 중 `sync_cursor` 가 하나라도 있으면 incremental, 아니면 초기 동기화. **폴더 목록은 incremental 에서도 매번 `fetchFolders` 로 갱신**하며, 초기 동기화만 `includeCounts: true`(폴더별 카운트까지 조회)로 부르고 incremental 은 `includeCounts: false` 로 불러 provider 왕복을 줄인다(카운트는 동기화 후 DB 집계로 갱신). incremental 은 폴더 병렬, 초기는 순차. 폴더별 `syncFolder`: `fetchMessages({folderId, cursor, batchSize:100})` → `upsertMessagesFromProvider`(메시지·첨부 upsert, 10건마다 이벤트루프 yield) → 삭제 반영 → `sync_cursor` 갱신 → 폴더 카운트 재계산. `mail_sync_logs` 기록, 실패 시 `MAIL_PROVIDER_ERROR`(메시지 마스킹). 성공·실패와 무관하게 `finally` 에서 `provider.disconnect()` 한다(실패는 `captureException`).
+- **로컬 폴더 제외**: `remote_folder_id` 가 `__local_` 로 시작하는 폴더(`lib/mail-utils.ts` 의 `isLocalMailFolder`)는 동기화 대상에서 제외한다. 로컬 임시보관 폴더(`__local_drafts__`)를 원격에 fetch 하려다 실패하는 것을 막는다. historical 동기화도 대상 선정·`folderId` 지정 모두에서 같은 필터를 적용해, 로컬 폴더를 지정하면 `MAIL_FOLDER_NOT_FOUND` 다.
+- **메시지 동일성 판정(identityScope)**: `account.provider === 'gmail'` 이면 `account`(계정+remoteMessageId), 그 외(IMAP 계열)는 `folder`(계정+폴더+remoteMessageId) 스코프로 upsert·삭제 대상을 찾는다(`mail-sync.ts` → `compose/mail.ts` `upsertMessage`/`deleteMessagesByRemoteIds`). Gmail 은 message id 가 계정 전역에서 유일하고 라벨(폴더)이 바뀌어도 같은 메일이며, IMAP UID 는 mailbox 안에서만 유일하기 때문이다.
+- **upsert 동작**: 식별자로 기존 행을 찾으면 가변 필드(`subject`·`bodyHtml`·`bodyText`·`snippet`·`isRead`·`isStarred`·`isDraft`·`hasAttachments`·`threadId`·`messageIdHeader`·`inReplyTo`·`referencesHeader`)만 UPDATE 하고 폴더·원격 id 는 건드리지 않는다. 없으면 INSERT(+`onDuplicateKeyUpdate` 로 같은 가변 필드 갱신). account 스코프에서는 INSERT 후 같은 식별자의 행을 `id` 오름차순으로 모아 **가장 오래된 1건만 남기고 나머지를 삭제**해, 라벨 이동으로 생긴 중복 행을 정리한다.
 - **historical(`syncHistorical`)**: `mail_sync_sessions` 기반 과거 메일 역방향 배치. 대상 폴더=지정 folderId 또는 inbox. `fetchMessages({direction:'backward', batchSize, cursor})` → 세션 `synced_count`/`cursor`/`total_estimate` 갱신, 남은 커서 있으면 `paused` 없으면 `completed`. 응답에 `hasMore`·`cursor`·진행 수치 포함.
 - **커서 의미**: Gmail=incremental 은 History API `historyId`, backward 는 messages.list `pageToken`. IMAP=UID 숫자(forward `UID+1:*`, backward `1:UID-1`). 커서는 폴더별 `mail_folders.sync_cursor` 가 1차, `mail_accounts.sync_cursor` 는 fallback.
+- **Gmail backward 커서는 목록 조회 전에 확보**한다(`gmail-provider.ts`). `/profile` 의 `historyId` 를 `messages.list` **이전에** 읽어 그 값을 `newSyncCursor` 로 돌려주므로, 조회 도중 도착한 메일이 다음 incremental 에서 누락되지 않는다.
+- **IMAP 배치 정렬**: `${lastUid + 1}:*` 범위는 새 메일이 없어도 최신 1건을 돌려주므로, fetch 결과를 커서 기준(`forward` 는 `uid > lastUid`, `backward` 는 `uid < lastUid`)으로 한 번 더 거른다. 걸러진 후보는 **forward incremental 이면 UID 오름차순**(오래된 새 메일부터 처리해 커서가 건너뛰지 않도록), 그 외(초기·backward)는 내림차순으로 정렬해 `batchSize` 만큼 자른다. backward 의 `hasMore` 판정도 걸러진 후보 수 기준이다.
 
 ### 메시지 조회·thread 묶기
 
@@ -228,10 +234,16 @@
 
 ## 주의사항 / 함정
 
-- **incremental 판정은 폴더의 `sync_cursor` 존재로 한다**(`mail-sync.ts`). 커서가 없으면 초기 동기화로 간주해 폴더를 다시 fetch·upsert 한다.
+- **incremental 판정은 폴더의 `sync_cursor` 존재로 한다**(`mail-sync.ts`). 커서가 없으면 초기 동기화로 간주한다. 폴더 목록 fetch·upsert 자체는 두 경우 모두 수행하고, 초기 동기화에서만 폴더 카운트(`includeCounts`)를 함께 받는다.
+- **`mail_messages` unique 변경은 DB 에 아직 반영되지 않았다.** `db/schema.ts` 는 `(account_id, folder_id, remote_message_id)` 이지만 실제 DB 는 `bun run db:push` 전까지 이전 2열 unique 다. push 전에는 폴더 스코프 upsert 가 기대대로 동작하지 않을 수 있다.
 - **IMAP thread 는 References 헤더가 있어야 안정적으로 묶인다.** envelope 에 References 가 없어 별도 fetch(`headers:['references']`)가 필요하고, `upsertMessage` 의 `onDuplicateKeyUpdate` set 에 `threadId`/`messageIdHeader`/`inReplyTo`/`referencesHeader` 가 포함되어야 재동기화 시 backfill 된다(과거 누락으로 인한 버그 이력: [../bug/mail-imap-thread-id.md](../bug/mail-imap-thread-id.md)).
 - **Gmail attachmentId 는 불안정**하다. 캐시 miss 후 다운로드 실패 시 메시지 재조회로 remote id 를 다시 매칭(`downloadAttachmentViaProvider`)한다. IMAP 은 UID 안정적이나 다운로드 전 mailbox lock(폴더 open)이 선행되어야 한다.
-- **provider 부작용은 best-effort**다. 플래그/이동/삭제 시 provider 호출을 `try/catch{}` 로 감싸 원격 실패해도 DB 상태는 갱신한다(로컬-원격 불일치 가능). 별표만 `expandToThreadMessageIds` 로 thread 전파한다.
+- **provider 부작용은 best-effort**다. 플래그/이동/삭제 시 provider 호출을 `try/catch` 로 감싸 원격 실패해도 DB 상태는 갱신한다(로컬-원격 불일치 가능). 다만 삼키지 않고 `lib/sentry.ts` 의 `captureException` 으로 보고하며, provider 연결은 `finally` 에서 반드시 `disconnect()` 한다. 별표만 `expandToThreadMessageIds` 로 thread 전파한다.
+- **플래그·이동·삭제는 계정+폴더 단위로 그룹핑**한다(`groupByAccountFolder`). IMAP 은 UID 조작 전에 해당 mailbox 를 열어야 하므로, 각 그룹의 `remote_folder_id` 를 provider 에 넘겨 `runInMailbox`(`getMailboxLock` → 작업 → `release`)로 실행한다. `deleteMessage` 도 폴더 인자를 받아 같은 방식으로 `\\Deleted` 플래그 + `messageDelete` 를 UID 범위 한 번에 수행한다.
+- **이동은 원격 UID 재매핑까지 반영**한다. IMAP `messageMove` 는 대상 mailbox 의 새 UID 매핑(`uidMap`)을 돌려주므로, 서비스는 이를 받아 `moveMessages`(`compose/mail.ts:601`)에 `{ messageId, remoteMessageId, uid }` 로 넘긴다. DB 반영은 **트랜잭션 1개** 안에서 항목별 순차 처리다.
+    - 재매핑이 **있는** 항목: 대상 폴더에서 같은 새 `remote_message_id` 를 가진 다른 행을 지운 뒤, 옮기는 행의 `folder_id`·`remote_message_id`·`uid` 를 한 번에 갱신한다.
+    - 재매핑이 **없는** 항목: 대상 폴더에 같은 `remote_message_id` 행이 이미 있으면 **옮기던 로컬 행을 지우고 대상 행을 보존**한다(그 메시지는 다음 동기화에서 대상 폴더 UID 로 다시 들어온다). 없으면 `folder_id` 만 갱신한다.
+    - Gmail 은 계정 스코프라 폴더가 달라도 행이 하나뿐이므로 충돌이 없고 `folder_id` 만 갱신된다. 순차 처리라 한 배치 안에서 UID 가 겹쳐도 새 unique(`account_id`,`folder_id`,`remote_message_id`) 를 위반하지 않는다.
 - **에러 메시지는 `maskProviderError` 로 IP/내부 호스트를 마스킹**해 노출을 막는다. 계정 생성 시 host 는 `isBlockedHost`(SSRF: localhost/사설 IPv4/IPv6·metadata 엔드포인트 등)로 DTO 단에서 차단된다.
 - **`composeMail` 은 `MAIL_ENCRYPTION_KEY` 없으면 부팅 시 throw** 한다(선택적 서비스 stub 이 아니라 조립 단계에서 실패).
 - 목록 정렬은 `received_at desc`, thread 조회는 `sent_at asc`. 스토리지 캐시 다운로드는 CDN public URL 이 아니라 S3 SDK 로 직접 조회한다(private 버킷 대응, `compose/mail.ts` 주석).

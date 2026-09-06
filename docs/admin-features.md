@@ -1,6 +1,6 @@
 # Admin Features — 어드민 페이지 기능 맵
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `page/admin/**`, `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
 
 `db/schema.ts` 테이블 50개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 대체로 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다. **예외: Metrics Tokens(§5.5)** 는 `AdminDb` 가 아니라 주입된 `metricsTokenService` 를 통해 조회·발급·폐기한다(로그·디바이스가 MongoDB 라 Drizzle 어댑터 밖).
 
@@ -27,7 +27,7 @@
 - **Detail (`/:id`)**: 프로필 카드 + 인라인 폼 3개(Role 변경 · Ban 상태 reason/expires + Ban/Unban · Storage Quota bytes) + 연결된 계정(`account`: providerId/accountId/연결일) + 활성 세션(`session`: IP/UA/Created/Expires + 강제 만료, 하단 "모든 세션 강제 만료") + 최근 API 요청 20건(`apiRequestLog`).
 - **Actions** (form POST → 303, `?flash=ok`):
     - `/admin/users/:id/role` — role(admin/user)
-    - `/admin/users/:id/ban` — action=ban/unban + reason + expires
+    - `/admin/users/:id/ban` — action=ban/unban + reason + expires. **ban 시 그 사용자의 세션을 전부 회수**한다(`revokeAllUserSessions`) — 밴 직후에도 기존 세션으로 계속 접근하던 구멍을 막는다. unban 은 회수하지 않는다.
     - `/admin/users/:id/quota` — bytes
     - `/admin/users/:id/sessions/:sid/revoke` — 세션 단건 만료
     - `/admin/users/:id/sessions/revoke-all` — 해당 사용자 전체 세션 만료
@@ -98,7 +98,7 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 ### 6-5. Image Assets (`/admin/blog/images`) — `imageAssets`
 - **List**: ID(8자) / R2 key / Bucket / MIME / Size / WxH(`width`×`height`) / Uploaded by(→user) / Created + delete.
 - **Filter**: `q`(r2Key), `size`.
-- **Action**: `/admin/blog/images/:id/delete`.
+- **Action**: `/admin/blog/images/:id/delete` — DB 행 삭제 전에 R2 오브젝트(`imageAssets.r2Key`)도 지운다(§14 스토리지 삭제).
 - 레거시 `images` 테이블은 어드민에 미노출(`imageAssets` 만 조회).
 
 ---
@@ -156,7 +156,7 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 
 ### 9-5. Uploads (`/admin/mail/uploads`) — `mailUploads`
 - **List**: User(→상세) / Filename / MIME / Size / R2 key / Inline(`isInline`) / Created + delete.
-- **Filter**: `q`(filename), `size`. **Action**: `/mail/uploads/:id/delete`.
+- **Filter**: `q`(filename), `size`. **Action**: `/mail/uploads/:id/delete` — DB 행 삭제 전에 R2 오브젝트(`mailUploads.r2Key`)도 지운다(§14 스토리지 삭제).
 
 ---
 
@@ -188,7 +188,7 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 
 ## 13. Drive (`/admin/drive`) — `cloudAssets`, `driveFolders`, `storageLifecycleLogs`
 
-- **Assets (`/admin/drive/assets`)**: ID / User(→상세) / Original name / MIME / Size / Tier(`storageTiers` badge) / Status(`uploadStatus` badge) / Access(`accessCount`) / Last viewed / Created + delete. Filter `q`(filename)·`userId`·`tier`(L1/L2/L3)·`status`(ready/uploading/failed)·`size`. Action `/drive/assets/:id/delete`.
+- **Assets (`/admin/drive/assets`)**: ID / User(→상세) / Original name / MIME / Size / Tier(`storageTiers` badge) / Status(`uploadStatus` badge) / Access(`accessCount`) / Last viewed / Created + delete. Filter `q`(filename)·`userId`·`tier`(L1/L2/L3)·`status`(ready/uploading/failed)·`size`. Action `/drive/assets/:id/delete` — DB 행 삭제 전에 `storage_tiers` 에 따라 L1(R2 `s3Key`)·L3(Google Drive `gdriveFileId`) 실물을 지운다(§14 스토리지 삭제).
 - **Folders (`/admin/drive/folders`)**: ID(8자) / User(→상세) / Parent(`parentId` 8자) / Name / Created. (읽기 전용)
 - **Lifecycle Logs (`/admin/drive/lifecycle-logs`)**: Time / Asset(`assetId`) / Action(badge) / Tier(`fromTier` → `toTier`) / Reason. Filter `assetId`·`size`.
 
@@ -213,8 +213,12 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
     - `GET /admin/login/logout` — `signOut`.
 - **Static**: `GET /admin/styles.css` — `ADMIN_DESIGN_TOKENS_CSS`(`styles.ts`) + 캐시 헤더. guard 밖.
 - **CSRF**: `app.use('*', createAdminCsrfGuard({ getSession, secret: csrfSecret }))`(`csrf.ts`) — 모든 폼 POST 를 CSRF 토큰으로 보호. `contextStorage()` 이후 배선. `csrfSecret` 은 `BETTER_AUTH_SECRET`.
+    - **fail-closed**: `csrfSecret` 이 없으면 상태 변경 메서드(`POST`·`PUT`·`PATCH`·`DELETE`)를 **403 `CSRF secret not configured`** 로 거부한다(이전에는 시크릿이 없으면 가드를 통째로 통과시켰다). GET 등 조회는 그대로 진행한다.
+    - 토큰 형식 검사: `^[0-9a-f]{64}$`(HMAC-SHA256 hex) 을 만족해야 하고, 그다음 바이트 길이 비교 → `timingSafeEqual` 로 상수 시간 비교한다.
 - **테마(다크모드)**: `GET /admin/theme?to=...&returnTo=...` — `ADMIN_THEME_COOKIE`(`theme.ts` `sanitizeTheme`) 설정 후 303. guard 밖. 라이트/다크 토큰은 `styles.ts`.
-- 루트 배선(`index.ts`): `createPage({ admin: { getSession, db, auth, triggerMailSync, csrfSecret: BETTER_AUTH_SECRET } })`, `securityHtmlPaths: ['/admin', '/manage']`. 사용자 셀프서비스 `/manage` 는 [manage-features.md](./manage-features.md).
+- **스토리지 삭제**: `createAdminDb(db, storage)` 의 두 번째 인자 `AdminStorage`(`{ deleteObject, deleteGdriveObject? }`)로 어드민 삭제가 실물까지 지운다. 대상 3종 — `deleteImageAsset`(R2 `r2Key`), `deleteMailUpload`(R2 `r2Key`), `deleteDriveAsset`(`storage_tiers` 에 `L1` 이 있으면 R2 `s3Key`, `L3` 가 있으면 Google Drive `gdriveFileId`). 실물 삭제 실패는 `captureException` 후 삼키고 DB 행 삭제는 그대로 진행한다(고아 오브젝트보다 DB 정합성 우선). `storage` 미주입이면 종전처럼 DB 행만 지운다.
+- **컬러 렌더**: 캘린더 그룹 목록의 색상 점은 `^#[0-9a-f]{3,8}$`(대소문자 무관)을 통과한 값만 인라인 `style` 로 그린다(`pages/calendar.tsx`). 불합격 값은 점 없이 문자열만 표시해, 저장된 색상 값이 style 속성으로 새는 것을 막는다.
+- 루트 배선(`index.ts`): `createPage({ admin: { getSession, db, auth, triggerMailSync, csrfSecret: BETTER_AUTH_SECRET, storage: { deleteObject, deleteGdriveObject } } })`, `securityHtmlPaths: ['/admin', '/manage']`. `storage` 는 `composed.storageService.del` 과 `composed.initGdriveStorage()` 로 구성한다. 사용자 셀프서비스 `/manage` 는 [manage-features.md](./manage-features.md).
 
 ---
 
@@ -307,7 +311,7 @@ GET  /admin                                → dashboard
 | `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. `metricsTokenService?`(optional)를 받아 `/metrics/tokens` 마운트(루트 `index.ts` 가 `composed.metricsTokenService` 주입). |
 | `nav.ts` | 사이드바 `NAV`(10개 그룹) + `isActivePath`. Observability 그룹에 Log Events·Metrics Tokens. |
 | `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`. |
-| `csrf.ts` | `createAdminCsrfGuard` — 폼 POST CSRF 토큰 검증(가드). `/manage` 도 공유. |
+| `csrf.ts` | `createAdminCsrfGuard` — 폼 POST CSRF 토큰 검증(가드, 시크릿 미설정 시 상태 변경 403 fail-closed). `/manage` 도 공유. |
 | `theme.ts` | `ADMIN_THEME_COOKIE`·`THEME_COOKIE_MAX_AGE`·`sanitizeTheme` — 라이트/다크 테마 쿠키. |
 | `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수). |
 | `components.tsx` | 공통 JSX 컴포넌트(§17). |
@@ -315,7 +319,7 @@ GET  /admin                                → dashboard
 | `styles.ts` | `ADMIN_DESIGN_TOKENS_CSS` + `ADMIN_DESIGN_TOKENS_CACHE_HEADERS`. |
 | `format.ts` | `formatDate`·`formatDateShort`·`formatBytes`·`maskToken`·`truncate`·`ynLabel`·`parseIntOr`·`parseDateStart`·`parseDateEnd`·`clampPage`. |
 | `login.tsx` | `createLoginRoute` — social 로그인/로그아웃, set-cookie 포워딩. |
-| `pages/users.tsx` | Users list/detail + role·ban·quota·session revoke(all). |
+| `pages/users.tsx` | Users list/detail + role·ban(밴 시 세션 전량 회수)·quota·session revoke(all). |
 | `pages/sessions.tsx` | 전 사용자 세션 list + revoke / revoke-all. |
 | `pages/api.tsx` | `createApiTokensRoute`(tokens list + revoke) · `createApiLogsRoute`(request logs). |
 | `pages/logs.tsx` | Log Events list + resolve(severity 라벨/badge 헬퍼). |

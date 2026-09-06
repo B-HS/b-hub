@@ -1,6 +1,6 @@
 # 드라이브(Drive) 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
 
 ## 개요
 
@@ -79,15 +79,15 @@
 
 ## API 엔드포인트
 
-mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/drive`, 폴더를 `/drive/folders`, lifecycle을 `/drive/lifecycle`에 마운트. 전체 경로는 아래와 같다. 인증 열: **session** = `getSession`(better-auth 세션/API 토큰), **uploadToken** = 요청 body의 `uploadToken`이 자산 행의 `upload_token`과 일치, **upload-server secret** = `requireUploadServer` — `Authorization: Bearer <secret>` 또는 `x-upload-server-secret` 헤더가 `UPLOAD_SERVER_SECRET`과 일치(`UPLOAD_SERVER_SECRET` 미설정 시 게이트 skip), **cron secret** = lifecycle cron 의 `Authorization: Bearer <secret>` 또는 `x-cron-secret` 이 `UPLOAD_SERVER_SECRET`과 일치.
+mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/drive`, 폴더를 `/drive/folders`, lifecycle을 `/drive/lifecycle`에 마운트. 전체 경로는 아래와 같다. 인증 열: **session** = `getSession`(better-auth 세션/API 토큰), **uploadToken** = 요청 body의 `uploadToken`이 자산 행의 `upload_token`과 일치, **upload-server secret** = `requireUploadServer`(`route/drive/asset.ts:20`) — `Authorization: Bearer <secret>` 또는 `x-upload-server-secret` 헤더가 `UPLOAD_SERVER_SECRET`과 일치. **`UPLOAD_SERVER_SECRET` 미설정 시 게이트를 건너뛰지 않고 `SERVICE_NOT_CONFIGURED`(503)** 로 거부한다. **cron secret** = lifecycle cron 의 `Authorization: Bearer <secret>` 또는 `x-cron-secret` 이 `UPLOAD_SERVER_SECRET`과 일치. 시크릿·`uploadToken` 비교는 모두 `lib/cron-auth.ts`의 `isSecretMatch`(sha256 다이제스트 + `timingSafeEqual`, 빈 값·길이 불일치는 즉시 false) 상수 시간 비교를 쓴다.
 
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
 | POST | `/api/drive/assets` | session | multipart 직접 업로드(→ L1 R2, `storage_tiers='L1'`, `ready`) |
 | POST | `/api/drive/assets/prepare` | session | 업로드 사전 등록(메타만 저장, `preparing`, `uploadToken` 발급) |
-| POST | `/api/drive/assets/:assetId/status` | uploadToken | 상태를 `uploading`으로 전이(upload-server) |
-| POST | `/api/drive/assets/:assetId/complete` | uploadToken | 업로드 완료 콜백(티어/gdriveFileId/localPath/썸네일 반영) |
-| POST | `/api/drive/assets/:assetId/gdrive-token` | upload-server secret + uploadToken | Google Drive access token + root folder ID 발급(upload-server 전용). `requireUploadServer`(UPLOAD_SERVER_SECRET) 게이트 후 body `uploadToken` 검증(2026-07-10 보안 게이트 — status/complete 는 uploadToken 만) |
+| POST | `/api/drive/assets/:assetId/status` | upload-server secret + uploadToken | 상태를 `uploading`으로 전이(upload-server). 응답 `{ id, uploadStatus, s3Key }` — upload-server가 저장 전에 `s3Key`를 대조한다 |
+| POST | `/api/drive/assets/:assetId/complete` | upload-server secret + uploadToken | 업로드 완료 콜백(티어/gdriveFileId/localPath/썸네일 반영) |
+| POST | `/api/drive/assets/:assetId/gdrive-token` | upload-server secret + uploadToken | Google Drive access token + root folder ID 발급(upload-server 전용). `requireUploadServer`(UPLOAD_SERVER_SECRET) 게이트 후 body `uploadToken` 검증(status·complete 도 같은 게이트를 적용 — 2026-09-06) |
 | GET | `/api/drive/assets` | session | 자산 목록(페이지네이션, mimeType/folderId 필터, 정렬) |
 | GET | `/api/drive/assets/:assetId` | session | 상세 + 다운로드 URL(티어별) |
 | PATCH | `/api/drive/assets/:assetId` | session | 이름/공개여부/폴더 이동 |
@@ -99,9 +99,9 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 | GET | `/api/drive/folders/:folderId` | session | 폴더 상세 + breadcrumb |
 | PATCH | `/api/drive/folders/:folderId` | session | 이름 변경/이동(순환참조 가드) |
 | DELETE | `/api/drive/folders/:folderId` | session | 폴더 재귀 삭제(하위 폴더·자산 실물 포함) |
-| POST | `/api/drive/lifecycle/evict-r2` | cron secret | L1 stale 자산 R2에서 제거 |
-| POST | `/api/drive/lifecycle/evict-local` | cron secret | L2 FIFO eviction(현재 stub, 0 반환) |
-| POST | `/api/drive/lifecycle/auto-promote` | cron secret | 인기 자산을 L3→L1 승격 |
+| GET·POST | `/api/drive/lifecycle/evict-r2` | cron secret | L1 stale 자산 R2에서 제거 |
+| GET·POST | `/api/drive/lifecycle/evict-local` | cron secret | L2 FIFO eviction(현재 stub, 0 반환) |
+| GET·POST | `/api/drive/lifecycle/auto-promote` | cron secret | 인기 자산을 L3→L1 승격 |
 
 목록/상세 응답 형식은 `lib/api-response.ts`의 `successResponse`/`paginatedResponse` 봉투를 사용한다.
 
@@ -124,9 +124,9 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 `deploy/upload-server`(메인 앱과 분리된 독립 상시 컨테이너)가 대용량·다계층(L1/L2/L3) 분배를 처리하며 hyun-hub는 메타데이터/토큰 교환만 담당.
 
 1. `prepare`(session): 클라이언트가 미리 계산한 `fileHash`로 MIME/폴더/중복/쿼터 검증. 기존 행이 `preparing`/`failed`면 삭제 후 재등록. `preparing` 행 insert + 랜덤 32바이트 `uploadToken` 발급 → `{ assetId, s3Key, uploadToken }` 반환.
-2. `status`(uploadToken): `preparing` → `uploading` 전이. 토큰 불일치 시 `UNAUTHORIZED`, 상태 부정합 시 `DRIVE_UPLOAD_EVENT_FAILED`.
+2. `status`(upload-server secret + uploadToken): `requireUploadServer` 게이트 통과 후 `preparing` → `uploading` 전이. 토큰 불일치 시 `UNAUTHORIZED`, 상태 부정합 시 `DRIVE_UPLOAD_EVENT_FAILED`. 응답에 자산 행의 `s3Key`를 포함해 upload-server가 자신이 올린 키와 대조할 수 있게 한다.
 3. `gdrive-token`(upload-server secret + uploadToken): 먼저 `requireUploadServer`(`UPLOAD_SERVER_SECRET` 헤더) 게이트를 통과해야 하고, 이어 `getAssetForTokenExchange`로 uploadToken·상태 검증 후 `getGdriveAccessToken()`(compose/shared) 호출 → Google access token + `GDRIVE_ROOT_FOLDER_ID` 반환. upload-server가 이 토큰으로 Google Drive에 직접 업로드. (Google access token 유출 방어를 위해 이 콜백만 시크릿 게이트를 추가로 건다 — 2026-07-10.)
-4. `complete`(uploadToken): body의 `storageTiers`/`gdriveFileId`/`localPath`/`thumbnailBase64`를 반영. `storageTiers`가 있으면 `ready`, 없으면 `failed`로 마감하고 `uploadToken`을 null로 초기화.
+4. `complete`(upload-server secret + uploadToken): `requireUploadServer` 게이트 통과 후 body의 `storageTiers`/`gdriveFileId`/`localPath`/`thumbnailBase64`를 반영. `storageTiers`가 있으면 `ready`, 없으면 `failed`로 마감하고 `uploadToken`을 null로 초기화.
 
 ### 3. 상세/다운로드 (티어 cascade)
 
@@ -141,8 +141,8 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 
 ### 5. 스토리지 lifecycle (`createStorageLifecycleService`, cron)
 
-- `evictR2Stale`(evict-r2 cron): `lastViewedAt < now-30일`(또는 NULL)인 **L1 보유** 자산(최대 500건)의 R2 오브젝트를 삭제하고 `storage_tiers`에서 `L1` 제거, `evict_l1` 로그 기록. (L3 사본은 유지 → 콜드 파일의 핫 사본만 정리.)
-- `autoPromote`(auto-promote cron): **L1 미보유** + `gdrive_file_id` 있음 + `access_count >= 5` + `size_bytes <= 100MB`인 자산(최대 50건)을 L3에서 내려받아 R2에 재업로드하고 `L1` 티어 추가, `promote_l1` 로그 기록.
+- `evictR2Stale`(evict-r2 cron): 후보는 `getStaleL1Assets`(`compose/drive.ts`)가 뽑는다 — `storage_tiers LIKE '%L1%'` + **`gdrive_file_id` NOT NULL**(L3 사본 보유) + (`last_viewed_at < cutoff` **또는** `last_viewed_at IS NULL AND created_at < cutoff`), 최대 500건. `cutoff = now - evictionDays(30일)`. 서비스는 각 후보에서 `L1`을 뺀 티어 문자열이 **빈 문자열이면 건너뛴다**(유일 티어 가드 — 마지막 사본을 지우지 않는다). 통과분만 R2 오브젝트를 삭제하고 `storage_tiers` 갱신 + `evict_l1` 로그 기록.
+- `autoPromote`(auto-promote cron): 후보는 **L1 미보유** + `gdrive_file_id` 있음 + `access_count >= 5` + `size_bytes <= 100MB` + **`last_viewed_at >= now - evictionDays(30일)`**(`viewedAfter` 인자로 전달 — 오래 전에만 조회된 자산은 승격하지 않는다), 최대 50건. L3에서 내려받아 R2에 재업로드하고 `L1` 티어 추가, `promote_l1` 로그 기록.
 - `evictLocalFifo`(evict-local): 현재 `return 0` **stub**(L2 미구현).
 
 lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `promotionThreshold: 5`, `l1MaxFileSize: 100MB`.
@@ -159,7 +159,7 @@ lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `
 | `R2_CUSTOM_DOMAIN` / `R2_CUSTOME_DOMAIN` | CDN 도메인(둘 다 미설정 시 `https://blogimg.gumyo.net`) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | L3 Google Drive OAuth(refresh token은 `account` 테이블 조회) |
 | `GDRIVE_ROOT_FOLDER_ID` | L3 업로드 대상 루트 폴더 ID(`gdrive-token` 응답에 포함) |
-| `UPLOAD_SERVER_SECRET` | lifecycle cron 인증 시크릿 |
+| `UPLOAD_SERVER_SECRET` | lifecycle cron 인증 + `status`·`complete`·`gdrive-token` 의 upload-server 게이트 시크릿(미설정 시 세 콜백은 503) |
 
 ## 에러 코드
 
@@ -210,7 +210,7 @@ lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `
 - **presigned/직접 URL**: 상세 응답의 `url`은 티어에 따라 달라진다 — L1 공개=CDN, L1 비공개=presigned(300초), L1 없음=`/download` 프록시 경로. 업로드 응답의 `url`은 항상 CDN URL이다.
 - **다운로드는 L3만 서빙**: `download`는 gdrive만 스트리밍한다. 라우트 요약은 "L2/L3 cascade"지만 L2(Mac Studio) 서빙은 미구현이며, L1은 이 엔드포인트가 아니라 상세의 presigned/CDN URL로 받는다.
 - **L2(Mac Studio)는 TODO**: `local_path`·`DRIVE_L2_*` 코드·evict-local 라우트는 존재하나 `evictLocalFifo`는 `0`을 반환하는 stub, `deploy/upload-server/local-client.ts`도 미구현. `deploy/upload-server/plan.md` §4 참조.
-- **cron 스케줄**(`vercel.json`): `evict-r2`=`0 3 * * *`, `auto-promote`=`0 5 * * *`(UTC 매일 03:00·05:00). `evict-local`은 라우트만 있고 cron 미등록. lifecycle 라우트는 모두 **POST**이며 `verifyCronAuth`로 `UPLOAD_SERVER_SECRET`을 검증한다.
+- **cron 스케줄**(`vercel.json`): `evict-r2`=`0 3 * * *`, `auto-promote`=`0 5 * * *`(UTC 매일 03:00·05:00). `evict-local`은 라우트만 있고 cron 미등록. lifecycle 라우트 3개는 `route.on(['GET','POST'], ...)`(`route/drive/lifecycle.ts:12`)로 **GET·POST 모두 수신**한다(Vercel cron 은 GET 으로 호출). 세 메서드 모두 `verifyCronAuth`로 `UPLOAD_SERVER_SECRET`을 상수 시간 검증한다.
 - **자산 ID는 숫자, 폴더 ID는 UUID 문자열**: `driveAssetParamSchema`는 `z.coerce.number().int().positive()`, `driveFolderParamSchema`는 `z.string()`. 스키마상 `cloud_assets.id`는 `int` autoincrement, `drive_folders.id`는 varchar36.
 - **폴더 참조 무결성은 앱 로직**: `cloud_assets.folder_id`·`drive_folders.parent_id`에는 DB FK가 없다. 순환참조 가드·재귀 삭제·소유자 검증 등은 서비스 코드에서만 강제된다(깊이 상한 50).
 - **stale 임시행 숨김**: 목록 쿼리(`compose/drive.ts`)는 `preparing`/`failed` 상태이면서 생성 10분 초과인 행을 결과에서 제외한다. `folderId=root`는 `folder_id IS NULL`로 해석, `mimeType` 필터는 접두 `LIKE`.

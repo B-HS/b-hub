@@ -1,6 +1,6 @@
 # weather 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
 
 ## 개요
 
@@ -89,7 +89,7 @@
    - `header.resultCode !== '00'` 이면 `mapKmaErrorCode`(`'03'`→`WEATHER_DATA_NOT_FOUND`, 그 외→`WEATHER_KMA_API_ERROR`).
    - 성공 시 다음 base 경계까지 TTL 로 `redisCache.set`.
 4. `parseCurrentWeather`(`weather-data.ts`)로 카테고리 배열을 필드로 변환(코드→텍스트 포함) → `successResponse`.
-5. `next()` 반환 후 `requireWeatherKey` 가 `logRequest`(endpoint·status·duration·error_code) 를 `weather_api_log` 에 비동기 insert.
+5. `next()` 반환 후 `requireWeatherKey` 가 `logRequest`(endpoint·status·duration·error_code) 를 `weather_api_log` 에 비동기 insert. **insert 전에 컬럼 길이에 맞춰 값을 자른다**(`service/domain/weather/weather-api-key.ts`): `endpoint` 50자, `ip` 45자(+ `X-Forwarded-For` 처럼 콤마로 이어진 값은 첫 항목만, 공백 제거 후 빈 값이면 `null`), `user_agent` 512자, `error_code` 50자. 값이 길어 insert 가 통째로 실패해 한도 산정 소스가 비는 일을 막는다.
 
 ### 2. KMA API·base time·캐시 규칙 (`kma-api.ts`)
 
@@ -176,6 +176,7 @@
 - **한도는 롤링 24h**: `checkRateLimit`/`listByUser` 는 `created_at >= now-24h` 카운트. `daily_limit` 이지만 캘린더일 리셋이 아니다.
 - **PTY 코드 세트 상이**: 초단기(`getPtyText`: 0/1/2/3/5/6/7)와 단기(`getPtyTextShort`: 0/1/2/3/4=소나기)의 강수형태 코드 매핑이 다르다. SKY 는 1/3/4 만 정의(2 없음).
 - **키 소유권**: `revoke`/`listByUser` 는 `user_id` 스코프이나 `updateDailyLimit`(관리자)은 소유자 검증 없이 `key_id` 만으로 수정한다.
+- **요청 로그는 저장 전에 절단된다**: `endpoint`(50)·`ip`(45, XFF 첫 항목)·`user_agent`(512)·`error_code`(50). 스키마 길이를 넘겨 insert 가 실패하면 그 요청이 한도 집계에서 누락되기 때문이다.
 - **부가 쓰기 실패 무시**: `validate` 의 `last_used_at` 갱신·`logRequest` insert 는 실패 시 `captureException` 후 삼킨다. `redisCache.set` 의 Redis 쓰기 실패는 `captureException` 없이 조용히 무시하고(빈 catch) 인메모리 캐시만 유지한다. 셋 다 조회 응답에는 영향 없다.
 
 ## 관련 문서

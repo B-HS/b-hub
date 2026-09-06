@@ -1,6 +1,6 @@
 # blog 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
 
 ## 개요
 
@@ -97,7 +97,7 @@
 |--------|------|------|------|
 | GET | `/api/blog/messages/user/:userId` | 없음 | 사용자별 메시지 피드(`page`/`size`, 소프트삭제 제외, 이미지 포함) |
 | GET | `/api/blog/messages/user/:userId/profile` | 없음 | 사용자 프로필(팔로워/팔로잉 수). 없으면 `NOT_FOUND` |
-| POST | `/api/blog/messages` | admin | 메시지 작성(`imageIds` 순서대로 연결) |
+| POST | `/api/blog/messages` | admin | 메시지 작성(`imageIds` 순서대로 연결). `imageIds` 는 **UUID 형식만** 허용(`z.uuid()`) |
 | DELETE | `/api/blog/messages/:id` | admin + 작성자 | 메시지 소프트 삭제(`deleted_at` 설정) |
 
 ### 이미지 (`route/blog/image.ts` — `/blog/images`)
@@ -137,7 +137,7 @@
 - `commentService.update`/`delete` 는 `getCommentById` 로 존재 확인 후 `existing.userId !== userId` 면 `{ success: false, reason: 'not_owner' }` 반환 → 라우트가 `BLOG_COMMENT_NOT_FOUND` 로 변환. admin 라우트의 `adminDelete`/`adminUpdateHide` 는 소유권 무시.
 
 ### 이미지 업로드 3단계 (b-hub ↔ upload-server)
-1. `POST /api/blog/images/prepare`(admin) → `blogImageService.prepare(userId)` 가 `assetId`(uuid)·`s3Key = <assetId>.webp` 를 만들고 `HMAC-SHA256(UPLOAD_SERVER_SECRET)` 로 `uploadToken` 서명(TTL 10분). `uploadUrl = UPLOAD_SERVER_URL` 반환.
+1. `POST /api/blog/images/prepare`(admin) → `blogImageService.prepare(userId)` 가 `assetId`(uuid)·`s3Key = <assetId>.webp` 를 만들고 `HMAC-SHA256(UPLOAD_SERVER_SECRET)` 로 `uploadToken` 서명(TTL 10분). `uploadUrl = UPLOAD_SERVER_URL` 반환. **`UPLOAD_SERVER_SECRET` 이 비어 있으면 `prepare`·`complete` 둘 다 `SERVICE_NOT_CONFIGURED`(503)** 로 실패한다(`requireTokenSecret`) — 빈 시크릿으로 서명·검증해 아무 토큰이나 통과하는 것을 막는다.
 2. 클라이언트가 원본 파일을 `deploy/upload-server` 로 업로드 → upload-server 가 webp 변환·R2 업로드 후 `POST {hubBaseUrl}/api/blog/images/complete` 로 콜백(`deploy/upload-server/blog-image-handler.ts`).
 3. `blogImageService.complete` 가 토큰을 상수시간 비교로 검증 + `s3Key === <assetId>.webp` 확인 후 `image_assets` 로우 삽입, 공개 URL(`storageService.getUrl`) 반환. 토큰 불일치 시 `UNAUTHORIZED`, s3Key 불일치 시 `VALIDATION_ERROR`.
 
@@ -192,6 +192,8 @@
 - **댓글 숨김 = 본문 마스킹**: `getCommentsByPostId` 는 `isHide` 댓글의 `comment` 를 빈 문자열로 바꿔 내려준다(로우 자체는 유지).
 - **마크다운 미배선**: `service/shared/markdown.ts`(마크다운→HTML + `<script>`/이벤트핸들러/위험 href sanitize)는 자체 테스트 외에 compose/route/page 어디에도 import 되지 않는다(grep 확인). 게시글 `description` 은 raw text 로 저장·반환되며, HTML 렌더링은 프론트 책임이다. 서버에서 마크다운/삭제소독을 태우려면 이 서비스를 compose 에 배선해야 한다.
 - **imageProcessor 미사용**: `composeBlog` 는 `imageProcessor`(sharp)를 인자로 받지만 본문에서 호출하지 않는다. webp 변환은 `deploy/upload-server` 에서 일어난다.
+- **메시지 작성은 트랜잭션**: `insertMessage`(`compose/blog.ts`)가 `messages` INSERT 와 `message_images` INSERT 를 한 트랜잭션으로 묶고, 두 행의 `created_at`/`updated_at` 에 같은 `now` 를 쓴다. 이미지 연결이 실패하면 메시지도 남지 않는다.
+- **`imageIds` 는 UUID 로 검증**: `messageCreateSchema.imageIds` 가 `z.array(z.uuid())` 다(`dto/blog/message.ts`). 임의 문자열이 `message_images.image_id` 로 들어가는 것을 DTO 경계에서 막는다.
 - **메시지 이미지 URL 하드코딩**: `compose/blog.ts` 의 메시지 이미지 URL은 `storageService.getUrl` 대신 `https://blogimg.gumyo.net/${r2Key}` 를 직접 문자열로 조립한다(이미지 에셋 목록은 `getUrl` 사용). CDN 도메인을 바꾸면 두 경로가 어긋날 수 있다.
 - **thumbnail 라우트도 `/blog/posts` 에 마운트**: `createPostRoute` 와 `createThumbnailRoute` 가 같은 접두사에 붙는다(경로가 `/:id` vs `/:id/thumbnail` 로 달라 충돌 없음).
 

@@ -1,6 +1,6 @@
 # calendar 도메인
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
 
 ## 개요
 
@@ -119,12 +119,35 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 2. `caldavService.getChangesFromToken`: 토큰 없음 → 전체 이벤트. 토큰 파싱(`http://b-calendar/sync/{ctag}`) 후 `getChangedEventsSince`(`updated_at >= ctag 시각`)·`getDeletedEventsSince`(`deleted_calendar_event`) 로 변경/삭제 계산.
 3. 변경분은 `getetag`, 삭제분은 404 `<D:response>` 로, 마지막에 현재 `sync-token` 을 붙여 207 multistatus 반환.
 4. ctag 는 이벤트 CUD 마다 `incrementCtag`(`Date.now().toString(36)`)로 갱신. 삭제는 `deleted_calendar_event` 에 tombstone 기록.
+5. **삭제는 트랜잭션 1개**다(`compose/calendar.ts` `deleteEventWithTombstone`): tombstone insert → 이벤트 delete → 구독 `ctag` 갱신을 한 트랜잭션에서 수행한다. 이전의 `insertDeletedEvent` → `deleteEventByUid` → `incrementCtag` 3단계는 중간 실패 시 tombstone 만 남거나 ctag 가 뒤처질 수 있었다.
 
 ### ICS 업로드(PUT) upsert
 
 1. CalDAV `PUT` 바디(ICS, 최대 1MB `MAX_ICS_SIZE`) → 초과 시 `CALENDAR_ICS_TOO_LARGE`.
-2. `parseICS`(`lib/ics-parser.ts`) 실패 시 `CALENDAR_ICS_PARSE_FAILED`.
-3. `uid` 에서 `@` 이전만 취해 `upsertEventByUid` — 기존 있으면 `updateEvent`(sequence+1), 없으면 `insertEvent`. ETag 헤더 반환.
+2. `calendarService.getUserTimezone(userId)` 로 사용자 타임존을 구해 `parseICS(icsData, timezone)` 호출(`lib/ics-parser.ts`). 실패 시 `CALENDAR_ICS_PARSE_FAILED`.
+3. `uid` 에서 `@` 이전만 취해 `upsertEventByUid` — 기존 있으면 `updateEvent`(sequence+1), 없으면 `insertEvent`. **`exdate` 도 함께 전달·저장**한다. ETag 헤더 반환.
+
+### ICS 파싱(`lib/ics-parser.ts`)
+
+- **`parseICS(ics, timezone = 'UTC')`**: 대상 타임존은 `isSupportedTimezone`(`Intl.DateTimeFormat` 생성 성공 여부)로 검사하고, 지원하지 않으면 `UTC` 로 떨어진다.
+- **VALARM 무시**: `BEGIN:VALARM` ~ `END:VALARM` 사이 줄은 전부 건너뛴다. 알람 블록의 `DESCRIPTION`·`TRIGGER` 등이 이벤트 필드를 덮어쓰지 않는다.
+- **RECURRENCE-ID 컴포넌트 스킵**: 하나의 ICS 에 VEVENT 가 여러 개 있으면 `RECURRENCE-ID` 를 가진 컴포넌트(반복 예외 인스턴스)는 마스터로 채택하지 않고, `RECURRENCE-ID` 가 없는 **첫 VEVENT** 만 마스터로 쓴다. 마스터가 없거나 `uid`·`summary`·`dtstart` 가 없으면 `null`.
+- **타임존 해석**(`getSourceTimezone` + `wallClockToInstantMs`): 프로퍼티 파라미터에 `TZID=` 가 있으면 그 존(지원하지 않는 TZID 면 대상 타임존), 값이 `Z` 로 끝나면 UTC, 둘 다 아니면(floating) 대상 타임존으로 본다. 원본 존과 대상 존이 다르면 벽시계→절대시각→대상 존 벽시계 순으로 변환한 값을 저장한다. `VALUE=DATE`(또는 길이 8)는 종일로 판정해 변환하지 않는다.
+- **BYDAY 검증**: `BYDAY_PATTERN`(`lib/ics.ts`, `/^([+-]?[1-5])?(MO|TU|WE|TH|FR|SA|SU)$/`)에 맞지 않는 토큰은 버리고, 남은 것이 없으면 `byDay` 자체를 두지 않는다. DTO 의 `recurrenceRuleSchema.byDay` 도 같은 정규식으로 검증한다(`dto/calendar-event.ts`).
+- `RRULE:UNTIL` 은 대상 타임존 기준으로 파싱하고, `DTEND` 가 없으면 종일 `+24h` / 그 외 `+1h` 로 채운다.
+
+### ICS 생성(`lib/ics.ts`)
+
+- **VTIMEZONE 은 실제 오프셋으로 만든다**(`generateTimezoneComponent`). 해당 연도의 12개월을 프로브해 존 오프셋 집합을 구하고, **오프셋이 하나일 때만** `TZOFFSETFROM`/`TZOFFSETTO` 에 그 값을 넣은 블록을 반환한다. DST 를 쓰는 존(오프셋 2개 이상)이나 지원하지 않는 존은 **틀린 오프셋 대신 빈 배열**을 돌려주고, `caldav.ts` 의 `generateTimezoneComponent` 가 `BEGIN:VTIMEZONE`/`TZID`/`END:VTIMEZONE` 최소 블록으로 폴백한다. (이전에는 존과 무관하게 `+0000` 을 박았다.)
+- **종일 이벤트의 `UNTIL` 은 DATE 형식**으로 출력한다(`formatRRule(rrule, isAllDay)` — 종일이면 `UNTIL=YYYYMMDD`, 아니면 `UNTIL=…Z`). `BYDAY` 는 출력 시에도 `BYDAY_PATTERN` 으로 거른다.
+- `getRecurrenceOccurrences` 는 `RRule.parseString(formatRRule(rrule))` 로 만든 규칙을 쓴다. 손으로 만든 요일 맵 대신 RFC 문자열을 거치므로 `2MO` 같은 서수 BYDAY 도 그대로 해석된다.
+
+### CalDAV href 규칙
+
+- 컬렉션 href 는 `buildCollectionHref(token, isDefaultCollection)` 하나로 만든다 — `/default` 계열 요청은 `/caldav/<token>/default/`, 루트 계열은 `/caldav/<token>/`.
+- 이벤트 href 는 `buildEventHref(collectionHref, uid)` = `<collection>/<uid의 @ 앞부분>.ics` 로 **모든 응답에서 동일**하다(PROPFIND·`calendar-multiget`·`calendar-query`·`sync-collection` 의 변경·삭제 응답 포함). 이전에는 `/default` PROPFIND 만 전체 `uid` 를 써서 클라이언트가 서로 다른 경로를 보게 됐다.
+- `REPORT` 는 `createReportHandler(isDefaultCollection)` 로 컬렉션별 핸들러를 만들어, 요청이 들어온 컬렉션과 같은 href 접두사로 응답한다.
+- `free-busy-query` 의 `time-range` 는 `parseICSDateTime(value, undefined, timezone)` 으로 파싱한다. ICS basic 포맷(`20260101T000000Z`)을 `new Date()` 에 그대로 넣으면 `Invalid Date` 가 되기 때문이다.
 
 ## 환경변수
 
@@ -162,10 +185,12 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 ## 주의사항 / 함정
 
 - **응답 스키마 2종.** `route/calendar/event.ts` 의 `eventToResponse`(ISO `dtstart`/`dtend`)는 GET `/`·POST `/`·PUT `/:uid` 가, `dto/calendar-event-mapper.ts` 의 `toEventResponse`(분리형 `startDate`/`startTime`, `id`=`uid`, `title`)는 GET `/range`·GET `/detail/:uid`·POST `/create`·PATCH `/:uid` 가 사용한다. 엔드포인트별로 필드 모양이 다르다.
-- **반복 이벤트는 서버에서 전개하지 않는다.** 범위/월 조회는 마스터 이벤트(+`rrule`)를 반환하고 인스턴스 전개는 클라이언트 몫이다.
-- **`getRecurrenceOccurrences` 는 `exdate` 를 반영하지 않는다.** `exdate` 는 ICS `EXDATE` 로 출력되지만 서버 범위 필터에는 적용되지 않는다.
+- **범위/월 조회는 서버에서 반복을 전개한다.** `expandEventsInRange`(`service/domain/calendar/calendar.ts:199`)가 `getRecurrenceOccurrences` 의 각 발생을 개별 인스턴스로 만들어 반환한다(마스터 1건이 아님). 그 외 경로(`getAllEvents`·CalDAV ICS 출력)는 마스터 + `RRULE` 그대로다.
+- **`getRecurrenceOccurrences` 는 여전히 `exdate` 를 반영하지 않는다.** `exdate` 는 이제 CalDAV PUT/upsert 에서도 저장되고 ICS `EXDATE` 로 출력되지만, 서버 전개(`expandEventsInRange`)에서 제외 처리는 하지 않는다.
 - **uid 접미사 처리.** 저장 uid 는 `{uuid}@b-calendar` 인데, CalDAV href·조회는 `@` 이전만 사용한다. 서비스는 정확 매칭 실패 시 `getEventByUidWithDomain`(`{uid}@b-calendar`)로 재조회한다.
-- **all-day 는 UTC 자정 고정.** `combineDatetime`·`formatDateTimeICS` 가 `getUTC*` 로 처리 — 시간대 오프셋을 적용하지 않는다.
+- **all-day 는 UTC 자정 고정.** `combineDatetime`·`formatDateTimeICS` 가 `getUTC*` 로 처리 — 시간대 오프셋을 적용하지 않는다. 종일 이벤트의 `RRULE:UNTIL` 만 DATE 형식으로 출력한다.
+- **ETag 는 `updated_at` 기반**이다(`getEventEtag` = `lastModified` 의 base36 + uid 앞 8자). 생성·수정·upsert 가 `updatedAt` 을 DB 기본값에 맡기지 않고 서비스가 계산한 `now` 로 명시 저장하므로, 응답 헤더로 돌려준 ETag 와 이후 조회에서 계산되는 ETag 가 일치한다.
+- **VTIMEZONE 은 DST 존에서 생략된다.** 오프셋이 연중 2개 이상인 존은 정확히 표현할 수 없어 최소 블록(`TZID` 만)으로 나간다 — 클라이언트가 존 이름으로 해석해야 한다.
 - **ctag/sync-token 은 base36 타임스탬프.** `incrementCtag` = `Date.now().toString(36)`. 삭제 tombstone 의 `sync_token` 비교는 문자열 `gte` 다.
 - **PROPPATCH·MKCALENDAR 는 no-op.** 실제 프로퍼티 변경·컬렉션 생성 없이 성공 응답만 반환한다.
 - **free-busy 는 `OPAQUE` 이벤트만 집계.** compose `getFreeBusyEvents` 가 `transp = 'OPAQUE'` + 기간 겹침(`dtend >= start AND dtstart <= end`)으로 필터한다 → `TRANSPARENT` 이벤트는 바쁨에 안 잡힌다. `status = TENTATIVE` 는 `BUSY-TENTATIVE`, 그 외는 `BUSY` 로 표기(`getFreeBusy`).

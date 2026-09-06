@@ -1,6 +1,6 @@
 # 중앙 로깅 / 에러-이벤트 시스템 (`log_events`)
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `compose/ai.ts`(`logUsage` — AI 사용기록 직접 적재).
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `compose/ai.ts`(`logUsage` — AI 사용기록 직접 적재).
 
 > b-hub 전 도메인과 외부 디바이스(ESP32 등)가 공통으로 쓰는 **단일 에러·이벤트 저장소**.
 > 세 가지 입력 경로 — ① 디바이스가 직접 올리는 이벤트, ② 기존 모든 API 엔드포인트의 서버 측 4xx·5xx 자동 캡처, ③ 서버 측 도메인이 `logEventService.ingest` 로 직접 남기는 사용·이벤트 기록(에러가 아닌 성공 INFO 포함 — 현재 AI 도메인) — 가 같은 `log_events` 테이블로 모인다.
@@ -19,7 +19,7 @@
 | `error_description` | `text` | 사람이 읽는 메시지 |
 | `severity` | `smallint` (default 20) | DEBUG10 / INFO20 / WARN30 / ERROR40 / FATAL50 |
 | `category` | `varchar(64)` | network / parse / state / hardware … |
-| `device_id` | `varchar(64)` | MAC 기반 등 |
+| `device_id` | `varchar(64)` | 디바이스 수집분은 **키에서 강제**(요청 본문 값 무시) — 아래 §3 참조 |
 | `firmware_version` | `varchar(32)` | 회귀 추적 |
 | `source` | `varchar(32)` | `device` / `server` |
 | `correlation_id` | `varchar(36)` | 같은 원인 묶기 |
@@ -44,6 +44,8 @@
 ### `device_key`
 
 디바이스 전용 인증 키(weather 키와 완전 분리). `token`(sha256 해시) / `device_id` / `label` / `daily_limit`(기본 2000) / `last_used_at` / `revoked_at`.
+
+- **키 식별자**: `resolveDeviceIdentity(key)`(`service/domain/logs/device-key.ts:12`) = `key.device_id ?? "key:<키 id>"`. `device_id` 없이 발급된 키도 이 값으로 식별되므로 레이트리밋에서 빠지지 않는다.
 
 ---
 
@@ -87,7 +89,8 @@
 | GET / POST | `/api/logs/device-keys` | admin | 목록 조회 / 발급(응답에 평문 키 1회, DB엔 sha256 해시 저장) |
 | DELETE | `/api/logs/device-keys/:id` | admin | 폐기(`revoked_at` 기록) |
 
-- 디바이스 인증 `middleware/require-device-key.ts`: `X-Device-Key` 검증 + 디바이스별 24h 레이트리밋(`log_events` 카운트). weather 키/쿼터/로그와 **무관**.
+- 디바이스 인증 `middleware/require-device-key.ts`: `X-Device-Key` 검증 + **키 식별자별** 24h 레이트리밋(`log_events.device_id` 카운트 < `daily_limit`). 검증 통과 시 컨텍스트 `deviceKeyDeviceId` 에 식별자를 넣는다. weather 키/쿼터/로그와 **무관**.
+- **저장되는 `device_id` 는 키에서 강제된다**: `route/logs/log-event.ts` 의 단건·배치 핸들러가 컨텍스트의 키 식별자로 `deviceId` 를 덮어써 서비스에 넘긴다(요청 본문의 `deviceId` 는 무시). 한도 집계와 저장 값이 같은 기준을 쓰므로, 본문에 임의 `deviceId` 를 넣어 한도를 우회할 수 없다. 배치 크기 사전 검사(50건 초과 → `LOG_BATCH_TOO_LARGE`)는 종전과 동일하다. 계약 상세는 [firmware-logging-contract.md](./firmware-logging-contract.md).
 - 흐름: Route(DTO 검증 `dto/logs/`·인증·`createAppError`) → `service/domain/logs/log-event.ts`(순수 로직) → `LogEventServiceDb`(compose `compose/logs.ts` 의 Drizzle 구현).
 
 ---

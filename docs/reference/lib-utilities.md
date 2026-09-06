@@ -1,8 +1,8 @@
 # lib/ 유틸리티 전수 인벤토리
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
-`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 28개(`cron-auth.ts` 는 라우트 테스트에서 커버).
+`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 29개.
 
 이 문서는 **"무엇이 이미 있는지"의 인벤토리**만 소유한다. 사용 패턴(에러 throw·응답 봉투·HOF 합성 규칙)은 [../architecture.md](../architecture.md) 와 [../hono-reference.md](../hono-reference.md) 가 소유하므로 여기서 재서술하지 않고 링크한다. 환경변수 전수 목록은 [env.md](./env.md), 공유 서비스는 [shared-services.md](./shared-services.md), 엔드포인트는 [api-endpoints.md](./api-endpoints.md) 가 소유한다.
 
@@ -35,7 +35,7 @@
 | `lib/with-auth.ts` | `withAuth`, `withAdmin`, `withApiToken` | 세션/관리자/API토큰 인증 HOF | `route/{ai,auth,logs,mail,spotify,weather}/*` | `with-auth.test.ts` |
 | `lib/with-rate-limit.ts` | `withRateLimit` | 사용자 id 기준 레이트리밋 HOF (auth 뒤에 합성, `pathKey?` 로 버킷 고정) | `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts` | `with-rate-limit.test.ts` |
 | `lib/with-spotify-auth.ts` | `withSpotifyAuth` | Spotify 위젯키 or 세션+accountId 인증 HOF | `route/spotify/data.ts` | `with-spotify-auth.test.ts` |
-| `lib/cron-auth.ts` | `verifyCronAuth` | `Authorization: Bearer`/`x-cron-secret` == secret 검증(실패 시 `UNAUTHORIZED`). cron 엔드포인트 공용 | `route/drive/lifecycle.ts`, `route/metrics/archive.ts` | `tests/route/metrics/archive.test.ts` |
+| `lib/cron-auth.ts` | `isSecretMatch`, `verifyCronAuth` | 시크릿 상수 시간 비교(sha256 다이제스트 + `timingSafeEqual`, 빈 값·길이 불일치는 즉시 false) + `Authorization: Bearer`/`x-cron-secret` 검증(실패 시 `UNAUTHORIZED`) | `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/metrics/archive.ts`, `service/domain/drive/drive-asset.ts` | `cron-auth.test.ts` |
 | `lib/hono-types.ts` | `HonoVariables`, `AuthContext` | Hono `c.set/get` 변수 계약(user·errorCode·errorDetail) | `index.ts`, `middleware/index.ts`, 다수 `route/*` | (타입 전용) |
 | `lib/env.ts` | `getEnv`, `resetEnvCache`, `Env` | Zod `safeParse` 캐시 env 접근자 | `compose/index.ts`, `compose/types.ts` | `env.test.ts` |
 | `lib/sentry.ts` | `initSentry`, `captureException` | `@sentry/bun` 지연 초기화·예외 캡처(가드) | `middleware/*`, `compose/{logs,ai}.ts`, 도메인 키 서비스 | `sentry.test.ts` |
@@ -46,13 +46,13 @@
 | `lib/token-utils.ts` | `generateToken`, `hashToken` | 32바이트 랜덤 토큰 생성 + SHA-256 해시 | `service/domain/{logs,spotify,weather}/*`, `service/shared/api-token.ts` | `token-utils.test.ts` |
 | `lib/credential-crypto.ts` | `createCredentialCrypto` | AES-256-GCM(v2 scrypt) 자격증명 암복호화(공용) | `service/domain/mail/mail-crypto.ts`(위임), `compose/ai.ts` | `credential-crypto.test.ts` |
 | `lib/jwt-decode.ts` | `decodeJwtPayloadUnverified`, `getJwtExpiryMs` | **서명 미검증** JWT payload 디코드 + exp 추출(codex 토큰 만료·account_id 판단) | `service/domain/ai/ai-provider-factory.ts` | `jwt-decode.test.ts` |
-| `lib/url-validator.ts` | `isPublicUrl`, `isAllowedRedirect` | SSRF 가드(https·사설IP 차단) + 오픈리다이렉트 가드 | `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts` | `url-validator.test.ts` |
+| `lib/url-validator.ts` | `isPrivateAddress`, `isPublicUrl`, `isPublicUrlResolved`, `isAllowedRedirect`, `AddressLookup` | SSRF 가드(https·사설/예약 IP 차단 + DNS 해석 검증) + 오픈리다이렉트 가드 | `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts` | `url-validator.test.ts` |
 | `lib/rate-limit.ts` | `createRateLimiter` | 인메모리 Map 고정 윈도우 리미터 | `compose/{ai,mail}.ts` | `rate-limit.test.ts` |
 | `lib/sql-utils.ts` | `escapeLikePattern` | `LIKE` 와일드카드(`% _ \`) 이스케이프 | `compose/blog.ts`, `compose/mail.ts` | `sql-utils.test.ts` |
-| `lib/mail-utils.ts` | `deriveThreadId`, `extractMessageIdTokens`, `encodeMimeWord`, `formatMailAddress`, `isBlockedHost`, `maskProviderError`, `sanitizeFilename`, `escapeHtml`, `sanitizeHeaderValue`, `sanitizeEmailName` | 메일 헤더/주소/파일명 sanitize·MIME 인코딩·SSRF 호스트 차단 | `dto/mail/account.ts`, `route/mail/message.ts`, `service/domain/{mail,ai}/*`, `service/domain/drive/drive-asset.ts` | `mail-utils.test.ts` |
+| `lib/mail-utils.ts` | `deriveThreadId`, `extractMessageIdTokens`, `encodeMimeWord`, `formatMailAddress`, `isBlockedHost`, `isLocalMailFolder`, `maskProviderError`, `sanitizeFilename`, `escapeHtml`, `sanitizeHeaderValue`, `sanitizeEmailName` | 메일 헤더/주소/파일명 sanitize·MIME 인코딩·SSRF 호스트 차단 | `dto/mail/account.ts`, `route/mail/message.ts`, `service/domain/{mail,ai}/*`, `service/domain/drive/drive-asset.ts` | `mail-utils.test.ts` |
 | `lib/mail-thread.ts` | `computeThreadIds` | union-find 로 메시지 배치→threadId 그룹핑 | `scripts/backfill-thread-id.ts` | `mail-thread.test.ts` |
-| `lib/ics-parser.ts` | `parseICS`, `extractUidFromICS`, `ParsedICS` | 인바운드 ICS(VEVENT) 파싱 | `route/calendar/caldav.ts` | `ics-parser.test.ts` |
-| `lib/ics.ts` | `eventsToICS`, `getRecurrenceOccurrences`, `generateIcsUid`, `generateSubscriptionToken`, `generateTimezoneComponent` | 아웃바운드 ICS 생성 + `rrule` 반복 전개 | `route/calendar/{caldav,ics}.ts`, `service/domain/calendar/calendar.ts` | `ics.test.ts` |
+| `lib/ics-parser.ts` | `parseICS`, `parseICSDateTime`, `extractUidFromICS`, `ParsedICS` | 인바운드 ICS(VEVENT) 파싱 — 대상 타임존 인자, VALARM 무시, `RECURRENCE-ID` 컴포넌트 스킵 | `route/calendar/caldav.ts` | `ics-parser.test.ts` |
+| `lib/ics.ts` | `eventsToICS`, `getRecurrenceOccurrences`, `generateIcsUid`, `generateSubscriptionToken`, `generateTimezoneComponent`, `getZonedWallClockMs`, `isSupportedTimezone`, `BYDAY_PATTERN` | 아웃바운드 ICS 생성 + `rrule` 반복 전개 + 타임존 유틸(`Intl` 기반 오프셋 산출) | `route/calendar/{caldav,ics}.ts`, `service/domain/calendar/*`, `lib/ics-parser.ts`, `dto/calendar-event.ts` | `ics.test.ts` |
 | `lib/xml.ts` | `buildMultistatus`, `parsePropfind`, `parseReport`, `buildCalendarDataResponse` | CalDAV XML 빌드/파싱(`fast-xml-parser`) | `route/calendar/caldav.ts` | `xml.test.ts` |
 | `lib/tailwind-converter.ts` | `convertTailwindToCSS`, `mergeStyles` | Tailwind 클래스→CSS 객체(`tw-to-css`) + 스타일 병합 | `compose/shared.ts` (배지) | `tailwind-converter.test.ts` |
 | `lib/pagination.ts` | `paginationQuerySchema`, `calcOffset`, `calcTotalPages`, `buildPagination` | 페이지네이션 스키마·계산 헬퍼 | (비-test 미사용 — 중복: `dto/common.ts`) | `pagination.test.ts` |
@@ -138,8 +138,10 @@
 - 사용처: `service/domain/{logs,spotify,weather}/*`, `service/shared/api-token.ts`. 테스트: `token-utils.test.ts`.
 
 **`lib/url-validator.ts`**
-- `isPublicUrl(url)`: https 전용 + `localhost`/`0.0.0.0`/`[::1]` 및 사설·링크로컬 IP 대역(`10.`/`172.16-31.`/`192.168.`/`127.`/`169.254.`/`fc00:`/`fe80:` 등) 차단 → 원격 아이콘 fetch SSRF 방어.
-- `isAllowedRedirect(url)`: 상대경로(`/`, `//` 제외) 또는 `gumyo.net`/`hyns.dev`(및 서브도메인)만 허용 → 오픈 리다이렉트 방어.
+- `isPrivateAddress(address)`: 호스트/IP 문자열 하나를 판정한다. `localhost`·`0.0.0.0`, IPv4 사설·루프백·링크로컬(`10.`/`172.16-31.`/`192.168.`/`127.`/`0.`/`169.254.`)에 더해 **CGNAT(`100.64.0.0/10`)·멀티캐스트(`224–239.`)·`255.255.255.255`**, IPv6 `::1`·`::`·ULA(`fc`/`fd`)·링크로컬(`fe80–feb`)·멀티캐스트(`ff`)를 차단하고, **IPv4-mapped IPv6**(`::ffff:127.0.0.1`, `::ffff:7f00:1` 두 표기 모두)를 IPv4 로 되돌려 검사한다. 대괄호·대소문자는 정규화한다.
+- `isPublicUrl(url)`: https 전용 + 호스트가 `isPrivateAddress` 에 걸리지 않을 것.
+- `isPublicUrlResolved(url, lookupFn?)`: `isPublicUrl` 통과 후, 호스트가 IP 리터럴이 아니면 **DNS 조회(`dns/promises` `lookup`, `all: true`)해 해석된 주소가 모두 공인 대역일 때만** 통과 → DNS rebinding 방어. 조회 실패·결과 0건은 거부. `lookupFn`(`AddressLookup`) 으로 조회를 주입할 수 있다(테스트).
+- `isAllowedRedirect(url)`: 상대경로(`//` 와 **`/\\`** 로 시작하는 것 제외) 또는 `gumyo.net`/`hyns.dev`(및 서브도메인)만 허용 → 오픈 리다이렉트 방어.
 - 사용처: `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts`. 테스트: `url-validator.test.ts`.
 
 **`lib/rate-limit.ts`**

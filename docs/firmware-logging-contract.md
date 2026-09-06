@@ -1,6 +1,6 @@
 # 펌웨어 로깅 클라이언트 계약 (ESP32 등)
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `dto/logs/log-event.ts`(`logEventIngestSchema`·`SEVERITY`), `route/logs/log-event.ts`, `route/logs/device-key.ts`, `middleware/require-device-key.ts`, `service/domain/logs/device-key.ts`(레이트리밋), `lib/error-code.ts`·`lib/error.ts`. 저장 스키마·서버 자동 캡처는 [logging.md](./logging.md).
+> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/logs/log-event.ts`(`logEventIngestSchema`·`SEVERITY`), `route/logs/log-event.ts`, `route/logs/device-key.ts`, `middleware/require-device-key.ts`, `service/domain/logs/device-key.ts`(레이트리밋), `lib/error-code.ts`·`lib/error.ts`. 저장 스키마·서버 자동 캡처는 [logging.md](./logging.md).
 
 > ESP32 weather 펌웨어는 **별도 레포**에 있으므로, b-hub 서버가 기대하는 **수집 계약**을 여기에 명세한다.
 > 이 문서를 기준으로 펌웨어 레포에서 `LOG_ERR` 매크로 + 링버퍼 + WiFi 복구 flush 를 구현한다.
@@ -17,9 +17,10 @@
 - 성공 시 `200` + `{ "success": true, "data": { "id": <n> } }`(단건) / `{ "success": true, "data": { "count": <n> } }`(배치).
 - 배치는 스키마상 **1~50건**(빈 배열 → `400`). 50건 초과 시 서버는 **`413 LOG_BATCH_TOO_LARGE`** → 클라이언트는 배치를 분할(권장: 절반)해 재전송.
 - 인증 실패 `401 LOG_DEVICE_KEY_INVALID`, 디바이스 24h 한도 초과 `429 LOG_DEVICE_KEY_RATE_LIMIT`. **검사 순서: 디바이스 키(401·429) → 바디 검증(400) → 배치 크기(413).**
-- 한도는 **디바이스당 rolling 24h 이벤트 수 < `dailyLimit`(기본 2000)**. 카운트는 저장된 `log_events.device_id` 기준이라 **`deviceId` 없이 발급된 키는 한도 없음**(무제한).
+- 한도는 **키의 디바이스 식별자당 rolling 24h 이벤트 수 < `dailyLimit`(기본 2000)**. 식별자는 `resolveDeviceIdentity`(`service/domain/logs/device-key.ts:12`) = 키의 `device_id`, **없으면 `key:<키 id>`** 다. 카운트는 저장된 `log_events.device_id` 기준이며, 저장 값도 이 식별자로 강제되므로 `deviceId` 없이 발급된 키도 한도가 적용된다.
 - 스키마/필드 길이 위반은 **`400`**(standard-validator). **`400` 은 재시도해도 같은 실패이므로 재인큐하지 말고 drop + 로컬 카운터**(로그 스톰 방지). 도메인 에러(401/413/429)는 봉투 `{ "success": false, "error": { "code", "message" } }` 형식이지만, **`400` 은 `error` 가 issue 배열**(`{ "success": false, "error": [ … ], "data": {…} }`) 로 형식이 다르다 — zod 4·hono-openapi 1 전환 결과, 전체 대조는 [quality-assurance/fe-deps-impact-check.md](./quality-assurance/fe-deps-impact-check.md).
 - 디바이스 키는 어드민이 `POST /api/logs/device-keys` 로 발급(평문 1회 표시).
+- **저장되는 `deviceId` 는 요청 본문이 아니라 키에서 온다.** `route/logs/log-event.ts` 가 단건·배치 모두 `{ ...event, deviceId }`(미들웨어가 컨텍스트에 넣은 키 식별자)로 덮어쓰므로, 본문의 `deviceId` 는 반영되지 않는다. 배치 크기 사전 검사는 종전대로 50건 초과 시 `413`.
 
 ## 2. 이벤트 필드 (`dto/logs/log-event.ts` 의 `logEventIngestSchema`)
 
@@ -30,7 +31,7 @@
 | `severity` | | 이름(`"ERROR"`) 또는 숫자(0–100 정수, 예 40). 미지정 시 20(INFO) |
 | `errorDescription` | | 사람이 읽는 메시지(최대 2000자) |
 | `category` | | `network` / `parse` / `state` / `hardware` |
-| `deviceId` | | `WiFi.macAddress()` |
+| `deviceId` | | **서버가 무시한다** — 저장 값은 키의 식별자(`device_key.device_id`, 없으면 `key:<키 id>`)로 덮어쓴다. 기기별 구분이 필요하면 키를 기기마다 발급한다 |
 | `firmwareVersion` | | 빌드 매크로(`esp32-weather@0.11.0` 또는 **short git SHA** — 전체 40자 SHA 는 32자 제한 초과 → `400`) |
 | `source` | | 생략 가능(서버가 `device` 보정) |
 | `correlationId` / `sessionId` | | boot 세션 UUID(재부팅마다 변경) |
