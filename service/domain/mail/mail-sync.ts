@@ -335,7 +335,9 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             if (!targetFolderId) throw createAppError('MAIL_FOLDER_NOT_FOUND')
 
             const folder = await deps.db.getFolderById(targetFolderId)
-            if (!folder || isLocalMailFolder(folder.remoteFolderId)) throw createAppError('MAIL_FOLDER_NOT_FOUND')
+            if (!folder || folder.accountId !== accountId || isLocalMailFolder(folder.remoteFolderId)) throw createAppError('MAIL_FOLDER_NOT_FOUND')
+
+            if (session && session.folderId !== targetFolderId) session = null
 
             const cursor = options.cursor ?? session?.cursor ?? undefined
 

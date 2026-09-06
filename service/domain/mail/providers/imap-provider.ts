@@ -15,6 +15,11 @@ import type {
 } from '../mail-provider'
 import { sanitizeHeaderValue, sanitizeEmailName, deriveThreadId, htmlToPlainText } from '../../../../lib/mail-utils'
 
+const toValidDate = (value: string | number) => {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date
+}
+
 type ImapProviderDeps = {
     email: string
     username?: string
@@ -103,7 +108,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
             to: parseAddressList(to),
             cc: parseAddressList(cc),
             bcc: parseAddressList(bcc),
-            sentAt: envelope.date ? new Date(envelope.date as string) : null,
+            sentAt: envelope.date ? toValidDate(envelope.date as string) : null,
         }
     }
 
@@ -308,7 +313,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                         isStarred: flags.has('\\Flagged'),
                         isDraft: flags.has('\\Draft'),
                         sentAt: envelope.sentAt ?? null,
-                        receivedAt: msg.internalDate ? new Date(msg.internalDate as unknown as string) : null,
+                        receivedAt: msg.internalDate ? toValidDate(msg.internalDate as unknown as string) : null,
                         uid: msg.uid,
                         attachments,
                     })
@@ -382,7 +387,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                     isStarred: flags.has('\\Flagged'),
                     isDraft: flags.has('\\Draft'),
                     sentAt: envelope.sentAt ?? null,
-                    receivedAt: msg.internalDate ? new Date(msg.internalDate as unknown as string) : null,
+                    receivedAt: msg.internalDate ? toValidDate(msg.internalDate as unknown as string) : null,
                     uid: msg.uid,
                     attachments: [],
                 }

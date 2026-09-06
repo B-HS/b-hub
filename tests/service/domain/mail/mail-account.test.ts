@@ -157,6 +157,16 @@ describe('createMailAccountService', () => {
             expect(insertCall.signature).toBe('-- \nHyunseok')
         })
 
+        test('insert 가 null 을 반환하면 MAIL_ACCOUNT_ALREADY_EXISTS 를 던진다', async () => {
+            const deps = createDeps({ db: { insert: mock(() => Promise.resolve(null)) } as Partial<ReturnType<typeof createMockDb>> })
+            const service = createMailAccountService(deps)
+
+            await expect(service.create('user-1', { provider: 'gmail', email: 'dup@gmail.com' })).rejects.toMatchObject({
+                code: 'MAIL_ACCOUNT_ALREADY_EXISTS',
+                statusCode: 409,
+            })
+        })
+
         test('signature가 없으면 null', async () => {
             const deps = createDeps()
             const service = createMailAccountService(deps)

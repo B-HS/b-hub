@@ -99,7 +99,7 @@ export const createMailAccountRoute = (deps: MailAccountRouteDeps) => {
             summary: '메일 계정 연결',
             responses: {
                 200: { description: '생성된 계정 ID' },
-                ...errorResponses(['UNAUTHORIZED', 'MAIL_ACCOUNT_LIMIT_EXCEEDED', 'MAIL_CREDENTIALS_INVALID']),
+                ...errorResponses(['UNAUTHORIZED', 'MAIL_ACCOUNT_LIMIT_EXCEEDED', 'MAIL_ACCOUNT_ALREADY_EXISTS', 'MAIL_CREDENTIALS_INVALID']),
             },
         }),
         validator('json', mailAccountCreateSchema),

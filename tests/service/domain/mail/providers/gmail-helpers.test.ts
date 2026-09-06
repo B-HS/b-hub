@@ -202,6 +202,41 @@ describe('getBody', () => {
         expect(result.text).toBe('Nested plain')
     })
 
+    test('message/rfc822 첨부 하위 파트로 재귀하지 않는다', () => {
+        const payload = {
+            mimeType: 'multipart/mixed',
+            body: {},
+            parts: [
+                { mimeType: 'text/plain', body: { data: Buffer.from('Real body').toString('base64url') } },
+                { mimeType: 'text/html', body: { data: Buffer.from('<p>Real body</p>').toString('base64url') } },
+                {
+                    mimeType: 'message/rfc822',
+                    filename: 'forwarded.eml',
+                    body: {},
+                    parts: [
+                        { mimeType: 'text/plain', body: { data: Buffer.from('Attached body').toString('base64url') } },
+                        { mimeType: 'text/html', body: { data: Buffer.from('<p>Attached body</p>').toString('base64url') } },
+                    ],
+                },
+            ],
+        }
+        const result = getBody(payload)
+        expect(result.text).toBe('Real body')
+        expect(result.html).toBe('<p>Real body</p>')
+    })
+
+    test('같은 타입 파트가 여러 개면 기존 동작대로 마지막 파트를 사용한다', () => {
+        const payload = {
+            mimeType: 'multipart/mixed',
+            body: {},
+            parts: [
+                { mimeType: 'text/plain', body: { data: Buffer.from('First').toString('base64url') } },
+                { mimeType: 'text/plain', body: { data: Buffer.from('Second').toString('base64url') } },
+            ],
+        }
+        expect(getBody(payload).text).toBe('Second')
+    })
+
     test('본문이 없으면 null을 반환한다', () => {
         const payload = { mimeType: 'multipart/mixed', body: {}, parts: [] }
         const result = getBody(payload)

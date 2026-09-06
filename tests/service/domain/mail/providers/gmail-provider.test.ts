@@ -190,6 +190,34 @@ describe('fetchMessageDetail', () => {
         expect(msg!.isStarred).toBe(false)
     })
 
+    test('Date 헤더와 internalDate 가 무효하면 sentAt/receivedAt 을 null 로 둔다', async () => {
+        const rawMsg = {
+            id: 'msg-bad-date',
+            threadId: 'thread-1',
+            snippet: '',
+            labelIds: ['INBOX'],
+            internalDate: 'not-a-number',
+            payload: {
+                headers: [
+                    { name: 'From', value: 'sender@test.com' },
+                    { name: 'Subject', value: 'Bad date' },
+                    { name: 'Date', value: 'Thu, 32 Xxx 2023 99:99:99 +0000' },
+                ],
+                mimeType: 'text/plain',
+                body: { data: Buffer.from('Hello').toString('base64url'), size: 5 },
+            },
+        }
+        setFetchResponse('/messages/msg-bad-date', rawMsg)
+
+        const provider = createGmailProvider(createDeps())
+        const msg = await provider.fetchMessageDetail('msg-bad-date')
+
+        expect(msg).not.toBeNull()
+        expect(msg!.sentAt).toBeNull()
+        expect(msg!.receivedAt).toBeNull()
+        expect(msg!.subject).toBe('Bad date')
+    })
+
     test('실패 시 null을 반환한다', async () => {
         fetchResponses.set('/messages/missing', () => mockResponse({}, 404))
         const provider = createGmailProvider(createDeps())

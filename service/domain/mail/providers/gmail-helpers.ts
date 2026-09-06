@@ -1,5 +1,7 @@
 import type { EmailAddress, ProviderAttachment } from '../mail-provider'
 
+const EMBEDDED_MESSAGE_MIME_TYPE = 'message/rfc822'
+
 export const splitAddresses = (header: string): string[] => {
     const parts: string[] = []
     let current = ''
@@ -60,7 +62,7 @@ export const getBody = (payload: Record<string, unknown>): { html: string | null
             else if (mimeType === 'text/plain') text = decodeBase64Url(body.data)
         }
 
-        if (parts) parts.forEach(traverse)
+        if (parts && mimeType !== EMBEDDED_MESSAGE_MIME_TYPE) parts.forEach(traverse)
     }
 
     traverse(payload)

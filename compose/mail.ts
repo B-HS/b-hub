@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
+import { isDuplicateKeyError } from '../lib/db-helper'
 import { createMailCrypto } from '../service/domain/mail/mail-crypto'
 import { createMailProviderFactory } from '../service/domain/mail/mail-provider-factory'
 import { createMailAccountService } from '../service/domain/mail/mail-account'
@@ -77,8 +78,13 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             return account ?? null
         },
         insert: async (data: typeof schema.mailAccounts.$inferInsert) => {
-            const [result] = await db.insert(schema.mailAccounts).values(data).$returningId()
-            return result
+            try {
+                const [result] = await db.insert(schema.mailAccounts).values(data).$returningId()
+                return result
+            } catch (error) {
+                if (isDuplicateKeyError(error)) return null
+                throw error
+            }
         },
         update: async (
             id: number,

@@ -57,6 +57,37 @@ const upsertPayload = (identityScope: 'account' | 'folder') => ({
     uid: 100,
 })
 
+const createDuplicateInsertCompose = () => {
+    const db = drizzle(
+        async (sql) => {
+            if (sql.startsWith('insert into `mail_accounts`')) {
+                throw Object.assign(new Error("Duplicate entry 'user-1-dup@test.com' for key 'uq_mail_accounts_user_email'"), {
+                    code: 'ER_DUP_ENTRY',
+                })
+            }
+            return { rows: [] }
+        },
+        { schema, mode: 'default' },
+    ) as unknown as ComposeMailArgs['db']
+
+    return composeMail({
+        db,
+        env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+        storageService: {} as unknown as ComposeMailArgs['storageService'],
+    })
+}
+
+describe('composeMail mailAccountDb.insert', () => {
+    test('(userId, email) 중복이면 INTERNAL_ERROR 대신 MAIL_ACCOUNT_ALREADY_EXISTS 를 던진다', async () => {
+        const composed = createDuplicateInsertCompose()
+
+        await expect(composed.mailAccountService.create('user-1', { provider: 'imap', email: 'dup@test.com' })).rejects.toMatchObject({
+            code: 'MAIL_ACCOUNT_ALREADY_EXISTS',
+            statusCode: 409,
+        })
+    })
+})
+
 describe('composeMail mailSyncDb.upsertMessage', () => {
     test('account 범위는 folderId 없이 (accountId, remoteMessageId) 로 기존 행을 찾는다', async () => {
         const { composed, queries } = createRecordingCompose()

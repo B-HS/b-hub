@@ -1,6 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createMailAccountRoute } from '../../../route/mail/account'
+import { createAppError } from '../../../lib/error'
 
 const mockAccount = {
     id: 1,
@@ -81,6 +82,22 @@ describe('POST /mail/accounts', () => {
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.success).toBe(true)
+    })
+
+    test('이미 연결된 계정이면 409를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.mailAccountService.create = mock(() => Promise.reject(createAppError('MAIL_ACCOUNT_ALREADY_EXISTS')))
+        const { app } = createApp(deps)
+        const res = await app.request('/mail/accounts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: 'gmail', email: 'dup@gmail.com' }),
+        })
+
+        expect(res.status).toBe(409)
+        const body = await res.json()
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('MAIL_ACCOUNT_ALREADY_EXISTS')
     })
 
     test('잘못된 요청은 400을 반환한다', async () => {

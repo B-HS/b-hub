@@ -9,7 +9,7 @@ const MAX_ACCOUNTS_PER_USER = 10
 type MailAccountDb = {
     list: (userId: string) => Promise<MailAccount[]>
     getById: (id: number) => Promise<MailAccount | null>
-    insert: (data: NewMailAccount) => Promise<{ id: number }>
+    insert: (data: NewMailAccount) => Promise<{ id: number } | null>
     update: (
         id: number,
         data: Partial<Pick<MailAccount, 'displayName' | 'signature' | 'isActive' | 'lastSyncAt' | 'lastSyncStatus' | 'syncCursor'>>,
@@ -86,6 +86,7 @@ export const createMailAccountService = (deps: MailAccountServiceDeps) => {
             smtpTls: input.smtpTls ?? true,
             betterAuthAccountId: input.betterAuthAccountId ?? null,
         })
+        if (!result) throw createAppError('MAIL_ACCOUNT_ALREADY_EXISTS')
 
         return result
     }

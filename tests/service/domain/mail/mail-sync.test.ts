@@ -509,6 +509,74 @@ describe('createMailSyncService', () => {
             expect(accountService._provider.fetchMessages).not.toHaveBeenCalled()
         })
 
+        test('다른 계정의 폴더를 folderId 로 지정하면 MAIL_FOLDER_NOT_FOUND 를 던진다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService,
+                db: { getFolderById: mock(() => Promise.resolve(mockFolder({ id: 99, accountId: 2 }))) },
+            })
+            const service = createMailSyncService(deps)
+
+            await expect(service.syncHistorical(1, 'user-1', { folderId: 99 })).rejects.toMatchObject({ code: 'MAIL_FOLDER_NOT_FOUND' })
+            expect(accountService._provider.fetchMessages).not.toHaveBeenCalled()
+        })
+
+        test('세션의 folderId 가 대상 폴더와 다르면 세션 커서를 쓰지 않는다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService,
+                db: {
+                    getActiveSession: mock(() =>
+                        Promise.resolve(mockSession({ id: 7, status: 'paused', folderId: 5, cursor: 'other-folder-cursor' })),
+                    ),
+                    getFolderById: mock(() => Promise.resolve(mockFolder({ id: 1, remoteFolderId: 'INBOX' }))),
+                },
+            })
+            const service = createMailSyncService(deps)
+            await service.syncHistorical(1, 'user-1', { folderId: 1 })
+
+            expect(accountService._provider.fetchMessages).toHaveBeenCalledWith(expect.objectContaining({ cursor: undefined }))
+        })
+
+        test('세션의 folderId 가 대상 폴더와 다르면 기존 세션을 재사용하지 않고 새 세션을 만든다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService,
+                db: {
+                    getActiveSession: mock(() =>
+                        Promise.resolve(mockSession({ id: 7, status: 'paused', folderId: 5, cursor: 'other-folder-cursor', syncedCount: 50 })),
+                    ),
+                    getFolderById: mock(() => Promise.resolve(mockFolder({ id: 1, remoteFolderId: 'INBOX' }))),
+                    createSession: mock(() =>
+                        Promise.resolve(mockSession({ id: 9, folderId: 1, cursor: null, syncedCount: 0, totalEstimate: null })),
+                    ),
+                },
+            })
+            const service = createMailSyncService(deps)
+            const result = await service.syncHistorical(1, 'user-1', { folderId: 1 })
+
+            expect(deps.db.createSession).toHaveBeenCalledWith(expect.objectContaining({ folderId: 1, status: 'running' }))
+            expect(result.sessionId).toBe(9)
+            expect(result.syncedSoFar).toBe(2)
+            expect(deps.db.updateSession).not.toHaveBeenCalledWith(7, expect.anything())
+            expect(deps.db.updateSession).toHaveBeenCalledWith(9, expect.objectContaining({ cursor: 'new-cursor' }))
+        })
+
+        test('세션의 folderId 가 대상 폴더와 같으면 세션 커서를 이어 쓴다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService,
+                db: {
+                    getActiveSession: mock(() => Promise.resolve(mockSession({ status: 'paused', folderId: 1, cursor: 'same-folder-cursor' }))),
+                    getFolderById: mock(() => Promise.resolve(mockFolder({ id: 1, remoteFolderId: 'INBOX' }))),
+                },
+            })
+            const service = createMailSyncService(deps)
+            await service.syncHistorical(1, 'user-1', { folderId: 1 })
+
+            expect(accountService._provider.fetchMessages).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'same-folder-cursor' }))
+        })
+
         test('에러 시 세션 error 상태', async () => {
             const accountService = createMockAccountService()
             accountService._provider.fetchMessages = mock(() => Promise.reject(new Error('Fetch failed')))

@@ -12,6 +12,7 @@ let mockMessageCount: number | null = null
 let capturedFetchFields: unknown[] = []
 let mockEnvelopeByUid: Record<number, Record<string, unknown>> = {}
 let mockReferencesByUid: Record<number, string> = {}
+let mockInternalDateByUid: Record<number, string> = {}
 let capturedLockPaths: string[] = []
 let capturedMailboxOps: { op: string; range: unknown; arg?: unknown; lockedPaths: string[] }[] = []
 let mockMoveResult: unknown = false
@@ -85,7 +86,7 @@ mock.module('imapflow', () => ({
                                         },
                                         bodyStructure: {},
                                         source: Buffer.from(''),
-                                        internalDate: new Date().toISOString(),
+                                        internalDate: mockInternalDateByUid[uid] ?? new Date().toISOString(),
                                         headers: references ? Buffer.from(`References: ${references}\r\n`) : undefined,
                                     },
                                 })
@@ -132,6 +133,7 @@ beforeEach(() => {
     mockMessageCount = null
     mockEnvelopeByUid = {}
     mockReferencesByUid = {}
+    mockInternalDateByUid = {}
     capturedLockPaths = []
     capturedMailboxOps = []
     mockMoveResult = false
@@ -361,6 +363,54 @@ describe('threadId derive', () => {
 
         expect(msg?.threadId).toBe('<root@a.com>')
         expect(msg?.references).toBe('<root@a.com> <reply1@b.com> <reply2@c.com>')
+    })
+})
+
+describe('무효한 날짜 처리', () => {
+    test('envelope.date 와 internalDate 가 무효하면 sentAt/receivedAt 을 null 로 둔다', async () => {
+        mockUids = [200]
+        mockEnvelopeByUid = {
+            200: {
+                from: [{ name: 'Test', address: 'test@test.com' }],
+                to: [],
+                cc: [],
+                bcc: [],
+                subject: 'bad date',
+                messageId: '<bad@d.com>',
+                date: 'not-a-date',
+            },
+        }
+        mockInternalDateByUid = { 200: 'not-a-date' }
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', batchSize: 100 })
+
+        expect(result.messages).toHaveLength(1)
+        expect(result.messages[0].sentAt).toBeNull()
+        expect(result.messages[0].receivedAt).toBeNull()
+        expect(result.messages[0].subject).toBe('bad date')
+    })
+
+    test('fetchMessageDetail 도 무효한 날짜를 null 로 둔다', async () => {
+        mockUids = [201]
+        mockEnvelopeByUid = {
+            201: {
+                from: [{ name: 'Test', address: 'test@test.com' }],
+                to: [],
+                cc: [],
+                bcc: [],
+                subject: 'bad date detail',
+                messageId: '<bad2@d.com>',
+                date: 'not-a-date',
+            },
+        }
+        mockInternalDateByUid = { 201: 'not-a-date' }
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const msg = await provider.fetchMessageDetail('201')
+
+        expect(msg?.sentAt).toBeNull()
+        expect(msg?.receivedAt).toBeNull()
     })
 })
 

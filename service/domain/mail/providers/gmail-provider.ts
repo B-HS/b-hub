@@ -21,6 +21,11 @@ type GmailProviderDeps = {
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 
+const toValidDate = (value: string | number) => {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date
+}
+
 const LABEL_TYPE_MAP: Record<string, ProviderFolder['type']> = {
     INBOX: 'inbox',
     SENT: 'sent',
@@ -113,8 +118,8 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             isRead: !labelIds.includes('UNREAD'),
             isStarred: labelIds.includes('STARRED'),
             isDraft: labelIds.includes('DRAFT'),
-            sentAt: getHeader(headers, 'Date') ? new Date(getHeader(headers, 'Date')) : null,
-            receivedAt: raw.internalDate ? new Date(parseInt(raw.internalDate as string, 10)) : null,
+            sentAt: getHeader(headers, 'Date') ? toValidDate(getHeader(headers, 'Date')) : null,
+            receivedAt: raw.internalDate ? toValidDate(parseInt(raw.internalDate as string, 10)) : null,
             attachments: getAttachments(payload),
         }
     }
