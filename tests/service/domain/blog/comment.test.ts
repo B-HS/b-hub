@@ -14,6 +14,7 @@ const mockComment = {
 }
 
 const createMockDb = () => ({
+    getPostCommentFlag: mock((postId: number) => Promise.resolve(postId === 1 ? { isComment: true } : null)),
     getCommentsByPostId: mock(() => Promise.resolve([mockComment])),
     getCommentById: mock((id: number) => Promise.resolve(id === 1 ? mockComment : null)),
     insertComment: mock(() => Promise.resolve({ commentId: 2 })),
@@ -40,13 +41,35 @@ describe('createCommentService', () => {
             comment: 'New comment',
             isHide: false,
         })
-        expect(result.commentId).toBe(2)
+        expect(result.success).toBe(true)
+        expect(result.success && result.commentId).toBe(2)
         expect(db.insertComment).toHaveBeenCalledWith({
             postId: 1,
             userId: 'user-1',
             comment: 'New comment',
             isHide: false,
         })
+    })
+
+    test('create는 게시글이 없으면 post_not_found를 반환한다', async () => {
+        const db = createMockDb()
+        const service = createCommentService({ db })
+
+        const result = await service.create('user-1', { postId: 999, comment: 'New comment', isHide: false })
+        expect(result.success).toBe(false)
+        expect(!result.success && result.reason).toBe('post_not_found')
+        expect(db.insertComment).not.toHaveBeenCalled()
+    })
+
+    test('create는 댓글이 비활성화된 게시글이면 comment_disabled를 반환한다', async () => {
+        const db = createMockDb()
+        db.getPostCommentFlag = mock(() => Promise.resolve({ isComment: false }))
+        const service = createCommentService({ db })
+
+        const result = await service.create('user-1', { postId: 1, comment: 'New comment', isHide: false })
+        expect(result.success).toBe(false)
+        expect(!result.success && result.reason).toBe('comment_disabled')
+        expect(db.insertComment).not.toHaveBeenCalled()
     })
 
     test('update는 자신의 댓글을 수정한다', async () => {

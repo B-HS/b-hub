@@ -155,3 +155,23 @@ describe('composeBlog postDb.deletePost', () => {
         expect(fake.deletedTables).toEqual(['comments', 'posts'])
     })
 })
+
+describe('composeBlog commentDb.getPostCommentFlag', () => {
+    test('게시글이 없으면 댓글 생성이 post_not_found 로 막힌다', async () => {
+        const { commentService } = createServices(createQueryChain([]))
+
+        const result = await commentService.create('user-1', { postId: 999, comment: '안녕하세요', isHide: false })
+
+        expect(result.success).toBe(false)
+        expect(!result.success && result.reason).toBe('post_not_found')
+    })
+
+    test('isComment 가 false 면 댓글 생성이 comment_disabled 로 막힌다', async () => {
+        const { commentService } = createServices(createQueryChain([{ isComment: false }]))
+
+        const result = await commentService.create('user-1', { postId: 1, comment: '안녕하세요', isHide: false })
+
+        expect(result.success).toBe(false)
+        expect(!result.success && result.reason).toBe('comment_disabled')
+    })
+})

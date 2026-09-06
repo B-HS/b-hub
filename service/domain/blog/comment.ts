@@ -13,6 +13,7 @@ type CommentWithUser = {
 }
 
 type CommentServiceDb = {
+    getPostCommentFlag: (postId: number) => Promise<{ isComment: boolean } | null>
     getCommentsByPostId: (postId: number) => Promise<CommentWithUser[]>
     getCommentById: (commentId: number) => Promise<CommentWithUser | null>
     insertComment: (data: { postId: number; userId: string; comment: string; isHide: boolean }) => Promise<{ commentId: number }>
@@ -30,12 +31,17 @@ export const createCommentService = (deps: CommentServiceDeps) => ({
     },
 
     create: async (userId: string, input: CommentCreateInput) => {
-        return deps.db.insertComment({
+        const post = await deps.db.getPostCommentFlag(input.postId)
+        if (!post) return { success: false as const, reason: 'post_not_found' as const }
+        if (!post.isComment) return { success: false as const, reason: 'comment_disabled' as const }
+
+        const created = await deps.db.insertComment({
             postId: input.postId,
             userId,
             comment: input.comment,
             isHide: input.isHide,
         })
+        return { success: true as const, commentId: created.commentId }
     },
 
     update: async (commentId: number, userId: string, input: CommentUpdateInput) => {

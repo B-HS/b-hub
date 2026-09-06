@@ -174,6 +174,15 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
 
     const commentService = createCommentService({
         db: {
+            getPostCommentFlag: async (postId) => {
+                const [post] = await db
+                    .select({ isComment: schema.posts.isComment })
+                    .from(schema.posts)
+                    .where(eq(schema.posts.postId, postId))
+                    .limit(1)
+                return post ?? null
+            },
+
             getCommentsByPostId: async (postId) => {
                 const { comments, user } = schema
                 const data = await db

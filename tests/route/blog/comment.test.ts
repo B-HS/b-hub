@@ -19,7 +19,7 @@ const createMockDeps = () => ({
                 },
             ]),
         ),
-        create: mock(() => Promise.resolve({ commentId: 2 })),
+        create: mock(() => Promise.resolve({ success: true as const, commentId: 2 })),
         update: mock(() => Promise.resolve({ success: true as const })),
         delete: mock(() => Promise.resolve({ success: true as const })),
         adminDelete: mock(() => Promise.resolve({ commentId: 1 })),
@@ -73,6 +73,34 @@ describe('POST /blog/comments', () => {
             body: JSON.stringify({ postId: 1, comment: 'Hack!' }),
         })
         expect(res.status).toBe(401)
+    })
+
+    test('게시글이 없으면 404 BLOG_POST_NOT_FOUND를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.commentService.create = mock(() => Promise.resolve({ success: false as const, reason: 'post_not_found' as const })) as never
+        const { app } = createApp(deps)
+        const res = await app.request('/blog/comments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ postId: 999, comment: 'Nice!' }),
+        })
+        expect(res.status).toBe(404)
+        const body = await res.json()
+        expect(body.error.code).toBe('BLOG_POST_NOT_FOUND')
+    })
+
+    test('댓글이 비활성화된 게시글이면 403 FORBIDDEN을 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.commentService.create = mock(() => Promise.resolve({ success: false as const, reason: 'comment_disabled' as const })) as never
+        const { app } = createApp(deps)
+        const res = await app.request('/blog/comments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ postId: 1, comment: 'Nice!' }),
+        })
+        expect(res.status).toBe(403)
+        const body = await res.json()
+        expect(body.error.code).toBe('FORBIDDEN')
     })
 })
 

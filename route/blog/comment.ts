@@ -38,7 +38,7 @@ export const createCommentRoute = (deps: CommentRouteDeps) => {
             summary: '댓글 작성',
             responses: {
                 200: { description: '생성된 댓글' },
-                ...errorResponses(['UNAUTHORIZED']),
+                ...errorResponses(['UNAUTHORIZED', 'BLOG_POST_NOT_FOUND', 'FORBIDDEN']),
             },
         }),
         validator('json', commentCreateSchema),
@@ -48,7 +48,9 @@ export const createCommentRoute = (deps: CommentRouteDeps) => {
 
             const input = c.req.valid('json' as never) as z.infer<typeof commentCreateSchema>
             const result = await deps.commentService.create(session.user.id, input)
-            return c.json(successResponse(result))
+            if (!result.success) throw createAppError(result.reason === 'post_not_found' ? 'BLOG_POST_NOT_FOUND' : 'FORBIDDEN')
+
+            return c.json(successResponse({ commentId: result.commentId }))
         }),
     )
 
