@@ -29,13 +29,20 @@ type ImageGeneratorDeps = {
 }
 
 export const createImageGenerator = (deps: ImageGeneratorDeps) => {
-    let wasmInitialized = false
+    let initPromise: Promise<void> | null = null
 
     const ensureWasm = async () => {
-        if (wasmInitialized) return
-        const wasmBuffer = await deps.loadWasm()
-        await deps.initWasm(wasmBuffer)
-        wasmInitialized = true
+        initPromise ??= (async () => {
+            const wasmBuffer = await deps.loadWasm()
+            await deps.initWasm(wasmBuffer)
+        })()
+
+        try {
+            await initPromise
+        } catch (error) {
+            initPromise = null
+            throw error
+        }
     }
 
     const generate = async (

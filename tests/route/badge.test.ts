@@ -1,6 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createBadgeRoute } from '../../route/badge'
+import { createAppError } from '../../lib/error'
 
 const createMockBadgeService = () => ({
     generate: mock(() => Promise.resolve({ buffer: Buffer.from('png-data'), cacheHit: false })),
@@ -86,6 +87,17 @@ describe('GET /badge/image', () => {
         const { app } = createApp(badgeService)
         const res = await app.request('/badge/image')
         expect(res.status).toBe(500)
+    })
+
+    test('IMAGE_GENERATE_FAILED는 코드가 담긴 500 봉투로 응답한다', async () => {
+        const badgeService = createMockBadgeService()
+        badgeService.generate = mock(() => Promise.reject(createAppError('IMAGE_GENERATE_FAILED'))) as never
+        const { app } = createApp(badgeService)
+        const res = await app.request('/badge/image')
+        expect(res.status).toBe(500)
+        const body = (await res.json()) as { success: boolean; error: { code: string } }
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('IMAGE_GENERATE_FAILED')
     })
 })
 

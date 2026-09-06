@@ -1,5 +1,7 @@
 import { createHash } from 'crypto'
 import type { ReactNode } from 'hono/jsx'
+import { createAppError } from '../../../lib/error'
+import { captureException } from '../../../lib/sentry'
 import type { FontLoader } from '../../shared/font-loader'
 import type { IconLoader } from '../../shared/icon-loader'
 import type { ImageGenerator } from '../../shared/image-generator'
@@ -85,7 +87,7 @@ export const createBadgeService = (deps: BadgeDeps) => {
         const tailwindStyles = convertTailwind(request.tailwind)
         const computedStyles = mergeStyles(tailwindStyles, request.css)
 
-        const fontSize = request.fontSize ?? Math.round(request.height * 0.5)
+        const fontSize = request.fontSize || Math.round(request.height * 0.5)
         const iconSize = request.iconSize || Math.round(fontSize * 1.2)
         const gap = Math.round(request.height * 0.08)
 
@@ -137,11 +139,18 @@ export const createBadgeService = (deps: BadgeDeps) => {
             key: null,
         } as ReactNode
 
-        const buffer = await deps.imageGenerator.generate(element, {
-            width: request.width,
-            height: request.height,
-            fonts,
-        })
+        const buffer = await (async () => {
+            try {
+                return await deps.imageGenerator.generate(element, {
+                    width: request.width,
+                    height: request.height,
+                    fonts,
+                })
+            } catch (error) {
+                captureException(error)
+                throw createAppError('IMAGE_GENERATE_FAILED')
+            }
+        })()
 
         deps.cache.set(cacheKey, buffer, 24 * 60 * 60 * 1000)
         return { buffer, cacheHit: false }

@@ -1,5 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createBadgeService } from '../../../../service/domain/badge/badge'
+import { isAppError } from '../../../../lib/error'
+import type { AppError } from '../../../../lib/error'
 
 const createMockDeps = () => ({
     imageGenerator: {
@@ -211,5 +213,38 @@ describe('createBadgeService', () => {
 
         const setCall = (deps.cache.set as ReturnType<typeof mock>).mock.calls[0]
         expect(setCall[2]).toBe(24 * 60 * 60 * 1000)
+    })
+})
+
+const readTextStyle = (deps: ReturnType<typeof createMockDeps>) => {
+    const element = (deps.imageGenerator.generate as ReturnType<typeof mock>).mock.calls[0][0] as {
+        props: { children: Array<{ props: { style: Record<string, string | number> } }> }
+    }
+    return element.props.children[0].props.style
+}
+
+describe('createBadgeService 폰트 크기와 실패 처리', () => {
+    test('fontSize가 0이면 생략했을 때와 같은 자동 크기를 쓴다', async () => {
+        const autoDeps = createMockDeps()
+        await createBadgeService(autoDeps).generate({ ...defaultRequest, height: 200 })
+
+        const zeroDeps = createMockDeps()
+        await createBadgeService(zeroDeps).generate({ ...defaultRequest, height: 200, fontSize: 0 })
+
+        expect(readTextStyle(zeroDeps).fontSize).toBe(readTextStyle(autoDeps).fontSize)
+        expect(readTextStyle(zeroDeps).fontSize).toBe(100)
+    })
+
+    test('이미지 생성 예외는 IMAGE_GENERATE_FAILED로 변환한다', async () => {
+        const deps = createMockDeps()
+        deps.imageGenerator.generate = mock(() => Promise.reject(new Error('satori boom'))) as never
+        const service = createBadgeService(deps)
+
+        const error = await service.generate(defaultRequest).catch((thrown: unknown) => thrown)
+
+        expect(isAppError(error)).toBe(true)
+        expect((error as AppError).code).toBe('IMAGE_GENERATE_FAILED')
+        expect((error as AppError).statusCode).toBe(500)
+        expect(deps.cache.set).not.toHaveBeenCalled()
     })
 })
