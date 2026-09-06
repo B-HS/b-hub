@@ -11,7 +11,7 @@ import { createAiPromptService } from '../service/domain/ai/ai-prompt'
 import { createAiSessionService } from '../service/domain/ai/ai-session'
 import { createAiAttachmentService } from '../service/domain/ai/ai-attachment'
 import { createAiChatService } from '../service/domain/ai/ai-chat'
-import type { AiUsageLogger } from '../service/domain/ai/ai-chat'
+import type { AiMessagePairInserter, AiUsageLogger } from '../service/domain/ai/ai-chat'
 import type { ComposeAiArgs } from './types'
 
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token'
@@ -276,7 +276,36 @@ export const composeAi = ({ db, env, storageService, logEventService }: ComposeA
             .catch((err) => captureException(err))
     }
 
-    const chatService = createAiChatService({ connectionService, promptService, sessionService, attachmentService, logUsage })
+    const insertMessagePair: AiMessagePairInserter = async (pair) =>
+        db.transaction(async (tx) => {
+            const [userRes] = await tx
+                .insert(schema.aiMessages)
+                .values({
+                    sessionId: pair.sessionId,
+                    role: 'user',
+                    content: pair.user.content,
+                    modelId: null,
+                    inputTokens: null,
+                    outputTokens: null,
+                    durationMs: null,
+                })
+                .$returningId()
+            const [assistantRes] = await tx
+                .insert(schema.aiMessages)
+                .values({
+                    sessionId: pair.sessionId,
+                    role: 'assistant',
+                    content: pair.assistant.content,
+                    modelId: pair.assistant.modelId,
+                    inputTokens: pair.assistant.inputTokens,
+                    outputTokens: pair.assistant.outputTokens,
+                    durationMs: pair.assistant.durationMs,
+                })
+                .$returningId()
+            return { userMessageId: userRes.id, assistantMessageId: assistantRes.id }
+        })
+
+    const chatService = createAiChatService({ connectionService, promptService, sessionService, attachmentService, insertMessagePair, logUsage })
 
     const aiRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30 })
     const aiCheckLimit = (key: string, path: string) => aiRateLimiter.checkLimit(`ai:${key}:${path}`)

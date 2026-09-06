@@ -1,6 +1,6 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createAiChatService } from '../../../../service/domain/ai/ai-chat'
-import type { AiUsageLogger, AiChatStreamEvent } from '../../../../service/domain/ai/ai-chat'
+import type { AiUsageLogger, AiChatStreamEvent, AiMessagePairInsert } from '../../../../service/domain/ai/ai-chat'
 import type { AiCompletionRequest, AiStreamEvent } from '../../../../service/domain/ai/ai-provider'
 import { createAppError } from '../../../../lib/error'
 import type { AiSession, AiMessage, AiPrompt } from '../../../../db/schema'
@@ -98,8 +98,9 @@ const createDeps = () => {
         resolveImages: mock(async (_userId: string, _ids: number[]) => []),
         attachToMessage: mock(async (_userId: string, _ids: number[], _messageId: number) => {}),
     }
+    const insertMessagePair = mock(async (_pair: AiMessagePairInsert) => ({ userMessageId: 99, assistantMessageId: 100 }))
     const logUsage = mock((_entry: Parameters<AiUsageLogger>[0]) => {})
-    return { client, connectionService, promptService, sessionService, attachmentService, logUsage }
+    return { client, connectionService, promptService, sessionService, attachmentService, insertMessagePair, logUsage }
 }
 
 describe('createAiChatService', () => {
@@ -130,16 +131,12 @@ describe('createAiChatService', () => {
 
             const result = await service.send('user-1', 'sess-1', { content: 'hello world' })
 
-            const assistantInsert = deps.sessionService.insertMessage.mock.calls[1][0]
-            expect(assistantInsert).toMatchObject({
-                sessionId: 'sess-1',
-                role: 'assistant',
-                content: 'answer',
-                modelId: 'claude-x',
-                inputTokens: 10,
-                outputTokens: 20,
-            })
-            expect(assistantInsert.durationMs).toEqual(expect.any(Number))
+            const pair = deps.insertMessagePair.mock.calls[0][0]
+            expect(deps.insertMessagePair).toHaveBeenCalledTimes(1)
+            expect(pair.sessionId).toBe('sess-1')
+            expect(pair.user).toEqual({ content: 'hello world' })
+            expect(pair.assistant).toMatchObject({ content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 })
+            expect(pair.assistant.durationMs).toEqual(expect.any(Number))
 
             expect(deps.sessionService.touchLastMessage).toHaveBeenCalledWith('sess-1')
             expect(deps.connectionService.touchUsed).toHaveBeenCalledWith(5)
@@ -198,7 +195,7 @@ describe('createAiChatService', () => {
             })
 
             expect(deps.connectionService.resolveClient).toHaveBeenCalledWith('user-1', 'anthropic')
-            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.insertMessagePair).not.toHaveBeenCalled()
             expect(deps.sessionService.touchLastMessage).not.toHaveBeenCalled()
             expect(deps.connectionService.touchUsed).toHaveBeenCalledWith(5)
 
@@ -254,10 +251,9 @@ describe('createAiChatService', () => {
             })
             expect((events[2] as { result: { durationMs: number } }).result.durationMs).toEqual(expect.any(Number))
 
-            const userInsert = deps.sessionService.insertMessage.mock.calls[0][0]
-            expect(userInsert).toMatchObject({ sessionId: 'sess-1', role: 'user', content: 'hello world' })
-            const assistantInsert = deps.sessionService.insertMessage.mock.calls[1][0]
-            expect(assistantInsert).toMatchObject({ role: 'assistant', content: 'answer', inputTokens: 10, outputTokens: 20 })
+            const pair = deps.insertMessagePair.mock.calls[0][0]
+            expect(pair.user).toEqual({ content: 'hello world' })
+            expect(pair.assistant).toMatchObject({ content: 'answer', inputTokens: 10, outputTokens: 20 })
 
             expect(deps.sessionService.touchLastMessage).toHaveBeenCalledWith('sess-1')
             expect(deps.connectionService.touchUsed).toHaveBeenCalledWith(5)
@@ -276,7 +272,7 @@ describe('createAiChatService', () => {
             const logged = deps.logUsage.mock.calls[0][0]
             expect(logged.severity).toBe(40)
             expect(logged.errorCode).toBe('AI_CHAT_FAILED')
-            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.insertMessagePair).not.toHaveBeenCalled()
         })
 
         test('스트림 중간 실패면 메시지를 저장하지 않고 logUsage(severity 40) 후 throw 한다(고아 방지)', async () => {
@@ -292,7 +288,7 @@ describe('createAiChatService', () => {
             const events = await service.sendStream('user-1', 'sess-1', { content: 'hello world' })
             await expect(collect(events)).rejects.toMatchObject({ code: 'AI_PROVIDER_ERROR' })
 
-            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.insertMessagePair).not.toHaveBeenCalled()
             expect(deps.sessionService.touchLastMessage).not.toHaveBeenCalled()
             const logged = deps.logUsage.mock.calls[0][0]
             expect(logged.severity).toBe(40)
@@ -306,7 +302,7 @@ describe('createAiChatService', () => {
 
             const events = await service.sendStream('user-1', 'sess-1', { content: 'hello world' })
             await expect(collect(events)).rejects.toMatchObject({ code: 'AI_COMPLETION_FAILED' })
-            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.insertMessagePair).not.toHaveBeenCalled()
         })
     })
 
@@ -324,7 +320,7 @@ describe('createAiChatService', () => {
                 type: 'done',
                 result: { content: 'answer', modelId: 'claude-x', inputTokens: 10, outputTokens: 20 },
             })
-            expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.insertMessagePair).not.toHaveBeenCalled()
             expect(deps.connectionService.touchUsed).toHaveBeenCalledWith(5)
             const logged = deps.logUsage.mock.calls[0][0]
             expect(logged.severity).toBe(20)
@@ -368,7 +364,28 @@ describe('createAiChatService', () => {
             const service = createAiChatService(deps as never)
 
             await expect(service.send('user-1', 'sess-1', { content: 'hello world' })).rejects.toThrow('provider down')
+            expect(deps.insertMessagePair).not.toHaveBeenCalled()
+        })
+
+        test('user/assistant 메시지를 단일 트랜잭션 호출로 함께 저장한다', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+
+            const result = await service.send('user-1', 'sess-1', { content: 'hello world', attachmentIds: [7] })
+
+            expect(deps.insertMessagePair).toHaveBeenCalledTimes(1)
             expect(deps.sessionService.insertMessage).not.toHaveBeenCalled()
+            expect(deps.attachmentService.attachToMessage).toHaveBeenCalledWith('user-1', [7], 99)
+            expect(result.id).toBe(100)
+        })
+
+        test('메시지 쌍 저장이 실패하면 touchLastMessage 없이 throw 한다(고아 방지)', async () => {
+            const deps = createDeps()
+            deps.insertMessagePair = mock((_pair: AiMessagePairInsert) => Promise.reject(new Error('tx fail')))
+            const service = createAiChatService(deps as never)
+
+            await expect(service.send('user-1', 'sess-1', { content: 'hello world' })).rejects.toThrow('tx fail')
+            expect(deps.sessionService.touchLastMessage).not.toHaveBeenCalled()
         })
 
         test('touchLastMessage/touchUsed가 실패해도 send는 성공 응답을 반환한다', async () => {

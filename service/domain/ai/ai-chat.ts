@@ -23,11 +23,26 @@ export type AiChatStreamDone = {
 
 export type AiChatStreamEvent = { type: 'delta'; text: string } | { type: 'done'; result: AiChatStreamDone }
 
+export type AiMessagePairInsert = {
+    sessionId: string
+    user: { content: string }
+    assistant: {
+        content: string
+        modelId: string
+        inputTokens: number | null
+        outputTokens: number | null
+        durationMs: number
+    }
+}
+
+export type AiMessagePairInserter = (pair: AiMessagePairInsert) => Promise<{ userMessageId: number; assistantMessageId: number }>
+
 type AiChatDeps = {
     connectionService: AiConnectionService
     promptService: AiPromptService
     sessionService: AiSessionService
     attachmentService: AiAttachmentService
+    insertMessagePair: AiMessagePairInserter
     logUsage: AiUsageLogger
 }
 
@@ -49,7 +64,14 @@ const mergeSystem = (base: string | undefined, extra: string) => [base, extra].f
 
 const toChatMessage = (m: AiMessage): AiChatMessage => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })
 
-export const createAiChatService = ({ connectionService, promptService, sessionService, attachmentService, logUsage }: AiChatDeps) => {
+export const createAiChatService = ({
+    connectionService,
+    promptService,
+    sessionService,
+    attachmentService,
+    insertMessagePair,
+    logUsage,
+}: AiChatDeps) => {
     const prepareSend = async (userId: string, sessionId: string, input: AiChatSend) => {
         const session = await sessionService.getOwned(userId, sessionId)
         const { row, client } = await connectionService.resolveClient(userId, session.provider)
@@ -111,25 +133,18 @@ export const createAiChatService = ({ connectionService, promptService, sessionS
         durationMs: number
     }) => {
         const { userId, sessionId, input, session, rowId, result, durationMs } = args
-        const userMessage = await sessionService.insertMessage({
+        const pair = await insertMessagePair({
             sessionId,
-            role: 'user',
-            content: input.content,
-            modelId: null,
-            inputTokens: null,
-            outputTokens: null,
-            durationMs: null,
+            user: { content: input.content },
+            assistant: {
+                content: result.content,
+                modelId: result.modelId,
+                inputTokens: result.inputTokens,
+                outputTokens: result.outputTokens,
+                durationMs,
+            },
         })
-        if (input.attachmentIds?.length) await settleQuietly(attachmentService.attachToMessage(userId, input.attachmentIds, userMessage.id))
-        const assistantMessage = await sessionService.insertMessage({
-            sessionId,
-            role: 'assistant',
-            content: result.content,
-            modelId: result.modelId,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            durationMs,
-        })
+        if (input.attachmentIds?.length) await settleQuietly(attachmentService.attachToMessage(userId, input.attachmentIds, pair.userMessageId))
         await settleQuietly(sessionService.touchLastMessage(sessionId))
         await settleQuietly(connectionService.touchUsed(rowId))
 
@@ -146,7 +161,7 @@ export const createAiChatService = ({ connectionService, promptService, sessionS
                 sessionId,
             },
         })
-        return assistantMessage
+        return pair.assistantMessageId
     }
 
     const finalizeCompletion = async (args: {
@@ -195,10 +210,10 @@ export const createAiChatService = ({ connectionService, promptService, sessionS
         }
         const durationMs = Date.now() - startedAt
 
-        const assistantMessage = await persistSendResult({ userId, sessionId, input, session, rowId: row.id, result, durationMs })
+        const assistantMessageId = await persistSendResult({ userId, sessionId, input, session, rowId: row.id, result, durationMs })
 
         return {
-            id: assistantMessage.id,
+            id: assistantMessageId,
             role: 'assistant' as const,
             content: result.content,
             modelId: result.modelId,
@@ -230,12 +245,12 @@ export const createAiChatService = ({ connectionService, promptService, sessionS
             }
             const durationMs = Date.now() - startedAt
 
-            const assistantMessage = await persistSendResult({ userId, sessionId, input, session, rowId: row.id, result, durationMs })
+            const assistantMessageId = await persistSendResult({ userId, sessionId, input, session, rowId: row.id, result, durationMs })
 
             yield {
                 type: 'done' as const,
                 result: {
-                    id: assistantMessage.id,
+                    id: assistantMessageId,
                     content: result.content,
                     modelId: result.modelId,
                     inputTokens: result.inputTokens,
