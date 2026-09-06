@@ -62,3 +62,43 @@ describe('createRouter weather mock 마운트 게이트', () => {
         expect(res.status).toBe(404)
     })
 })
+
+describe('createRouter 공개 경로 rate limit 배선', () => {
+    const PUBLIC_RATE_LIMIT_MAX_REQUESTS = 60
+    const IP_HEADERS = { 'X-Forwarded-For': '203.0.113.11' }
+
+    const badgeServiceStub = {
+        generate: mock(() => Promise.resolve({ buffer: Buffer.from('png-data'), cacheHit: false })),
+        getAvailableFonts: mock(() => ({ local: [], googleFontsSupported: false })),
+        generateCacheKey: mock(() => 'key'),
+    }
+
+    test('badge 이미지 응답에 X-RateLimit 헤더가 붙는다', async () => {
+        const app = buildApiApp({ badgeService: badgeServiceStub as never })
+        const res = await app.request('/api/badge/image', { headers: IP_HEADERS })
+        expect(res.status).toBe(200)
+        expect(res.headers.get('X-RateLimit-Limit')).toBe(String(PUBLIC_RATE_LIMIT_MAX_REQUESTS))
+        expect(res.headers.get('X-RateLimit-Remaining')).toBe(String(PUBLIC_RATE_LIMIT_MAX_REQUESTS - 1))
+    })
+
+    test('badge 이미지가 분당 한도를 넘으면 429 를 반환한다', async () => {
+        const app = buildApiApp({ badgeService: badgeServiceStub as never })
+        for (let i = 0; i < PUBLIC_RATE_LIMIT_MAX_REQUESTS; i++) {
+            await app.request('/api/badge/image', { headers: IP_HEADERS })
+        }
+        const res = await app.request('/api/badge/image', { headers: IP_HEADERS })
+        expect(res.status).toBe(429)
+        const body = (await res.json()) as { error: { code: string } }
+        expect(body.error.code).toBe('RATE_LIMIT_EXCEEDED')
+    })
+
+    test('spotify playing 응답에 X-RateLimit 헤더가 붙는다', async () => {
+        const app = buildApiApp({
+            spotifyWidgetTokenService: { validate: mock(() => Promise.resolve({ userId: 'user-1', spotifyAccountId: 1 })) } as never,
+            spotifyWidgetService: { generateSvg: mock(() => Promise.resolve('<svg></svg>')) } as never,
+        })
+        const res = await app.request('/api/spotify/playing/abc123def4567890', { headers: IP_HEADERS })
+        expect(res.status).toBe(200)
+        expect(res.headers.get('X-RateLimit-Limit')).toBe(String(PUBLIC_RATE_LIMIT_MAX_REQUESTS))
+    })
+})

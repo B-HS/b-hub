@@ -1,6 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createSpotifyPlayingRoute } from '../../../route/spotify/playing'
+import { createRateLimiter } from '../../../lib/rate-limit'
 
 const mockTrack = {
     name: 'Test Song',
@@ -41,6 +42,16 @@ const createDeps = (isValid = true) => ({
 const createApp = (deps: ReturnType<typeof createDeps>) => {
     const app = new Hono()
     app.route('/spotify/playing', createSpotifyPlayingRoute(deps as never))
+    return app
+}
+
+const createRateLimitedApp = (maxRequests: number) => {
+    const limiter = createRateLimiter({ windowMs: 60_000, maxRequests })
+    const app = new Hono()
+    app.route(
+        '/spotify/playing',
+        createSpotifyPlayingRoute({ ...createDeps(), checkLimit: (key, path) => limiter.checkLimit(`${key}:${path}`) } as never),
+    )
     return app
 }
 
@@ -106,5 +117,48 @@ describe('GET /spotify/playing/:token/data', () => {
         const app = createApp(deps)
         const res = await app.request('/spotify/playing/abc123def4567890/data')
         expect(res.headers.get('access-control-allow-origin')).toBe('*')
+    })
+})
+
+describe('GET /spotify/playing/* rate limit', () => {
+    const IP_HEADERS = { 'X-Forwarded-For': '203.0.113.7, 10.0.0.1' }
+
+    test('한도 내 요청은 200 과 X-RateLimit 헤더를 반환한다', async () => {
+        const app = createRateLimitedApp(2)
+        const res = await app.request('/spotify/playing/abc123def4567890', { headers: IP_HEADERS })
+        expect(res.status).toBe(200)
+        expect(res.headers.get('X-RateLimit-Limit')).toBe('2')
+        expect(res.headers.get('X-RateLimit-Remaining')).toBe('1')
+    })
+
+    test('한도를 초과하면 429 RATE_LIMIT_EXCEEDED 를 반환한다', async () => {
+        const app = createRateLimitedApp(1)
+        await app.request('/spotify/playing/abc123def4567890', { headers: IP_HEADERS })
+        const res = await app.request('/spotify/playing/abc123def4567890', { headers: IP_HEADERS })
+        expect(res.status).toBe(429)
+        const body = (await res.json()) as { success: boolean; error: { code: string } }
+        expect(body.error.code).toBe('RATE_LIMIT_EXCEEDED')
+    })
+
+    test('토큰이 다르면 서로의 한도에 영향을 주지 않는다', async () => {
+        const app = createRateLimitedApp(1)
+        await app.request('/spotify/playing/abc123def4567890', { headers: IP_HEADERS })
+        const res = await app.request('/spotify/playing/zzz999def4567890', { headers: IP_HEADERS })
+        expect(res.status).toBe(200)
+    })
+
+    test('widget 과 data 경로에도 한도를 적용한다', async () => {
+        const app = createRateLimitedApp(1)
+        await app.request('/spotify/playing/abc123def4567890/widget', { headers: IP_HEADERS })
+        const widgetRes = await app.request('/spotify/playing/abc123def4567890/widget', { headers: IP_HEADERS })
+        expect(widgetRes.status).toBe(429)
+        const dataRes = await app.request('/spotify/playing/abc123def4567890/data', { headers: IP_HEADERS })
+        expect(dataRes.status).toBe(429)
+    })
+
+    test('checkLimit 이 없으면 X-RateLimit 헤더가 없다', async () => {
+        const app = createApp(createDeps())
+        const res = await app.request('/spotify/playing/abc123def4567890')
+        expect(res.headers.get('X-RateLimit-Limit')).toBeNull()
     })
 })

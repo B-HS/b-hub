@@ -2,6 +2,7 @@ import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createBadgeRoute } from '../../route/badge'
 import { createAppError } from '../../lib/error'
+import { createRateLimiter } from '../../lib/rate-limit'
 
 const createMockBadgeService = () => ({
     generate: mock(() => Promise.resolve({ buffer: Buffer.from('png-data'), cacheHit: false })),
@@ -16,6 +17,13 @@ const createApp = (badgeService = createMockBadgeService()) => {
     const app = new Hono()
     app.route('/badge', createBadgeRoute({ badgeService }))
     return { app, badgeService }
+}
+
+const createRateLimitedApp = (maxRequests: number) => {
+    const limiter = createRateLimiter({ windowMs: 60_000, maxRequests })
+    const app = new Hono()
+    app.route('/badge', createBadgeRoute({ badgeService: createMockBadgeService(), checkLimit: (key, path) => limiter.checkLimit(`${key}:${path}`) }))
+    return app
 }
 
 describe('GET /badge/image', () => {
@@ -75,6 +83,12 @@ describe('GET /badge/image', () => {
         expect(res.status).not.toBe(200)
     })
 
+    test('width * height 가 2,000,000 을 넘으면 400 을 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/badge/image?width=4096&height=4096')
+        expect(res.status).toBe(400)
+    })
+
     test('height 범위를 벗어나면 검증 실패한다', async () => {
         const { app } = createApp()
         const res = await app.request('/badge/image?height=5000')
@@ -98,6 +112,44 @@ describe('GET /badge/image', () => {
         const body = (await res.json()) as { success: boolean; error: { code: string } }
         expect(body.success).toBe(false)
         expect(body.error.code).toBe('IMAGE_GENERATE_FAILED')
+    })
+})
+
+describe('GET /badge/image rate limit', () => {
+    const IP_HEADERS = { 'X-Forwarded-For': '203.0.113.7, 10.0.0.1' }
+
+    test('한도 내 요청은 200 과 X-RateLimit 헤더를 반환한다', async () => {
+        const app = createRateLimitedApp(2)
+        const res = await app.request('/badge/image', { headers: IP_HEADERS })
+        expect(res.status).toBe(200)
+        expect(res.headers.get('X-RateLimit-Limit')).toBe('2')
+        expect(res.headers.get('X-RateLimit-Remaining')).toBe('1')
+        expect(res.headers.get('X-RateLimit-Reset')).not.toBeNull()
+    })
+
+    test('한도를 초과하면 429 RATE_LIMIT_EXCEEDED 를 반환한다', async () => {
+        const app = createRateLimitedApp(1)
+        await app.request('/badge/image', { headers: IP_HEADERS })
+        const res = await app.request('/badge/image', { headers: IP_HEADERS })
+        expect(res.status).toBe(429)
+        expect(res.headers.get('X-RateLimit-Remaining')).toBe('0')
+        const body = (await res.json()) as { success: boolean; error: { code: string } }
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('RATE_LIMIT_EXCEEDED')
+    })
+
+    test('IP 가 다르면 서로의 한도에 영향을 주지 않는다', async () => {
+        const app = createRateLimitedApp(1)
+        await app.request('/badge/image', { headers: IP_HEADERS })
+        const res = await app.request('/badge/image', { headers: { 'X-Real-IP': '198.51.100.9' } })
+        expect(res.status).toBe(200)
+    })
+
+    test('checkLimit 이 없으면 X-RateLimit 헤더가 없다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/badge/image')
+        expect(res.status).toBe(200)
+        expect(res.headers.get('X-RateLimit-Limit')).toBeNull()
     })
 })
 

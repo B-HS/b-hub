@@ -49,8 +49,12 @@ import { createAiChatRoute } from './ai/chat'
 import { createAiAttachmentRoute } from './ai/attachment'
 import type { compose } from '../compose'
 import { createAppError } from '../lib/error'
+import { createRateLimiter } from '../lib/rate-limit'
 
 type RouterDeps = Partial<ReturnType<typeof compose>>
+
+const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000
+const PUBLIC_RATE_LIMIT_MAX_REQUESTS = 60
 
 const stub = <T>(obj?: T): T =>
     obj ??
@@ -72,6 +76,8 @@ const stubFn = <T>(fn?: T): T =>
 export const createRouter = (deps: RouterDeps = {}) => {
     const router = new Hono()
     const isProduction = deps.isProduction ?? process.env.NODE_ENV === 'production'
+    const publicRateLimiter = createRateLimiter({ windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS, maxRequests: PUBLIC_RATE_LIMIT_MAX_REQUESTS })
+    const publicCheckLimit = (key: string, path: string) => publicRateLimiter.checkLimit(`public:${key}:${path}`)
 
     router.route('/health', healthRoute)
 
@@ -88,6 +94,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
         '/badge',
         createBadgeRoute({
             badgeService: stub(deps.badgeService),
+            checkLimit: publicCheckLimit,
         }),
     )
 
@@ -263,6 +270,7 @@ export const createRouter = (deps: RouterDeps = {}) => {
         createSpotifyPlayingRoute({
             spotifyWidgetTokenService: stub(deps.spotifyWidgetTokenService),
             spotifyWidgetService: stub(deps.spotifyWidgetService),
+            checkLimit: publicCheckLimit,
             baseUrl: deps.baseUrl ?? '',
         }),
     )

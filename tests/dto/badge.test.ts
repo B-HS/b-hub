@@ -138,6 +138,17 @@ describe('badgeImageQuerySchema', () => {
         expect(() => badgeImageQuerySchema.parse({ text: 'a'.repeat(1001) })).toThrow()
     })
 
+    test('width * height 가 2,000,000 이하면 통과한다', () => {
+        const result = badgeImageQuerySchema.parse({ width: '2000', height: '1000' })
+        expect(result.width).toBe(2000)
+        expect(result.height).toBe(1000)
+    })
+
+    test('width * height 가 2,000,000 을 초과하면 실패한다', () => {
+        const result = badgeImageQuerySchema.safeParse({ width: '4096', height: '4096' })
+        expect(result.success).toBe(false)
+    })
+
     test('문자열을 숫자로 변환한다', () => {
         const result = badgeImageQuerySchema.parse({ width: '500', height: '200' })
         expect(typeof result.width).toBe('number')

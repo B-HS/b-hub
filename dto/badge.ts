@@ -160,33 +160,39 @@ const colorSchema = z.string().refine((val) => HEX_COLOR_REGEX.test(val) || CSS_
 
 const VALID_FONT_WEIGHTS = new Set([100, 200, 300, 400, 500, 600, 700, 800, 900])
 
-export const badgeImageQuerySchema = z.object({
-    width: z.coerce.number().int().min(1).max(4096).default(800),
-    height: z.coerce.number().int().min(1).max(4096).default(250),
-    text: z.string().max(1000).default('Badge'),
-    font: z.string().default('Inter'),
-    fontSize: z.coerce
-        .number()
-        .int()
-        .min(0)
-        .max(500)
-        .refine((v) => v === 0 || (v >= 8 && v <= 500), { error: 'fontSize must be 0 (auto) or between 8 and 500' })
-        .optional(),
-    fontWeight: z.coerce
-        .number()
-        .int()
-        .min(100)
-        .max(900)
-        .refine((v) => VALID_FONT_WEIGHTS.has(v), { error: 'fontWeight must be a multiple of 100 (100-900)' })
-        .default(400),
-    color: colorSchema.default('#000000'),
-    backgroundColor: colorSchema.default('#ffffff'),
-    icon: z.string().default(''),
-    iconUrl: z.string().default(''),
-    iconSize: z.coerce.number().int().min(0).max(500).default(0),
-    tailwind: z.string().default(''),
-    css: z.string().default('{}'),
-})
+const MAX_BADGE_PIXELS = 2_000_000
+
+export const badgeImageQuerySchema = z
+    .object({
+        width: z.coerce.number().int().min(1).max(4096).default(800),
+        height: z.coerce.number().int().min(1).max(4096).default(250),
+        text: z.string().max(1000).default('Badge'),
+        font: z.string().default('Inter'),
+        fontSize: z.coerce
+            .number()
+            .int()
+            .min(0)
+            .max(500)
+            .refine((v) => v === 0 || (v >= 8 && v <= 500), { error: 'fontSize must be 0 (auto) or between 8 and 500' })
+            .optional(),
+        fontWeight: z.coerce
+            .number()
+            .int()
+            .min(100)
+            .max(900)
+            .refine((v) => VALID_FONT_WEIGHTS.has(v), { error: 'fontWeight must be a multiple of 100 (100-900)' })
+            .default(400),
+        color: colorSchema.default('#000000'),
+        backgroundColor: colorSchema.default('#ffffff'),
+        icon: z.string().default(''),
+        iconUrl: z.string().default(''),
+        iconSize: z.coerce.number().int().min(0).max(500).default(0),
+        tailwind: z.string().default(''),
+        css: z.string().default('{}'),
+    })
+    .refine((value) => value.width * value.height <= MAX_BADGE_PIXELS, {
+        error: `width * height must not exceed ${MAX_BADGE_PIXELS}`,
+    })
 
 export type BadgeImageQuery = z.infer<typeof badgeImageQuerySchema>
 

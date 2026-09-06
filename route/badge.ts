@@ -2,12 +2,36 @@ import { Hono } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import { z } from 'zod'
 import { withErrorHandling } from '../lib/with-error-handling'
+import { createAppError } from '../lib/error'
 import { badgeImageQuerySchema, badgeFontsResponseSchema } from '../dto/badge'
 import { errorResponses } from '../dto/error-response'
+import type { Context } from 'hono'
 import type { BadgeService } from '../service/domain/badge/badge'
+
+type RateLimitResult = { allowed: boolean; limit: number; remaining: number; resetAt: number }
 
 type BadgeRouteDeps = {
     badgeService: BadgeService
+    checkLimit?: (key: string, path: string) => RateLimitResult
+}
+
+const BADGE_IMAGE_RATE_LIMIT_PATH = 'badge:image'
+const UNKNOWN_CLIENT_IP = 'unknown'
+
+const getClientIp = (c: Context) => {
+    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    if (forwarded) return forwarded
+    return c.req.header('x-real-ip') ?? UNKNOWN_CLIENT_IP
+}
+
+const applyRateLimitHeaders = (c: Context, result: RateLimitResult) => {
+    const headers = {
+        'X-RateLimit-Limit': String(result.limit),
+        'X-RateLimit-Remaining': String(result.remaining),
+        'X-RateLimit-Reset': String(result.resetAt),
+    }
+    for (const [key, value] of Object.entries(headers)) c.header(key, value)
+    return headers
 }
 
 const badgeImageResponseSchema = z.object({
@@ -33,11 +57,15 @@ export const createBadgeRoute = (deps: BadgeRouteDeps) => {
                         'image/png': { schema: { type: 'string', format: 'binary' } },
                     },
                 },
-                ...errorResponses(['IMAGE_GENERATE_FAILED']),
+                ...errorResponses(['IMAGE_GENERATE_FAILED', 'RATE_LIMIT_EXCEEDED']),
             },
         }),
         validator('query', badgeImageQuerySchema),
         withErrorHandling(async (c) => {
+            const rateLimit = deps.checkLimit?.(getClientIp(c), BADGE_IMAGE_RATE_LIMIT_PATH)
+            const rateLimitHeaders = rateLimit ? applyRateLimitHeaders(c, rateLimit) : {}
+            if (rateLimit && !rateLimit.allowed) throw createAppError('RATE_LIMIT_EXCEEDED')
+
             const query = c.req.valid('query' as never) as z.infer<typeof badgeImageQuerySchema>
 
             const ALLOWED_CSS_PROPERTIES = new Set([
@@ -111,6 +139,7 @@ export const createBadgeRoute = (deps: BadgeRouteDeps) => {
                     'Content-Type': 'image/png',
                     'X-Cache': result.cacheHit ? 'HIT' : 'MISS',
                     'Cache-Control': 'public, max-age=31536000, immutable',
+                    ...rateLimitHeaders,
                 },
             })
         }),
