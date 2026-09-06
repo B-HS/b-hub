@@ -323,6 +323,7 @@ export const createUsersRoute = (deps: { getSession: AdminGetSession; adminDb: A
         const reason = body.reason?.trim() || null
         const expires = body.expires?.trim() ? new Date(body.expires) : null
         await deps.adminDb.updateUserBan(id, banned, banned ? reason : null, banned ? expires : null)
+        if (banned) await deps.adminDb.revokeAllUserSessions(id)
         return c.redirect(sanitizeReturn(body.returnTo, `/admin/users/${id}`) + '?flash=ok', 303)
     })
 

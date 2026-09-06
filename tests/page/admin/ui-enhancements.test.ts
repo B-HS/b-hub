@@ -27,6 +27,7 @@ const createApp = () => {
         createAdminRoute({
             getSession: sessionOf(mockAdmin),
             adminDb: stubAdminDb({ listPosts: () => Promise.resolve({ rows: [samplePost], total: 100 }) }),
+            csrfSecret: 'test-csrf-secret',
         }),
     )
     return app

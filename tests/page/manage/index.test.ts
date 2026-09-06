@@ -25,7 +25,7 @@ import {
 
 const SECRET = 'test-csrf-secret'
 
-const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null, csrfSecret?: string) => {
+const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null, csrfSecret = SECRET) => {
     const app = new Hono()
     app.route(
         '/manage',
@@ -102,6 +102,7 @@ describe('Manage 라우트 번들링', () => {
                 getSession: sessionOf(mockUser),
                 apiTokenService: stubApiTokenService(),
                 weatherApiKeyService: stubWeatherApiKeyService(),
+                csrfSecret: SECRET,
             }),
         )
         for (const path of [
@@ -172,12 +173,18 @@ describe('Manage CSRF 가드', () => {
         expect(res.status).toBe(200)
     })
 
-    test('시크릿이 없으면 CSRF 검증이 비활성화된다', async () => {
-        const res = await createApp(mockUser).request('/manage/tokens', {
-            method: 'POST',
-            body: new URLSearchParams({ name: 'x' }),
-        })
-        expect(res.status).toBe(200)
+    test('시크릿 없이 만든 라우트는 부팅되지만 상태 변경 POST 를 403 으로 막는다', async () => {
+        const app = new Hono()
+        app.route(
+            '/manage',
+            createManageRoute({
+                getSession: sessionOf(mockUser),
+                apiTokenService: stubApiTokenService(),
+                weatherApiKeyService: stubWeatherApiKeyService(),
+            }),
+        )
+        const res = await app.request('/manage/tokens', { method: 'POST', body: new URLSearchParams({ name: 'x' }) })
+        expect(res.status).toBe(403)
     })
 
     test('신규 도메인 섹션도 토큰 없는 POST는 403이다', async () => {

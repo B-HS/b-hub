@@ -10,6 +10,7 @@ const createApp = (sessionUser: typeof mockAdmin | typeof mockUser | null) => {
         createAdminRoute({
             getSession: sessionOf(sessionUser),
             adminDb: stubAdminDb(),
+            csrfSecret: 'test-csrf-secret',
         }),
     )
     return app

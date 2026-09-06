@@ -6,7 +6,7 @@ import { mockAdmin, sessionOf, stubAdminDb } from './helpers'
 
 const createApp = () => {
     const app = new Hono()
-    app.route('/admin', createAdminRoute({ getSession: sessionOf(mockAdmin), adminDb: stubAdminDb() }))
+    app.route('/admin', createAdminRoute({ getSession: sessionOf(mockAdmin), adminDb: stubAdminDb(), csrfSecret: 'test-csrf-secret' }))
     return app
 }
 

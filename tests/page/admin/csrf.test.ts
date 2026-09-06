@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
-import { issueCsrfToken, verifyCsrfToken } from '../../../page/admin/csrf'
+import { createAdminCsrfGuard, issueCsrfToken, verifyCsrfToken } from '../../../page/admin/csrf'
 import { createAdminRoute } from '../../../page/admin'
 import { mockAdmin, sessionOf, stubAdminDb } from './helpers'
 
@@ -30,7 +30,7 @@ describe('csrf 토큰', () => {
     })
 })
 
-const createApp = (csrfSecret?: string) => {
+const createApp = (csrfSecret = SECRET) => {
     const app = new Hono()
     app.route('/admin', createAdminRoute({ getSession: sessionOf(mockAdmin), adminDb: stubAdminDb(), csrfSecret }))
     return app
@@ -69,11 +69,35 @@ describe('createAdminRoute CSRF 가드', () => {
         expect(res.status).toBe(403)
     })
 
-    test('시크릿이 없으면 CSRF 검증이 비활성화된다', async () => {
-        const res = await createApp().request('/admin/blog/categories', {
+    test('시크릿 없이 만든 라우트는 부팅되지만 상태 변경 POST 를 403 으로 막는다', async () => {
+        const app = new Hono()
+        app.route('/admin', createAdminRoute({ getSession: sessionOf(mockAdmin), adminDb: stubAdminDb() }))
+        const res = await app.request('/admin/blog/categories', {
             method: 'POST',
             body: new URLSearchParams({ name: 'news' }),
         })
-        expect(res.status).toBe(303)
+        expect(res.status).toBe(403)
+    })
+
+    test('시크릿이 비어 있는 가드는 상태 변경 요청을 403 으로 막는다', async () => {
+        const app = new Hono()
+        app.use('*', createAdminCsrfGuard({ getSession: sessionOf(mockAdmin), secret: undefined }))
+        app.post('/x', (c) => c.text('ok'))
+        app.get('/x', (c) => c.text('ok'))
+        expect((await app.request('/x', { method: 'POST', body: new URLSearchParams() })).status).toBe(403)
+        expect((await app.request('/x')).status).toBe(200)
+    })
+
+    test('멀티바이트 토큰은 500 없이 403 으로 거부된다', async () => {
+        const res = await createApp().request('/admin/blog/categories', {
+            method: 'POST',
+            body: new URLSearchParams({ name: 'news', _csrf: '한'.repeat(64) }),
+        })
+        expect(res.status).toBe(403)
+    })
+
+    test('hex 가 아닌 토큰은 검증에 실패한다', () => {
+        expect(verifyCsrfToken('한'.repeat(64), mockAdmin.id, SECRET)).toBe(false)
+        expect(verifyCsrfToken(TOKEN.toUpperCase(), mockAdmin.id, SECRET)).toBe(false)
     })
 })

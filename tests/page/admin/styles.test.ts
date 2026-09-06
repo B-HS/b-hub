@@ -7,7 +7,7 @@ const stubDb = {} as never
 
 const createApp = () => {
     const app = new Hono()
-    app.route('/admin', createAdminRoute({ getSession: mockGetSession, db: stubDb }))
+    app.route('/admin', createAdminRoute({ getSession: mockGetSession, db: stubDb, csrfSecret: 'test-csrf-secret' }))
     return app
 }
 

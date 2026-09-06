@@ -37,6 +37,13 @@ app.route(
             triggerMailSync,
             csrfSecret: getEnv().BETTER_AUTH_SECRET,
             metricsTokenService: composed.metricsTokenService,
+            storage: {
+                deleteObject: (key: string) => composed.storageService.del(key),
+                deleteGdriveObject: async (fileId: string) => {
+                    const gdrive = await composed.initGdriveStorage()
+                    if (gdrive) await gdrive.del(fileId)
+                },
+            },
         },
         manage: {
             getSession: composed.getSession,

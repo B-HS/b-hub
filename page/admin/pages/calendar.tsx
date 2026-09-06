@@ -7,6 +7,8 @@ import type { AdminContext, AdminGetSession } from '../guard'
 import { requireAdminPage } from '../guard'
 import type { AdminDb } from '../db'
 
+const COLOR_PATTERN = /^#[0-9a-f]{3,8}$/i
+
 type GroupRow = Awaited<ReturnType<AdminDb['listCalendarGroups']>>['rows'][number]
 type EventRow = Awaited<ReturnType<AdminDb['listCalendarEvents']>>['rows'][number]
 type SubRow = Awaited<ReturnType<AdminDb['listCalendarSubscriptions']>>['rows'][number]
@@ -33,7 +35,7 @@ const GroupsPage: FC<{
                         header: 'Color',
                         cell: (r) => (
                             <span class='inline-hstack'>
-                                <span class='color-dot' style={`background:${r.color}`} />
+                                {COLOR_PATTERN.test(r.color ?? '') ? <span class='color-dot' style={`background:${r.color}`} /> : null}
                                 <span class='mono'>{r.color}</span>
                             </span>
                         ),

@@ -77,6 +77,19 @@ describe('GET /admin/calendar/groups (list)', () => {
         expect(html).toContain('1–1 / 1')
     })
 
+    test('hex 색상은 인라인 style 스와치로 렌더링된다', async () => {
+        const html = await (await createApp().request('/admin/calendar/groups')).text()
+        expect(html).toContain('background:#ff8800')
+    })
+
+    test('hex 가 아닌 색상은 인라인 style 로 렌더링되지 않는다', async () => {
+        const injected = { ...sampleGroup, color: 'red;background-image:url(javascript:alert(1))' }
+        const app = createApp({ listCalendarGroups: mock(() => Promise.resolve({ rows: [injected], total: 1 })) })
+        const html = await (await app.request('/admin/calendar/groups')).text()
+        expect(html).not.toContain('background:red')
+        expect(html).not.toContain('color-dot')
+    })
+
     test('size가 최소값(5) 미만이면 5로 clamp 된다', async () => {
         const listCalendarGroups = mock(() => Promise.resolve({ rows: [sampleGroup], total: 1 }))
         const app = createApp({ listCalendarGroups })

@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { setCookie } from 'hono/cookie'
 import { contextStorage } from 'hono/context-storage'
 import type { AuthProvider } from '../../service/shared/auth-provider'
-import { createAdminDb, type AdminDb } from './db'
+import { createAdminDb, type AdminDb, type AdminStorage } from './db'
 import type { AdminGetSession } from './guard'
 import { createAdminCsrfGuard } from './csrf'
 import { ADMIN_THEME_COOKIE, THEME_COOKIE_MAX_AGE, sanitizeTheme } from './theme'
@@ -34,10 +34,11 @@ export type AdminRouteDeps = {
     triggerMailSync?: TriggerMailSync
     csrfSecret?: string
     metricsTokenService?: MetricsTokenService
+    storage?: AdminStorage
 }
 
 export const createAdminRoute = (deps: AdminRouteDeps) => {
-    const adminDb = deps.adminDb ?? (deps.db ? createAdminDb(deps.db) : null)
+    const adminDb = deps.adminDb ?? (deps.db ? createAdminDb(deps.db, deps.storage) : null)
     if (!adminDb) throw new Error('createAdminRoute requires either `db` or `adminDb`')
 
     const app = new Hono()

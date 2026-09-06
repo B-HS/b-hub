@@ -8,13 +8,14 @@ const CSRF_TOKEN_VAR = 'adminCsrfToken'
 type CsrfEnv = { Variables: { adminCsrfToken?: string } }
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const CSRF_TOKEN_PATTERN = /^[0-9a-f]{64}$/
 
 export const issueCsrfToken = (sessionKey: string, secret: string) => createHmac('sha256', secret).update(sessionKey).digest('hex')
 
 export const verifyCsrfToken = (token: unknown, sessionKey: string, secret: string) => {
-    if (typeof token !== 'string' || token.length === 0) return false
+    if (typeof token !== 'string' || !CSRF_TOKEN_PATTERN.test(token)) return false
     const expected = issueCsrfToken(sessionKey, secret)
-    if (token.length !== expected.length) return false
+    if (Buffer.byteLength(token) !== Buffer.byteLength(expected)) return false
     return timingSafeEqual(Buffer.from(token), Buffer.from(expected))
 }
 
@@ -27,7 +28,7 @@ export const createAdminCsrfGuard =
     (deps: CsrfGuardDeps): MiddlewareHandler =>
     async (c, next) => {
         const { secret } = deps
-        if (!secret) return next()
+        if (!secret) return STATE_CHANGING_METHODS.has(c.req.method) ? c.text('CSRF secret not configured', 403) : next()
         const session = await deps.getSession(c)
         if (!session) return next()
         const sessionKey = session.user.id

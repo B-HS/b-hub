@@ -1,10 +1,36 @@
 import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm'
 import type { Database } from '../../db'
 import * as s from '../../db/schema'
+import { captureException } from '../../lib/sentry'
+
+export type AdminStorage = {
+    deleteObject: (key: string) => Promise<void>
+    deleteGdriveObject?: (fileId: string) => Promise<void>
+}
 
 export type AdminDb = ReturnType<typeof createAdminDb>
 
-export const createAdminDb = (db: Database) => ({
+const removeStorageObject = async (storage: AdminStorage | undefined, key: string | null) => {
+    if (!storage || !key) return
+    try {
+        await storage.deleteObject(key)
+    } catch (error) {
+        captureException(error)
+    }
+}
+
+const removeGdriveObject = async (storage: AdminStorage | undefined, fileId: string | null) => {
+    if (!storage?.deleteGdriveObject || !fileId) return
+    try {
+        await storage.deleteGdriveObject(fileId)
+    } catch (error) {
+        captureException(error)
+    }
+}
+
+const parseStorageTiers = (storageTiers: string | null) => new Set((storageTiers ?? '').split(',').filter(Boolean))
+
+export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Dashboard counters ────────────────────────────────────────────
     counts: async () => {
         const [u] = await db.select({ c: sql<number>`count(*)` }).from(s.user)
@@ -488,6 +514,8 @@ export const createAdminDb = (db: Database) => ({
     },
 
     deleteImageAsset: async (id: string) => {
+        const [asset] = await db.select({ r2Key: s.imageAssets.r2Key }).from(s.imageAssets).where(eq(s.imageAssets.id, id)).limit(1)
+        if (asset) await removeStorageObject(storage, asset.r2Key)
         await db.delete(s.imageAssets).where(eq(s.imageAssets.id, id))
     },
 
@@ -809,6 +837,8 @@ export const createAdminDb = (db: Database) => ({
     },
 
     deleteMailUpload: async (id: number) => {
+        const [upload] = await db.select({ r2Key: s.mailUploads.r2Key }).from(s.mailUploads).where(eq(s.mailUploads.id, id)).limit(1)
+        if (upload) await removeStorageObject(storage, upload.r2Key)
         await db.delete(s.mailUploads).where(eq(s.mailUploads.id, id))
     },
 
@@ -1068,6 +1098,16 @@ export const createAdminDb = (db: Database) => ({
     },
 
     deleteDriveAsset: async (id: number) => {
+        const [asset] = await db
+            .select({ s3Key: s.cloudAssets.s3Key, storageTiers: s.cloudAssets.storageTiers, gdriveFileId: s.cloudAssets.gdriveFileId })
+            .from(s.cloudAssets)
+            .where(eq(s.cloudAssets.id, id))
+            .limit(1)
+        if (asset) {
+            const tiers = parseStorageTiers(asset.storageTiers)
+            if (tiers.has('L1')) await removeStorageObject(storage, asset.s3Key)
+            if (tiers.has('L3')) await removeGdriveObject(storage, asset.gdriveFileId)
+        }
         await db.delete(s.storageLifecycleLogs).where(eq(s.storageLifecycleLogs.assetId, id))
         await db.delete(s.cloudAssets).where(eq(s.cloudAssets.id, id))
     },

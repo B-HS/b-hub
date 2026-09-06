@@ -124,6 +124,20 @@ describe('POST /admin/users/:id/ban', () => {
         expect(callArgs[3]).toBeInstanceOf(Date)
     })
 
+    test('ban 액션은 해당 사용자의 세션을 모두 회수한다', async () => {
+        const revokeAllUserSessions = mock(() => Promise.resolve())
+        const app = createApp({ revokeAllUserSessions })
+        await app.request('/admin/users/u-1/ban', { method: 'POST', body: new URLSearchParams({ action: 'ban' }) })
+        expect(revokeAllUserSessions).toHaveBeenCalledWith('u-1')
+    })
+
+    test('unban 액션은 세션을 회수하지 않는다', async () => {
+        const revokeAllUserSessions = mock(() => Promise.resolve())
+        const app = createApp({ revokeAllUserSessions })
+        await app.request('/admin/users/u-1/ban', { method: 'POST', body: new URLSearchParams({ action: 'unban' }) })
+        expect(revokeAllUserSessions).not.toHaveBeenCalled()
+    })
+
     test('unban 액션은 reason과 expires를 null로 만든다', async () => {
         const updateUserBan = mock(() => Promise.resolve())
         const app = createApp({ updateUserBan })
@@ -174,7 +188,15 @@ describe('GET /admin/users/:id 최근 API 요청', () => {
     test('상세 페이지에 사용자 최근 API 요청 섹션이 노출된다', async () => {
         const getUserApiRequests = mock(() =>
             Promise.resolve([
-                { id: 5, method: 'GET', path: '/api/blog/posts', statusCode: 200, durationMs: 14, errorCode: null, createdAt: new Date('2026-05-20') },
+                {
+                    id: 5,
+                    method: 'GET',
+                    path: '/api/blog/posts',
+                    statusCode: 200,
+                    durationMs: 14,
+                    errorCode: null,
+                    createdAt: new Date('2026-05-20'),
+                },
             ]),
         )
         const res = await createApp({ getUserApiRequests }).request('/admin/users/u-1')
