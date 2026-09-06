@@ -1,10 +1,10 @@
 import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test'
-import { createSpotifyProvider } from '../../../../service/domain/spotify/spotify-provider'
+import { createSpotifyProvider, createSpotifyProviderFactory } from '../../../../service/domain/spotify/spotify-provider'
 
 const createMockDeps = () => ({
     betterAuthAccountId: 'ba-1',
     getOAuthToken: mock(() => Promise.resolve({ accessToken: 'access-token', refreshToken: 'refresh-token' })),
-    refreshOAuthToken: mock(() => Promise.resolve('new-access-token')),
+    refreshOAuthToken: mock(() => Promise.resolve({ accessToken: 'new-access-token' })),
 })
 
 describe('createSpotifyProvider', () => {
@@ -115,5 +115,55 @@ describe('createSpotifyProvider', () => {
             await provider.getCurrentlyPlaying()
             expect(deps.getOAuthToken).toHaveBeenCalledTimes(2)
         })
+    })
+})
+
+describe('createSpotifyProviderFactory', () => {
+    const originalFetch = globalThis.fetch
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    const createFactoryDeps = (account: { betterAuthAccountId: string | null; isActive: boolean } | null) => ({
+        findAccount: mock(() => Promise.resolve(account)),
+        getOAuthToken: mock(() => Promise.resolve({ accessToken: 'access-token', refreshToken: 'refresh-token' })),
+        refreshOAuthToken: mock(() => Promise.resolve({ accessToken: 'new-access-token' })),
+    })
+
+    test('계정이 없으면 SPOTIFY_ACCOUNT_NOT_FOUND를 던진다', async () => {
+        const createProvider = createSpotifyProviderFactory(createFactoryDeps(null))
+        await expect(createProvider(1)).rejects.toMatchObject({ code: 'SPOTIFY_ACCOUNT_NOT_FOUND', statusCode: 404 })
+    })
+
+    test('betterAuthAccountId가 없으면 SPOTIFY_ACCOUNT_NOT_FOUND를 던진다', async () => {
+        const createProvider = createSpotifyProviderFactory(createFactoryDeps({ betterAuthAccountId: null, isActive: true }))
+        await expect(createProvider(1)).rejects.toMatchObject({ code: 'SPOTIFY_ACCOUNT_NOT_FOUND', statusCode: 404 })
+    })
+
+    test('isActive가 false인 계정은 SPOTIFY_ACCOUNT_NOT_FOUND를 던진다', async () => {
+        const createProvider = createSpotifyProviderFactory(createFactoryDeps({ betterAuthAccountId: 'ba-1', isActive: false }))
+        await expect(createProvider(1)).rejects.toMatchObject({ code: 'SPOTIFY_ACCOUNT_NOT_FOUND', statusCode: 404 })
+    })
+
+    test('활성 연결 계정이면 provider를 생성한다', async () => {
+        globalThis.fetch = mock(() => Promise.resolve(new Response(JSON.stringify({ is_playing: true }), { status: 200 }))) as typeof fetch
+
+        const deps = createFactoryDeps({ betterAuthAccountId: 'ba-1', isActive: true })
+        const provider = await createSpotifyProviderFactory(deps)(1)
+
+        expect(await provider.getCurrentlyPlaying()).toEqual({ is_playing: true })
+        expect(deps.getOAuthToken).toHaveBeenCalledWith('ba-1')
+    })
+
+    test('토큰 갱신 실패는 status만 담은 SPOTIFY_API_ERROR가 된다', async () => {
+        globalThis.fetch = mock(() => Promise.resolve(new Response(null, { status: 401 }))) as typeof fetch
+
+        const deps = createFactoryDeps({ betterAuthAccountId: 'ba-1', isActive: true })
+        deps.refreshOAuthToken = mock(() => Promise.resolve({ status: 400 })) as never
+        const provider = await createSpotifyProviderFactory(deps)(1)
+
+        const error = await provider.getCurrentlyPlaying().catch((e: unknown) => e)
+        expect(error).toMatchObject({ code: 'SPOTIFY_API_ERROR', statusCode: 502, details: { status: 400 } })
     })
 })

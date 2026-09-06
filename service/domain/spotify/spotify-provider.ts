@@ -3,10 +3,18 @@ import { createAppError } from '../../../lib/error'
 const SPOTIFY_API_BASE = 'https://api.spotify.com/v1'
 const MAX_RETRIES = 3
 
+export type SpotifyTokenRefreshResult = { accessToken: string } | { status: number }
+
+type SpotifyAccountLookup = { betterAuthAccountId: string | null; isActive: boolean }
+
 type SpotifyProviderDeps = {
     betterAuthAccountId: string
     getOAuthToken: (accountId: string) => Promise<{ accessToken: string; refreshToken?: string } | null>
-    refreshOAuthToken: (betterAuthAccountId: string, refreshToken: string) => Promise<string>
+    refreshOAuthToken: (betterAuthAccountId: string, refreshToken: string) => Promise<SpotifyTokenRefreshResult>
+}
+
+type SpotifyProviderFactoryDeps = Omit<SpotifyProviderDeps, 'betterAuthAccountId'> & {
+    findAccount: (spotifyAccountId: number) => Promise<SpotifyAccountLookup | null>
 }
 
 export const createSpotifyProvider = (deps: SpotifyProviderDeps) => {
@@ -28,9 +36,10 @@ export const createSpotifyProvider = (deps: SpotifyProviderDeps) => {
             try {
                 const token = await deps.getOAuthToken(deps.betterAuthAccountId)
                 if (!token?.refreshToken) throw createAppError('SPOTIFY_API_ERROR', { detail: 'No refresh token' })
-                const newAccessToken = await deps.refreshOAuthToken(deps.betterAuthAccountId, token.refreshToken)
-                currentAccessToken = newAccessToken
-                return newAccessToken
+                const refreshed = await deps.refreshOAuthToken(deps.betterAuthAccountId, token.refreshToken)
+                if ('status' in refreshed) throw createAppError('SPOTIFY_API_ERROR', { status: refreshed.status })
+                currentAccessToken = refreshed.accessToken
+                return refreshed.accessToken
             } finally {
                 refreshPromise = null
             }
@@ -92,6 +101,17 @@ export const createSpotifyProvider = (deps: SpotifyProviderDeps) => {
     }
 
     return { spotifyFetch, getCurrentlyPlaying, getRecentlyPlayed, getPlaylists, disconnect }
+}
+
+export const createSpotifyProviderFactory = (deps: SpotifyProviderFactoryDeps) => async (spotifyAccountId: number) => {
+    const account = await deps.findAccount(spotifyAccountId)
+    if (!account?.isActive || !account.betterAuthAccountId) throw createAppError('SPOTIFY_ACCOUNT_NOT_FOUND')
+
+    return createSpotifyProvider({
+        betterAuthAccountId: account.betterAuthAccountId,
+        getOAuthToken: deps.getOAuthToken,
+        refreshOAuthToken: deps.refreshOAuthToken,
+    })
 }
 
 export type SpotifyProvider = ReturnType<typeof createSpotifyProvider>
