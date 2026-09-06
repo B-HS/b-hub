@@ -210,3 +210,22 @@ describe('createAnthropicProvider.verify', () => {
         expect(result.ok).toBe(false)
     })
 })
+
+describe('createAnthropicProvider signal 전파', () => {
+    test('completeStream 은 요청의 signal 을 fetch 에 넘긴다', async () => {
+        const fetchFn = queuedFetch([sseResponse(['event: message_stop\ndata: {"type":"message_stop"}\n\n'])])
+        const provider = createAnthropicProvider({ apiKey: 'test-key', fetchFn })
+        const controller = new AbortController()
+        const events = await provider.completeStream({ modelId: 'claude-x', messages: [{ role: 'user', content: 'hi' }], signal: controller.signal })
+        for await (const event of events) void event
+        expect(callOf(fetchFn, 0)[1].signal).toBe(controller.signal)
+    })
+
+    test('complete 도 요청의 signal 을 fetch 에 넘긴다', async () => {
+        const fetchFn = queuedFetch([jsonOk({ content: [{ type: 'text', text: 'hi' }] })])
+        const provider = createAnthropicProvider({ apiKey: 'test-key', fetchFn })
+        const controller = new AbortController()
+        await provider.complete({ modelId: 'claude-x', messages: [{ role: 'user', content: 'hi' }], signal: controller.signal })
+        expect(callOf(fetchFn, 0)[1].signal).toBe(controller.signal)
+    })
+})

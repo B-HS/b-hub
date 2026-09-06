@@ -223,13 +223,13 @@ export const createAiChatService = ({
         }
     }
 
-    const sendStream = async (userId: string, sessionId: string, input: AiChatSend) => {
+    const sendStream = async (userId: string, sessionId: string, input: AiChatSend, signal?: AbortSignal) => {
         const { session, row, client, modelId, system, messages } = await prepareSend(userId, sessionId, input)
 
         const startedAt = Date.now()
         let upstream: AsyncIterable<AiStreamEvent>
         try {
-            upstream = await client.completeStream({ modelId, system, messages, maxTokens: input.maxTokens, temperature: input.temperature })
+            upstream = await client.completeStream({ modelId, system, messages, maxTokens: input.maxTokens, temperature: input.temperature, signal })
         } catch (error) {
             logSendFailure(error, { provider: session.provider, modelId, featureKey: session.featureKey, sessionId })
             throw error
@@ -279,7 +279,7 @@ export const createAiChatService = ({
         return { content: result.content, modelId: result.modelId, inputTokens: result.inputTokens, outputTokens: result.outputTokens, durationMs }
     }
 
-    const completeStream = async (userId: string, input: AiCompletion) => {
+    const completeStream = async (userId: string, input: AiCompletion, signal?: AbortSignal) => {
         const { row, client, system, messages } = await prepareCompletion(userId, input)
 
         const startedAt = Date.now()
@@ -291,6 +291,7 @@ export const createAiChatService = ({
                 messages,
                 maxTokens: input.maxTokens,
                 temperature: input.temperature,
+                signal,
             })
         } catch (error) {
             logCompletionFailure(error, { provider: input.provider, modelId: input.modelId, featureKey: input.featureKey })

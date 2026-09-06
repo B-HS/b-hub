@@ -205,3 +205,18 @@ describe('createCodexProvider.verify', () => {
         expect((await provider.verify()).ok).toBe(false)
     })
 })
+
+describe('createCodexProvider signal 전파', () => {
+    test('completeStream 은 요청의 signal 을 fetch 에 넘긴다', async () => {
+        const fetchFn = queuedFetch([sseResponse(['data: {"type":"response.completed","response":{}}\n'])])
+        const provider = createCodexProvider({ getAccessToken: getAccessTokenOk(), fetchFn })
+        const controller = new AbortController()
+        const events = await provider.completeStream({
+            modelId: 'gpt-5.1-codex',
+            messages: [{ role: 'user', content: 'hi' }],
+            signal: controller.signal,
+        })
+        for await (const event of events) void event
+        expect(callOf(fetchFn, 0)[1].signal).toBe(controller.signal)
+    })
+})

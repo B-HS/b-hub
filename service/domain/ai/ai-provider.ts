@@ -15,6 +15,7 @@ export type AiCompletionRequest = {
     messages: AiChatMessage[]
     maxTokens?: number
     temperature?: number
+    signal?: AbortSignal
 }
 
 export type AiCompletionResult = {

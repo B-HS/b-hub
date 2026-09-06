@@ -92,6 +92,7 @@ export const createOllamaProvider = ({ apiKey, fetchFn = fetch }: OllamaProvider
             method: 'POST',
             headers: { ...authHeader, 'content-type': 'application/json' },
             body: JSON.stringify(buildChatBody(request, false)),
+            signal: request.signal,
         })
         if (!res.ok) {
             const errBody = await res.text().catch(() => '')
@@ -111,6 +112,7 @@ export const createOllamaProvider = ({ apiKey, fetchFn = fetch }: OllamaProvider
             method: 'POST',
             headers: { ...authHeader, 'content-type': 'application/json' },
             body: JSON.stringify(buildChatBody(request, true)),
+            signal: request.signal,
         })
         if (!res.ok) {
             const errBody = await res.text().catch(() => '')

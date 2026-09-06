@@ -119,6 +119,7 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
             method: 'POST',
             headers: { ...authHeaders, 'content-type': 'application/json' },
             body: JSON.stringify(buildMessagesBody(request)),
+            signal: request.signal,
         })
         if (!res.ok) {
             const errBody = await res.text().catch(() => '')
@@ -146,6 +147,7 @@ export const createAnthropicProvider = ({ apiKey, fetchFn = fetch }: AnthropicPr
             method: 'POST',
             headers: { ...authHeaders, 'content-type': 'application/json', 'accept': 'text/event-stream' },
             body: JSON.stringify({ ...buildMessagesBody(request), stream: true }),
+            signal: request.signal,
         })
         if (!res.ok) {
             const errBody = await res.text().catch(() => '')

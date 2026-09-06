@@ -40,6 +40,14 @@ const buildRow = (overrides: Partial<AiProvider>): AiProvider => ({
     ...overrides,
 })
 
+const createDeferred = () => {
+    let settle = () => {}
+    const promise = new Promise<void>((resolve) => {
+        settle = resolve
+    })
+    return { promise, resolve: () => settle() }
+}
+
 const catchError = (fn: () => unknown) => {
     try {
         fn()
@@ -256,6 +264,32 @@ describe('createAiProviderFactory.create (codex refresh 엣지케이스)', () =>
         const client = factory.create(codexRow(crypto, buildJwt({ exp: nowSec() + 60 })))
         await Promise.all([client.listModels(), client.listModels()])
         expect(refreshCodexToken).toHaveBeenCalledTimes(1)
+    })
+
+    test('persist 가 끝나기 전에 들어온 동시 요청도 같은 refresh 를 재사용한다(회전된 토큰 재사용 방지)', async () => {
+        const crypto = createCredentialCrypto(CRYPTO_KEY)
+        const persistStarted = createDeferred()
+        const persistFinished = createDeferred()
+        const persistCodexCredentials = mock(() => {
+            persistStarted.resolve()
+            return persistFinished.promise
+        })
+        const refreshCodexToken = mock(() =>
+            Promise.resolve<CodexRefreshResult>({ accessToken: buildJwt({ exp: nowSec() + 3600 }), refreshToken: 'rt-new', idToken: null }),
+        )
+        const markReauthRequired = mock(async () => {})
+        const factory = buildFactory({ crypto, refreshCodexToken, persistCodexCredentials, markReauthRequired })
+
+        const row = codexRow(crypto, buildJwt({ exp: nowSec() + 60 }))
+        const first = factory.create(row).listModels()
+        await persistStarted.promise
+        const second = factory.create(row).listModels()
+        persistFinished.resolve()
+        await Promise.all([first, second])
+
+        expect(refreshCodexToken).toHaveBeenCalledTimes(1)
+        expect(persistCodexCredentials).toHaveBeenCalledTimes(1)
+        expect(markReauthRequired).not.toHaveBeenCalled()
     })
 
     test('회전 토큰 저장(persist) 실패 시 markReauthRequired를 호출하되 이번 호출은 성공한다', async () => {

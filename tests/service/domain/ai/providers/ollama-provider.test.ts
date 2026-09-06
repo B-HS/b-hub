@@ -176,3 +176,22 @@ describe('createOllamaProvider.verify', () => {
         expect((await provider.verify()).ok).toBe(false)
     })
 })
+
+describe('createOllamaProvider signal 전파', () => {
+    test('completeStream 은 요청의 signal 을 fetch 에 넘긴다', async () => {
+        const fetchFn = queuedFetch([ndjsonResponse(['{"done":true}\n'])])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        const controller = new AbortController()
+        const events = await provider.completeStream({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }], signal: controller.signal })
+        for await (const event of events) void event
+        expect(callOf(fetchFn, 0)[1].signal).toBe(controller.signal)
+    })
+
+    test('complete 도 요청의 signal 을 fetch 에 넘긴다', async () => {
+        const fetchFn = queuedFetch([jsonOk({ message: { content: 'hi' } })])
+        const provider = createOllamaProvider({ apiKey: 'test-key', fetchFn })
+        const controller = new AbortController()
+        await provider.complete({ modelId: 'llama3', messages: [{ role: 'user', content: 'hi' }], signal: controller.signal })
+        expect(callOf(fetchFn, 0)[1].signal).toBe(controller.signal)
+    })
+})

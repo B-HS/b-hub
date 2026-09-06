@@ -80,3 +80,43 @@ describe('iterateStreamLines', () => {
         expect(await collectLines(streamOf(['x\r\ny']))).toEqual(['x', 'y'])
     })
 })
+
+describe('iterateSseEvents 조기 중단', () => {
+    test('소비자가 도중에 중단하면 업스트림 스트림을 cancel 한다', async () => {
+        const encoder = new TextEncoder()
+        let cancelled = false
+        const body = new ReadableStream<Uint8Array>({
+            start: (controller) => {
+                controller.enqueue(encoder.encode('data: a\n\ndata: b\n\n'))
+            },
+            cancel: () => {
+                cancelled = true
+            },
+        })
+        for await (const event of iterateSseEvents(body)) {
+            expect(event.data).toBe('a')
+            break
+        }
+        expect(cancelled).toBe(true)
+    })
+})
+
+describe('iterateStreamLines 조기 중단', () => {
+    test('소비자가 도중에 중단하면 업스트림 스트림을 cancel 한다', async () => {
+        const encoder = new TextEncoder()
+        let cancelled = false
+        const body = new ReadableStream<Uint8Array>({
+            start: (controller) => {
+                controller.enqueue(encoder.encode('first\nsecond\n'))
+            },
+            cancel: () => {
+                cancelled = true
+            },
+        })
+        for await (const line of iterateStreamLines(body)) {
+            expect(line).toBe('first')
+            break
+        }
+        expect(cancelled).toBe(true)
+    })
+})

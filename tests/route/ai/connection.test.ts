@@ -57,6 +57,14 @@ describe('GET /connections', () => {
         expect(deps.aiConnectionService.list).toHaveBeenCalledWith('user-1')
     })
 
+    test('displayName 이 없으면 provider 이름을 대신 내려준다(소비자 strict 스키마 대응)', async () => {
+        const deps = createMockDeps()
+        deps.aiConnectionService.list = mock(async () => [{ ...providerRow, displayName: null }])
+        const { app } = createApp(deps)
+        const body = await (await app.request('/connections')).json()
+        expect(body.data[0].displayName).toBe('anthropic')
+    })
+
     test('응답에 credentials·토큰·userId가 새지 않는다', async () => {
         const { app } = createApp()
         const res = await app.request('/connections')

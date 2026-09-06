@@ -53,11 +53,16 @@ type AiProviderFactoryDeps = {
 export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
     const refreshInFlight = new Map<number, Promise<CodexRefreshResult>>()
 
-    const refreshWithLock = (providerId: number | undefined, refreshToken: string) => {
-        if (providerId == null) return deps.refreshCodexToken(refreshToken)
+    const refreshWithLock = (providerId: number | undefined, refreshToken: string, persist: (refreshed: CodexRefreshResult) => Promise<void>) => {
+        const run = async () => {
+            const refreshed = await deps.refreshCodexToken(refreshToken)
+            await persist(refreshed)
+            return refreshed
+        }
+        if (providerId == null) return run()
         const existing = refreshInFlight.get(providerId)
         if (existing) return existing
-        const promise = deps.refreshCodexToken(refreshToken).finally(() => refreshInFlight.delete(providerId))
+        const promise = run().finally(() => refreshInFlight.delete(providerId))
         refreshInFlight.set(providerId, promise)
         return promise
     }
@@ -71,6 +76,23 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
             return createAppError('AI_REAUTH_REQUIRED')
         }
 
+        const rotate = (refreshed: CodexRefreshResult, refreshToken: string): StoredCodexCredentials => ({
+            ...current,
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken ?? refreshToken,
+            idToken: refreshed.idToken ?? current.idToken,
+            lastRefresh: new Date().toISOString(),
+        })
+
+        const persistRotated = async (refreshed: CodexRefreshResult, refreshToken: string) => {
+            if (!opts.onRefresh) return
+            try {
+                await opts.onRefresh(deps.crypto.encrypt(JSON.stringify(rotate(refreshed, refreshToken))))
+            } catch (persistError) {
+                if (opts.onReauth) await opts.onReauth(`token rotated but persist failed: ${providerErrorMessage(persistError)}`).catch(() => {})
+            }
+        }
+
         const getAccessToken = async () => {
             const expiryMs = getJwtExpiryMs(current.accessToken)
             const refreshToken = current.refreshToken
@@ -79,25 +101,11 @@ export const createAiProviderFactory = (deps: AiProviderFactoryDeps) => {
                 if (needsRefresh) {
                     let refreshed: CodexRefreshResult
                     try {
-                        refreshed = await refreshWithLock(opts.providerId, refreshToken)
+                        refreshed = await refreshWithLock(opts.providerId, refreshToken, (fresh) => persistRotated(fresh, refreshToken))
                     } catch (error) {
                         throw await markReauth(providerErrorMessage(error))
                     }
-                    current = {
-                        ...current,
-                        accessToken: refreshed.accessToken,
-                        refreshToken: refreshed.refreshToken ?? refreshToken,
-                        idToken: refreshed.idToken ?? current.idToken,
-                        lastRefresh: new Date().toISOString(),
-                    }
-                    if (opts.onRefresh) {
-                        try {
-                            await opts.onRefresh(deps.crypto.encrypt(JSON.stringify(current)))
-                        } catch (persistError) {
-                            if (opts.onReauth)
-                                await opts.onReauth(`token rotated but persist failed: ${providerErrorMessage(persistError)}`).catch(() => {})
-                        }
-                    }
+                    current = rotate(refreshed, refreshToken)
                 }
             } else if (expiryMs !== null && expiryMs <= Date.now()) {
                 throw await markReauth('access token expired and no refresh token stored, re-register required')

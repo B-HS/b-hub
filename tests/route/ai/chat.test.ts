@@ -98,7 +98,7 @@ describe('POST /chat/sessions/:sessionId/messages/stream', () => {
         expect(body).toContain(`data: ${JSON.stringify({ text: '응' })}`)
         expect(body).toContain('event: done')
         expect(body).toContain(`data: ${JSON.stringify({ ...streamDone, id: 10 })}`)
-        expect(deps.aiChatService.sendStream).toHaveBeenCalledWith('u1', 's1', { content: '안녕' })
+        expect(deps.aiChatService.sendStream).toHaveBeenCalledWith('u1', 's1', { content: '안녕' }, expect.any(AbortSignal))
     })
 
     test('미인증이면 401 JSON 을 반환한다', async () => {
@@ -177,7 +177,7 @@ describe('POST /chat/completions/stream', () => {
         expect(body).toContain(`data: ${JSON.stringify({ text: '성' })}`)
         expect(body).toContain('event: done')
         expect(body).toContain(`data: ${JSON.stringify(streamDone)}`)
-        expect(deps.aiChatService.completeStream).toHaveBeenCalledWith('u1', completionInput)
+        expect(deps.aiChatService.completeStream).toHaveBeenCalledWith('u1', completionInput, expect.any(AbortSignal))
     })
 
     test('checkLimit이 주어지면 SSE 응답에도 레이트리밋 헤더를 포함한다', async () => {
@@ -255,5 +255,34 @@ describe('POST /chat/completions/stream', () => {
             body: JSON.stringify(completionInput),
         })
         expect(res.status).toBe(401)
+    })
+})
+
+describe('SSE 스트림 중단 전파', () => {
+    const completionInput = { provider: 'anthropic', modelId: 'claude', messages: [{ role: 'user', content: 'hi' }] }
+
+    test('클라이언트가 스트림을 끊으면 서비스에 전달한 signal 을 abort 한다', async () => {
+        const signals: (AbortSignal | undefined)[] = []
+        const hangingStream = mock(async (_userId: string, _input: unknown, signal?: AbortSignal) => {
+            signals.push(signal)
+            return (async function* (): AsyncGenerator<AiChatStreamEvent> {
+                yield { type: 'delta', text: '부분' }
+                await new Promise<void>((resolve) => signal?.addEventListener('abort', () => resolve()))
+            })()
+        })
+        const { app } = createApp(createMockDeps(), {
+            aiChatService: { ...createMockDeps().aiChatService, completeStream: hangingStream },
+        })
+        const res = await app.request('/chat/completions/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(completionInput),
+        })
+        expect(res.status).toBe(200)
+        const reader = res.body!.getReader()
+        await reader.read()
+        await reader.cancel()
+        expect(signals[0]).toBeInstanceOf(AbortSignal)
+        expect(signals[0]?.aborted).toBe(true)
     })
 })

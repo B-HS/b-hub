@@ -45,7 +45,7 @@ export const aiProviderResponseSchema = z.object({
     authType: z.string(),
     status: z.string(),
     statusDetail: z.string().nullable(),
-    displayName: z.string().nullable(),
+    displayName: z.string(),
     lastUsedAt: z.string().nullable(),
     lastRefreshedAt: z.string().nullable(),
     modelsFetchedAt: z.string().nullable(),

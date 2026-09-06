@@ -30,8 +30,9 @@ const CHAT_ERROR_CODES = [
     'AI_PROVIDER_ERROR',
 ] as const
 
-const relayChatSse = (c: Context, events: AsyncIterable<AiChatStreamEvent>) =>
+const relayChatSse = (c: Context, events: AsyncIterable<AiChatStreamEvent>, controller: AbortController) =>
     streamSSE(c, async (sse) => {
+        sse.onAbort(() => controller.abort())
         try {
             for await (const event of events) {
                 if (event.type === 'delta') await sse.writeSSE({ event: 'delta', data: JSON.stringify({ text: event.text }) })
@@ -84,8 +85,9 @@ export const createAiChatRoute = (deps: AiChatRouteDeps) => {
                 rateLimited(async (c, user) => {
                     const sessionId = c.req.param('sessionId')!
                     const input = c.req.valid('json' as never) as z.infer<typeof aiChatSendSchema>
-                    const events = await deps.aiChatService.sendStream(user.id, sessionId, input)
-                    return relayChatSse(c, events)
+                    const controller = new AbortController()
+                    const events = await deps.aiChatService.sendStream(user.id, sessionId, input, controller.signal)
+                    return relayChatSse(c, events, controller)
                 }, 'ai:chat:send'),
             ),
         ),
@@ -122,8 +124,9 @@ export const createAiChatRoute = (deps: AiChatRouteDeps) => {
             withAuth({ getSession: deps.getSession })(
                 rateLimited(async (c, user) => {
                     const input = c.req.valid('json' as never) as z.infer<typeof aiCompletionSchema>
-                    const events = await deps.aiChatService.completeStream(user.id, input)
-                    return relayChatSse(c, events)
+                    const controller = new AbortController()
+                    const events = await deps.aiChatService.completeStream(user.id, input, controller.signal)
+                    return relayChatSse(c, events, controller)
                 }, 'ai:chat:completion'),
             ),
         ),

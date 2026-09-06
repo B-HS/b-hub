@@ -20,7 +20,7 @@ const toResponse = (row: AiProvider) => ({
     authType: row.authType,
     status: row.status,
     statusDetail: row.statusDetail,
-    displayName: row.displayName,
+    displayName: row.displayName ?? row.provider,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     lastRefreshedAt: row.lastRefreshedAt?.toISOString() ?? null,
     modelsFetchedAt: row.modelsFetchedAt?.toISOString() ?? null,

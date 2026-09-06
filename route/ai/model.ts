@@ -17,7 +17,7 @@ const toResponse = (row: AiModel) => ({
     id: row.id,
     providerId: row.providerId,
     modelId: row.modelId,
-    displayName: row.displayName,
+    displayName: row.displayName ?? row.modelId,
     metadata: row.metadata,
     fetchedAt: row.fetchedAt.toISOString(),
 })

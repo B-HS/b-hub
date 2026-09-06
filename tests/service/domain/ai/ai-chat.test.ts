@@ -304,9 +304,35 @@ describe('createAiChatService', () => {
             await expect(collect(events)).rejects.toMatchObject({ code: 'AI_COMPLETION_FAILED' })
             expect(deps.insertMessagePair).not.toHaveBeenCalled()
         })
+
+        test('전달받은 AbortSignal 을 프로바이더 요청에 그대로 넘긴다', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+            const controller = new AbortController()
+
+            await collect(await service.sendStream('user-1', 'sess-1', { content: 'hello world' }, controller.signal))
+
+            expect(deps.client.completeStream.mock.calls[0][0].signal).toBe(controller.signal)
+        })
     })
 
     describe('completeStream', () => {
+        test('전달받은 AbortSignal 을 프로바이더 요청에 그대로 넘긴다', async () => {
+            const deps = createDeps()
+            const service = createAiChatService(deps as never)
+            const controller = new AbortController()
+
+            await collect(
+                await service.completeStream(
+                    'user-1',
+                    { provider: 'anthropic', modelId: 'claude-x', messages: [{ role: 'user', content: 'ping' }] },
+                    controller.signal,
+                ),
+            )
+
+            expect(deps.client.completeStream.mock.calls[0][0].signal).toBe(controller.signal)
+        })
+
         test('델타를 방출하고 done 에서 touchUsed·logUsage(severity 20)만 수행한다(세션 미저장)', async () => {
             const deps = createDeps()
             const service = createAiChatService(deps as never)

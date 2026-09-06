@@ -47,6 +47,7 @@ export const iterateSseEvents = async function* (body: ReadableStream<Uint8Array
             if (parsed) yield parsed
         }
     } finally {
+        await reader.cancel().catch(() => {})
         reader.releaseLock()
     }
 }
@@ -66,6 +67,7 @@ export const iterateStreamLines = async function* (body: ReadableStream<Uint8Arr
         }
         if (buffer) yield buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer
     } finally {
+        await reader.cancel().catch(() => {})
         reader.releaseLock()
     }
 }

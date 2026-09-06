@@ -145,6 +145,7 @@ export const createCodexProvider = ({
                 'session_id': crypto.randomUUID(),
             },
             body: JSON.stringify(body),
+            signal: request.signal,
         })
         if (!res.ok) {
             const errBody = await res.text().catch(() => '')
