@@ -1,41 +1,53 @@
-import Redis from 'ioredis'
+import { getEnv } from '../../lib/env'
+import { captureException } from '../../lib/sentry'
+import { createCache } from './cache'
+import { getRedisClient } from './redis-client'
 
-const redis = new Redis(process.env.REDIS_URL ?? '', {
-    maxRetriesPerRequest: 1,
-    connectTimeout: 3000,
-    lazyConnect: true,
-})
+const LOCAL_CACHE_TTL_MS = 30_000
+const LOCAL_CACHE_MAX_SIZE = 500
 
-const memoryStore = new Map<string, { value: string; expiresAt: number }>()
+const localCache = createCache<string>({ maxSize: LOCAL_CACHE_MAX_SIZE, defaultTtlMs: LOCAL_CACHE_TTL_MS })
+
+const getRedis = () => {
+    const url = getEnv().REDIS_URL
+    if (!url) return null
+    return getRedisClient(url)
+}
 
 export const redisCache = {
     get: async <T>(key: string): Promise<T | null> => {
-        const mem = memoryStore.get(key)
-        if (mem && mem.expiresAt > Date.now()) {
-            return JSON.parse(mem.value) as T
-        }
-        if (mem) memoryStore.delete(key)
+        const cached = localCache.get(key)
+        if (cached !== null) return JSON.parse(cached) as T
+
+        const client = getRedis()
+        if (!client) return null
 
         try {
-            const val = await redis.get(key)
+            await client.ensureConnected()
+            const val = await client.redis.get(key)
             if (val === null) return null
 
             const parsed = JSON.parse(val) as T
-            memoryStore.set(key, { value: val, expiresAt: Date.now() + 30_000 })
+            localCache.set(key, val, LOCAL_CACHE_TTL_MS)
             return parsed
-        } catch {
+        } catch (error) {
+            captureException(error)
             return null
         }
     },
 
     set: async <T>(key: string, value: T, ttlSeconds: number) => {
         const json = JSON.stringify(value)
-        memoryStore.set(key, { value: json, expiresAt: Date.now() + Math.min(ttlSeconds * 1000, 30_000) })
+        localCache.set(key, json, Math.min(ttlSeconds * 1000, LOCAL_CACHE_TTL_MS))
+
+        const client = getRedis()
+        if (!client) return
 
         try {
-            await redis.set(key, json, 'EX', ttlSeconds)
-        } catch {
-            // Redis 실패해도 인메모리 캐시는 유지
+            await client.ensureConnected()
+            await client.redis.set(key, json, 'EX', ttlSeconds)
+        } catch (error) {
+            captureException(error)
         }
     },
 }

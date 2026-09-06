@@ -1,3 +1,5 @@
+import { captureException } from './sentry'
+
 type RateLimitConfig = {
     windowMs: number
     maxRequests: number
@@ -15,47 +17,77 @@ type RateLimitResult = {
     resetAt: number
 }
 
-export const createRateLimiter = (config: RateLimitConfig) => {
-    const store = new Map<string, RateLimitEntry>()
+export type RateLimitStore = {
+    increment: (key: string, windowMs: number) => Promise<{ count: number; resetAt: number }>
+    reset?: (key: string) => Promise<void>
+}
+
+type CheckLimitReturn<TStore> = TStore extends RateLimitStore ? Promise<RateLimitResult> : RateLimitResult
+
+type ResetReturn<TStore> = TStore extends RateLimitStore ? Promise<void> : void
+
+export const createRateLimiter = <TStore extends RateLimitStore | undefined = undefined>(config: RateLimitConfig, store?: TStore) => {
+    const entries = new Map<string, RateLimitEntry>()
+
+    const toResult = (count: number, resetAt: number) => ({
+        allowed: count <= config.maxRequests,
+        limit: config.maxRequests,
+        remaining: Math.max(0, config.maxRequests - count),
+        resetAt,
+    })
 
     const cleanup = () => {
         const now = Date.now()
-        for (const [key, entry] of store) {
+        for (const [key, entry] of entries) {
             if (entry.resetAt <= now) {
-                store.delete(key)
+                entries.delete(key)
             }
         }
     }
 
-    setInterval(cleanup, config.windowMs)
+    const cleanupTimer = setInterval(cleanup, config.windowMs)
+    cleanupTimer.unref()
 
-    const checkLimit = (key: string): RateLimitResult => {
+    const checkLimitInMemory = (key: string) => {
         const now = Date.now()
-        const entry = store.get(key)
+        const entry = entries.get(key)
 
         if (!entry || entry.resetAt <= now) {
-            store.set(key, { count: 1, resetAt: now + config.windowMs })
-            return {
-                allowed: true,
-                limit: config.maxRequests,
-                remaining: config.maxRequests - 1,
-                resetAt: now + config.windowMs,
-            }
+            const resetAt = now + config.windowMs
+            entries.set(key, { count: 1, resetAt })
+            return toResult(1, resetAt)
         }
 
         entry.count++
-        const allowed = entry.count <= config.maxRequests
-        return {
-            allowed,
-            limit: config.maxRequests,
-            remaining: Math.max(0, config.maxRequests - entry.count),
-            resetAt: entry.resetAt,
+        return toResult(entry.count, entry.resetAt)
+    }
+
+    const checkLimitShared = async (key: string, sharedStore: RateLimitStore) => {
+        try {
+            const { count, resetAt } = await sharedStore.increment(key, config.windowMs)
+            return toResult(count, resetAt)
+        } catch (error) {
+            captureException(error)
+            return checkLimitInMemory(key)
         }
     }
 
-    const reset = (key: string) => {
-        store.delete(key)
+    const resetInMemory = (key: string) => {
+        entries.delete(key)
     }
+
+    const resetShared = async (key: string, sharedStore: RateLimitStore) => {
+        resetInMemory(key)
+        try {
+            await sharedStore.reset?.(key)
+        } catch (error) {
+            captureException(error)
+        }
+    }
+
+    const checkLimit = (key: string) => (store ? checkLimitShared(key, store) : checkLimitInMemory(key)) as CheckLimitReturn<TStore>
+
+    const reset = (key: string) => (store ? resetShared(key, store) : resetInMemory(key)) as ResetReturn<TStore>
 
     return { checkLimit, reset }
 }

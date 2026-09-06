@@ -24,3 +24,25 @@ describe('captureException', () => {
         expect(() => captureException('string error')).not.toThrow()
     })
 })
+
+describe('initSentry 재호출', () => {
+    test('여러 번 호출해도 에러를 던지지 않는다', () => {
+        expect(() => {
+            initSentry(undefined)
+            initSentry('invalid-dsn')
+            initSentry(undefined)
+        }).not.toThrow()
+    })
+})
+
+describe('부트스트랩 배선', () => {
+    test('index.ts가 compose() 이전에 initSentry(getEnv().SENTRY_DSN)를 호출한다', async () => {
+        const source = await Bun.file(new URL('../../index.ts', import.meta.url)).text()
+        const initIndex = source.indexOf('initSentry(getEnv().SENTRY_DSN)')
+        const composeIndex = source.indexOf('compose()')
+
+        expect(initIndex).toBeGreaterThan(-1)
+        expect(composeIndex).toBeGreaterThan(-1)
+        expect(initIndex).toBeLessThan(composeIndex)
+    })
+})

@@ -4,6 +4,7 @@ import type { StorageService } from '../service/shared/storage'
 import type { ImageProcessor } from '../service/shared/image-processor'
 import type { GdriveStorageService } from '../service/shared/gdrive-storage'
 import type { LogEventService } from '../service/domain/logs/log-event'
+import type { RateLimitStore } from '../lib/rate-limit'
 
 export type Db = ReturnType<typeof getDb>
 export type Env = ReturnType<typeof getEnv>
@@ -22,6 +23,7 @@ export type ComposeBlogArgs = ComposeCoreArgs & {
 
 export type ComposeMailArgs = ComposeCoreArgs & {
     storageService: StorageService
+    rateLimitStore?: RateLimitStore
 }
 
 export type ComposeWeatherArgs = ComposeCoreArgs
@@ -43,4 +45,5 @@ export type ComposeDriveArgs = ComposeCoreArgs & {
 export type ComposeAiArgs = ComposeCoreArgs & {
     storageService: StorageService
     logEventService: LogEventService
+    rateLimitStore?: RateLimitStore
 }

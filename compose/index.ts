@@ -11,17 +11,19 @@ import { composeCalendar } from './calendar'
 import { composeDrive } from './drive'
 import { composeAi } from './ai'
 import { composeMetrics } from './metrics'
+import { createRedisRateLimitStore } from '../service/shared/rate-limit-store'
 
 export const compose = () => {
     const env = getEnv()
     const db = getDb()
     const core = { db, env }
+    const rateLimitStore = env.REDIS_URL ? createRedisRateLimitStore({ url: env.REDIS_URL }) : undefined
 
     const shared = composeShared(core)
     const blog = composeBlog({ ...core, storageService: shared.storageService, imageProcessor: shared.imageProcessor })
     const weather = composeWeather(core)
     const logs = composeLogs(core)
-    const mail = composeMail({ ...core, storageService: shared.storageService })
+    const mail = composeMail({ ...core, storageService: shared.storageService, rateLimitStore })
     const spotify = composeSpotify(core)
     const resume = composeResume(core)
     const calendar = composeCalendar(core)
@@ -32,7 +34,7 @@ export const compose = () => {
         gdriveStorageService: null,
         initGdriveStorage: shared.initGdriveStorage,
     })
-    const ai = composeAi({ ...core, storageService: shared.storageService, logEventService: logs.logEventService })
+    const ai = composeAi({ ...core, storageService: shared.storageService, logEventService: logs.logEventService, rateLimitStore })
     const metrics = composeMetrics({ ...core, storageService: shared.storageService })
 
     return {

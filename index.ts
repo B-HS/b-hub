@@ -7,9 +7,12 @@ import { createPage } from './page'
 import { createRouter } from './route/index'
 import { compose } from './compose'
 import { getEnv } from './lib/env'
+import { initSentry } from './lib/sentry'
 import { getDb } from './db'
 import { mailAccounts } from './db/schema'
 import type { AuthContext } from './lib/hono-types'
+
+initSentry(getEnv().SENTRY_DSN)
 
 const app = new Hono<AuthContext>()
 const composed = compose()

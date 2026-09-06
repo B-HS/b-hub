@@ -1,6 +1,12 @@
 import { drizzle } from 'drizzle-orm/mysql2'
 import mysql from 'mysql2/promise'
+import { getEnv } from '../lib/env'
 import * as schema from './schema'
+
+const POOL_CONNECTION_LIMIT = 20
+const POOL_MAX_IDLE = 5
+const POOL_IDLE_TIMEOUT_MS = 60_000
+const POOL_KEEP_ALIVE_INITIAL_DELAY_MS = 10_000
 
 const createDrizzleDb = (p: mysql.Pool) => drizzle(p, { schema, mode: 'default' })
 
@@ -11,9 +17,13 @@ export const getDb = () => {
     if (dbInstance) return dbInstance
 
     pool = mysql.createPool({
-        uri: process.env.DATABASE_URL,
+        uri: getEnv().DATABASE_URL,
         waitForConnections: true,
-        connectionLimit: 20,
+        connectionLimit: POOL_CONNECTION_LIMIT,
+        maxIdle: POOL_MAX_IDLE,
+        idleTimeout: POOL_IDLE_TIMEOUT_MS,
+        enableKeepAlive: true,
+        keepAliveInitialDelay: POOL_KEEP_ALIVE_INITIAL_DELAY_MS,
         queueLimit: 0,
     })
 
