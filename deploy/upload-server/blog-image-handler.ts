@@ -3,6 +3,7 @@ import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 import { join } from 'path'
 import type { R2Client } from './r2-client'
+import { isValidAssetId } from './upload-handler'
 
 type BlogImageHandlerDeps = {
     r2: R2Client
@@ -37,6 +38,9 @@ export const createBlogImageHandler = (deps: BlogImageHandlerDeps) => {
             const startTime = Date.now()
             console.log(`[blog-image] start assetId=${assetId} file=${file.name} size=${file.size} type=${file.type}`)
 
+            if (!isValidAssetId(assetId)) {
+                return { success: false, message: 'Invalid assetId' }
+            }
             if (!deps.allowedMimeTypes.includes(file.type)) {
                 return { success: false, message: `Invalid mime type: ${file.type}` }
             }

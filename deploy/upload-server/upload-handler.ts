@@ -24,6 +24,19 @@ type UploadHandlerDeps = {
 
 const IMAGE_MIME_PREFIX = 'image/'
 const THUMBNAIL_MAX_SIZE = 20 * 1024 * 1024
+const ASSET_ID_PATTERN = /^[A-Za-z0-9_-]+$/
+const UPLOAD_KEY_PREFIX = 'users/'
+const UPLOAD_KEY_SEGMENT_COUNT = 4
+const TRAVERSAL_SEGMENTS = ['', '.', '..']
+
+export const isValidAssetId = (value: string) => ASSET_ID_PATTERN.test(value)
+
+export const isValidUploadKey = (value: string) => {
+    if (!value.startsWith(UPLOAD_KEY_PREFIX) || value.includes('\\')) return false
+    const segments = value.split('/')
+    if (segments.length !== UPLOAD_KEY_SEGMENT_COUNT) return false
+    return segments.every((segment) => !TRAVERSAL_SEGMENTS.includes(segment))
+}
 
 const computeHashFromFile = (filePath: string): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -60,21 +73,50 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
     const hubHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deps.uploadServerSecret}` }
 
     return {
-        handle: async (file: File, assetId: number, s3Key: string, uploadToken: string): Promise<{ success: boolean; message: string }> => {
+        handle: async (
+            file: File,
+            assetId: number,
+            s3Key: string,
+            uploadToken: string,
+        ): Promise<{ success: boolean; message: string; unauthorized?: boolean }> => {
             const startTime = Date.now()
             console.log(`[upload] start assetId=${assetId} file=${file.name} size=${file.size} type=${file.type}`)
+
+            if (!isValidUploadKey(s3Key)) {
+                console.warn(`[upload] rejected: invalid s3Key assetId=${assetId}`)
+                return { success: false, message: 'Invalid s3Key' }
+            }
 
             const tmpPath = join(deps.tmpDir, `${assetId}_${deps.generateId()}`)
 
             try {
-                await saveFileToDisk(file, tmpPath)
-                console.log(`[upload] saved to disk: ${tmpPath}`)
-
-                await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/status`, {
+                const statusRes = await fetch(`${deps.hubBaseUrl}/api/drive/assets/${assetId}/status`, {
                     method: 'POST',
                     headers: hubHeaders,
                     body: JSON.stringify({ uploadToken, status: 'uploading' }),
-                }).catch(() => {})
+                }).catch(() => null)
+
+                if (!statusRes || !statusRes.ok) {
+                    console.error(`[upload] status callback rejected assetId=${assetId} status=${statusRes ? statusRes.status : 'network-error'}`)
+                    return { success: false, message: 'Upload not authorized', unauthorized: true }
+                }
+
+                const statusData = (await statusRes.json().catch(() => null)) as { success?: boolean; data?: { s3Key?: string } } | null
+                if (!statusData || !statusData.success) {
+                    console.error(`[upload] status callback not successful assetId=${assetId}`)
+                    return { success: false, message: 'Upload not authorized', unauthorized: true }
+                }
+
+                const hubS3Key = statusData.data?.s3Key
+                if (hubS3Key && hubS3Key !== s3Key) {
+                    console.error(`[upload] s3Key mismatch assetId=${assetId}`)
+                    return { success: false, message: 'Upload not authorized', unauthorized: true }
+                }
+
+                const storageKey = hubS3Key ?? s3Key
+
+                await saveFileToDisk(file, tmpPath)
+                console.log(`[upload] saved to disk: ${tmpPath}`)
 
                 const fileHash = await computeHashFromFile(tmpPath)
                 console.log(`[upload] hash=${fileHash.slice(0, 12)}...`)
@@ -108,7 +150,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                     if (tokenData.success) {
                         const { accessToken, rootFolderId } = tokenData.data
                         const gdriveResult = await withRetry(async () => {
-                            const result = await deps.gdrive.upload(accessToken, rootFolderId, s3Key, tmpPath, file.type)
+                            const result = await deps.gdrive.upload(accessToken, rootFolderId, storageKey, tmpPath, file.type)
                             if (!result.success) throw new Error(result.error)
                             return result
                         }, 2).catch((error) => ({
@@ -132,14 +174,14 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
 
                 if (file.size <= deps.l1MaxFileSize) {
                     const r2Result = await withRetry(async () => {
-                        const result = await deps.r2.upload(s3Key, tmpPath, file.type)
+                        const result = await deps.r2.upload(storageKey, tmpPath, file.type)
                         if (!result.success) throw new Error(result.error)
                         return result
                     }, 2).catch((error) => ({ success: false as const, error: error instanceof Error ? error.message : 'R2 upload failed' }))
 
                     if (r2Result.success) {
                         tiers.push('L1')
-                        console.log(`[upload] r2 ok key=${s3Key}`)
+                        console.log(`[upload] r2 ok key=${storageKey}`)
                     } else {
                         console.error(`[upload] r2 failed: ${r2Result.error}`)
                     }
@@ -149,10 +191,10 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
 
                 // TODO: 10GB 초과 파일은 Mac Studio로 스트리밍-스트리밍 전송
                 // createReadStream(tmpPath)을 body로 Mac Studio HTTP API에 전달
-                const localResult = await deps.local.upload(s3Key, tmpPath, file.type)
+                const localResult = await deps.local.upload(storageKey, tmpPath, file.type)
                 if (localResult.success) {
                     tiers.push('L2')
-                    localPath = s3Key
+                    localPath = storageKey
                     console.log(`[upload] local ok`)
                 }
 

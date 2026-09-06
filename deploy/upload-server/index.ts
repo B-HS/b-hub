@@ -4,7 +4,7 @@ import sharp from 'sharp'
 import { createR2Client } from './r2-client'
 import { createGdriveClient } from './gdrive-client'
 import { createLocalClient } from './local-client'
-import { createUploadHandler } from './upload-handler'
+import { createUploadHandler, isValidAssetId } from './upload-handler'
 import { createBlogImageHandler } from './blog-image-handler'
 
 const env = {
@@ -97,6 +97,10 @@ app.post('/upload-blog-image', async (c) => {
         return c.json({ success: false, error: 'Missing assetId, s3Key, or uploadToken' }, 400)
     }
 
+    if (!isValidAssetId(assetId)) {
+        return c.json({ success: false, error: 'Invalid assetId' }, 400)
+    }
+
     const result = await blogImageHandler.handle(file, assetId, s3Key, uploadToken)
     if (!result.success) {
         console.error(`[request] blog-image failed: ${result.message}`)
@@ -121,7 +125,8 @@ app.post('/upload', async (c) => {
         return c.json({ success: false, error: 'File too large' }, 413)
     }
 
-    const assetId = Number(formData.get('assetId'))
+    const assetIdRaw = formData.get('assetId') as string | null
+    const assetId = Number(assetIdRaw)
     const s3Key = formData.get('s3Key') as string
     const uploadToken = formData.get('uploadToken') as string
 
@@ -130,11 +135,16 @@ app.post('/upload', async (c) => {
         return c.json({ success: false, error: 'Missing assetId, s3Key, or uploadToken' }, 400)
     }
 
+    if (!isValidAssetId(assetIdRaw ?? '')) {
+        console.warn(`[request] rejected: invalid assetId`)
+        return c.json({ success: false, error: 'Invalid assetId' }, 400)
+    }
+
     const result = await handler.handle(file, assetId, s3Key, uploadToken)
 
     if (!result.success) {
         console.error(`[request] failed: ${result.message}`)
-        return c.json({ success: false, error: result.message }, 500)
+        return c.json({ success: false, error: result.message }, result.unauthorized ? 401 : 500)
     }
 
     return c.json({ success: true, message: result.message })
