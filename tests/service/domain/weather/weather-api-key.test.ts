@@ -188,3 +188,53 @@ describe('createWeatherApiKeyService.logRequest 컬럼 길이 보정', () => {
         expect(row.userAgent).toBe('esp32-weather/1.0')
     })
 })
+
+const createValidateDb = (onUpdate: () => Promise<void>) => ({
+    select: () => ({
+        from: () => ({
+            where: () => ({
+                limit: () =>
+                    Promise.resolve([
+                        {
+                            id: 1,
+                            userId: 'user-1',
+                            token: 'hashed',
+                            name: 'test',
+                            dailyLimit: 100,
+                            expiresAt: null,
+                            lastUsedAt: null,
+                            createdAt: new Date(),
+                        },
+                    ]),
+            }),
+        }),
+    }),
+    update: () => ({ set: () => ({ where: () => onUpdate() }) }),
+})
+
+describe('createWeatherApiKeyService.validate 사용시각 갱신', () => {
+    test('lastUsedAt 갱신을 반환 전에 await 한다', async () => {
+        let touched = false
+        const service = createWeatherApiKeyService({
+            db: createValidateDb(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+                touched = true
+            }) as never,
+        })
+
+        const record = await service.validate('some-token')
+        expect(record?.id).toBe(1)
+        expect(touched).toBe(true)
+    })
+
+    test('lastUsedAt 갱신이 실패해도 키 검증은 성공한다', async () => {
+        const service = createWeatherApiKeyService({
+            db: createValidateDb(async () => {
+                throw new Error('db down')
+            }) as never,
+        })
+
+        const record = await service.validate('some-token')
+        expect(record?.id).toBe(1)
+    })
+})

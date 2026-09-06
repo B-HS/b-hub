@@ -1,9 +1,13 @@
 import { describe, expect, test, mock } from 'bun:test'
 
+const cacheSetCalls: { key: string; ttlSeconds: number }[] = []
+
 mock.module('../../../../service/shared/redis-cache', () => ({
     redisCache: {
         get: async () => null,
-        set: async () => {},
+        set: async (key: string, _value: unknown, ttlSeconds: number) => {
+            cacheSetCalls.push({ key, ttlSeconds })
+        },
     },
 }))
 
@@ -247,6 +251,83 @@ describe('createKmaApiService', () => {
         const params = new URLSearchParams(url.split('?')[1])
         const baseTime = params.get('base_time')!
         expect(baseTime.slice(2)).toBe('30')
+    })
+})
+
+describe('createKmaApiService 상류 보호', () => {
+    test('fetch 에 AbortSignal 을 전달한다', async () => {
+        const fetchFn = createMockFetch(createMockKmaResponse([]))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        await service.getUltraSrtNcst(60, 127)
+        const init = (fetchFn as ReturnType<typeof mock>).mock.calls[0][1] as RequestInit
+        expect(init.signal).toBeInstanceOf(AbortSignal)
+    })
+
+    test('4xx 응답은 재시도 없이 즉시 실패한다', async () => {
+        const fetchFn = mock(() => Promise.resolve({ ok: false, status: 404 } as Response))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const result = await service.getUltraSrtNcst(61, 128)
+        expect(result.success).toBe(false)
+        if (!result.success) expect(result.error.code).toBe('WEATHER_KMA_API_ERROR')
+        expect(fetchFn).toHaveBeenCalledTimes(1)
+    })
+
+    test('5xx 응답은 3회까지 재시도한다', async () => {
+        const fetchFn = mock(() => Promise.resolve({ ok: false, status: 503 } as Response))
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const result = await service.getUltraSrtNcst(62, 129)
+        expect(result.success).toBe(false)
+        expect(fetchFn).toHaveBeenCalledTimes(3)
+    })
+
+    test('resultCode 03 은 30초 negative cache 로 저장한다', async () => {
+        cacheSetCalls.length = 0
+        const fetchFn = mock(() =>
+            Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ response: { header: { resultCode: '03', resultMsg: 'NO_DATA' }, body: { items: { item: [] } } } }),
+            } as Response),
+        )
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const result = await service.getUltraSrtNcst(63, 130)
+        expect(result.success).toBe(false)
+        expect(cacheSetCalls).toHaveLength(1)
+        expect(cacheSetCalls[0].ttlSeconds).toBe(30)
+        expect(cacheSetCalls[0].key).toContain(':63:130')
+    })
+
+    test('resultCode 03 이 아닌 실패는 캐시하지 않는다', async () => {
+        cacheSetCalls.length = 0
+        const fetchFn = mock(() =>
+            Promise.resolve({
+                ok: true,
+                json: () =>
+                    Promise.resolve({ response: { header: { resultCode: '10', resultMsg: 'INVALID_REQUEST' }, body: { items: { item: [] } } } }),
+            } as Response),
+        )
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        await service.getUltraSrtNcst(64, 131)
+        expect(cacheSetCalls).toHaveLength(0)
+    })
+
+    test('같은 키 동시 요청은 상류를 한 번만 호출한다', async () => {
+        const fetchFn = mock(
+            () =>
+                new Promise<Response>((resolve) =>
+                    setTimeout(() => resolve({ ok: true, json: () => Promise.resolve(createMockKmaResponse([])) } as Response), 10),
+                ),
+        )
+        const service = createKmaApiService({ apiKey: 'test-key', fetchFn })
+
+        const [a, b] = await Promise.all([service.getUltraSrtNcst(65, 132), service.getUltraSrtNcst(65, 132)])
+        expect(a.success).toBe(true)
+        expect(b.success).toBe(true)
+        expect(fetchFn).toHaveBeenCalledTimes(1)
     })
 })
 

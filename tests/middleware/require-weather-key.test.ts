@@ -59,4 +59,16 @@ describe('requireWeatherKey middleware', () => {
         expect(res.status).toBe(200)
         expect(service.logRequest).toHaveBeenCalled()
     })
+
+    test('요청 로그 기록을 응답 반환 전에 await 한다', async () => {
+        let logged = false
+        const logRequest = mock(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            logged = true
+        })
+        const { app } = createApp(createMockService({ logRequest }))
+
+        await app.request('/test', { headers: { 'X-Weather-Key': 'valid-key' } })
+        expect(logged).toBe(true)
+    })
 })

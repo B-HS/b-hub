@@ -32,7 +32,7 @@ export const requireWeatherKey = (deps: RequireWeatherKeyDeps) => async (c: Cont
         }
     })()
 
-    deps.weatherApiKeyService.logRequest({
+    await deps.weatherApiKeyService.logRequest({
         keyId: keyRecord.id,
         userId: keyRecord.userId,
         endpoint: c.req.path,

@@ -6,6 +6,11 @@ const RETRY_DELAY = 1000
 
 const MIN_CACHE_TTL = 30 * 1000
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+const KMA_FETCH_TIMEOUT_MS = 8000
+const NEGATIVE_CACHE_TTL_MS = 30 * 1000
+const HTTP_CLIENT_ERROR_MIN = 400
+const HTTP_CLIENT_ERROR_MAX = 499
+const KMA_RESULT_CODE_NO_DATA = '03'
 
 const getNextNcstTtl = () => {
     const now = new Date()
@@ -77,6 +82,10 @@ export type KMAVersionItem = {
 }
 
 type KmaApiResult<T> = { success: true; data: T } | { success: false; error: { code: string; message: string } }
+
+type KmaAttempt<T> = { settled: true; result: KmaApiResult<T>; noData: boolean } | { settled: false; retryable: boolean; message: string }
+
+type KmaFetchOutcome<T> = { result: KmaApiResult<T>; noData: boolean }
 
 type KmaApiDeps = {
     apiKey: string
@@ -154,70 +163,73 @@ const mapKmaErrorCode = (kmaCode: string) => {
 
 export const createKmaApiService = (deps: KmaApiDeps) => {
     const fetchFn = deps.fetchFn ?? fetch
-    const fetchWithRetry = async <T>(url: string): Promise<KmaApiResult<T>> => {
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                const response = await fetchFn(url)
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`)
-                }
+    const inFlight = new Map<string, Promise<KmaApiResult<unknown>>>()
 
-                const data = (await response.json()) as KMAResponse<T>
-                const header = data.response?.header
+    const fetchOnce = async <T>(url: string): Promise<KmaAttempt<T>> => {
+        try {
+            const response = await fetchFn(url, { signal: AbortSignal.timeout(KMA_FETCH_TIMEOUT_MS) })
+            if (!response.ok) {
+                const isClientError = response.status >= HTTP_CLIENT_ERROR_MIN && response.status <= HTTP_CLIENT_ERROR_MAX
+                return { settled: false, retryable: !isClientError, message: `HTTP ${response.status}` }
+            }
 
-                if (!header) {
-                    throw new Error('Invalid response structure')
-                }
+            const data = (await response.json()) as KMAResponse<T>
+            const header = data.response?.header
 
-                if (header.resultCode !== '00') {
-                    return {
-                        success: false,
-                        error: {
-                            code: mapKmaErrorCode(header.resultCode),
-                            message: header.resultMsg,
-                        },
-                    }
-                }
+            if (!header) return { settled: false, retryable: true, message: 'Invalid response structure' }
 
+            if (header.resultCode !== '00') {
                 return {
-                    success: true,
-                    data: data.response.body.items.item as T,
-                }
-            } catch (error) {
-                if (attempt < MAX_RETRIES) {
-                    await delay(RETRY_DELAY * attempt)
-                    continue
-                }
-
-                return {
-                    success: false,
-                    error: {
-                        code: 'WEATHER_KMA_API_ERROR',
-                        message: error instanceof Error ? error.message : 'External API request failed',
-                    },
+                    settled: true,
+                    result: { success: false, error: { code: mapKmaErrorCode(header.resultCode), message: header.resultMsg } },
+                    noData: header.resultCode === KMA_RESULT_CODE_NO_DATA,
                 }
             }
-        }
 
-        return {
-            success: false,
-            error: {
-                code: 'WEATHER_KMA_API_ERROR',
-                message: 'Weather service temporarily unavailable',
-            },
+            return { settled: true, result: { success: true, data: data.response.body.items.item as T }, noData: false }
+        } catch (error) {
+            return { settled: false, retryable: true, message: error instanceof Error ? error.message : 'External API request failed' }
         }
     }
 
-    const cachedFetch = async <T>(cacheKey: string, ttlMs: number, fetcher: () => Promise<KmaApiResult<T>>): Promise<KmaApiResult<T>> => {
+    const fetchWithRetry = async <T>(url: string): Promise<KmaFetchOutcome<T>> => {
+        let lastMessage = 'Weather service temporarily unavailable'
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            const attemptResult = await fetchOnce<T>(url)
+            if (attemptResult.settled) return { result: attemptResult.result, noData: attemptResult.noData }
+
+            lastMessage = attemptResult.message
+            if (!attemptResult.retryable) break
+            if (attempt < MAX_RETRIES) await delay(RETRY_DELAY * attempt)
+        }
+
+        return { result: { success: false, error: { code: 'WEATHER_KMA_API_ERROR', message: lastMessage } }, noData: false }
+    }
+
+    const cachedFetch = async <T>(cacheKey: string, ttlMs: number, fetcher: () => Promise<KmaFetchOutcome<T>>): Promise<KmaApiResult<T>> => {
         const cached = await redisCache.get<KmaApiResult<T>>(cacheKey)
         if (cached) return cached
 
-        const result = await fetcher()
-        if (result.success) {
-            const ttlSeconds = Math.max(Math.ceil(ttlMs / 1000), 1)
-            await redisCache.set(cacheKey, result, ttlSeconds)
+        const pending = inFlight.get(cacheKey)
+        if (pending) return (await pending) as KmaApiResult<T>
+
+        const task = (async () => {
+            const { result, noData } = await fetcher()
+            if (result.success) {
+                await redisCache.set(cacheKey, result, Math.max(Math.ceil(ttlMs / 1000), 1))
+                return result
+            }
+            if (noData) await redisCache.set(cacheKey, result, Math.max(Math.ceil(NEGATIVE_CACHE_TTL_MS / 1000), 1))
+            return result
+        })()
+
+        inFlight.set(cacheKey, task as Promise<KmaApiResult<unknown>>)
+        try {
+            return await task
+        } finally {
+            inFlight.delete(cacheKey)
         }
-        return result
     }
 
     const getUltraSrtNcst = async (nx: number, ny: number) => {
@@ -290,11 +302,11 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
                 ftype,
                 basedatetime: `${baseDate}${baseTime}`,
             })
-            const result = await fetchWithRetry<KMAVersionItem[]>(`${BASE_URL}/getFcstVersion?${params}`)
+            const { result, noData } = await fetchWithRetry<KMAVersionItem[]>(`${BASE_URL}/getFcstVersion?${params}`)
             if (result.success && Array.isArray(result.data) && result.data.length > 0) {
-                return { success: true as const, data: result.data[0] }
+                return { result: { success: true as const, data: result.data[0] }, noData }
             }
-            return result as KmaApiResult<KMAVersionItem>
+            return { result: result as KmaApiResult<KMAVersionItem>, noData }
         })
     }
 

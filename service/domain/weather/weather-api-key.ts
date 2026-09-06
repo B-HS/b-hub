@@ -42,11 +42,11 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
 
         if (record.expiresAt && record.expiresAt < new Date()) return null
 
-        deps.db
-            .update(weatherApiKey)
-            .set({ lastUsedAt: new Date() })
-            .where(eq(weatherApiKey.id, record.id))
-            .catch((e) => captureException(e))
+        try {
+            await deps.db.update(weatherApiKey).set({ lastUsedAt: new Date() }).where(eq(weatherApiKey.id, record.id))
+        } catch (e) {
+            captureException(e)
+        }
 
         return record
     }
