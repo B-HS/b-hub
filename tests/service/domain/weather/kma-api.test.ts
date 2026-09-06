@@ -7,7 +7,7 @@ mock.module('../../../../service/shared/redis-cache', () => ({
     },
 }))
 
-const { createKmaApiService } = await import('../../../../service/domain/weather/kma-api')
+const { createKmaApiService, getKmaBaseDateTime } = await import('../../../../service/domain/weather/kma-api')
 
 const createMockKmaResponse = (items: Record<string, string | number>[]) => ({
     response: {
@@ -247,5 +247,52 @@ describe('createKmaApiService', () => {
         const params = new URLSearchParams(url.split('?')[1])
         const baseTime = params.get('base_time')!
         expect(baseTime.slice(2)).toBe('30')
+    })
+})
+
+const KST_MIDNIGHT_45 = Date.parse('2025-01-01T15:45:00Z')
+const KST_MIDNIGHT_30 = Date.parse('2025-01-01T15:30:00Z')
+
+const withTimezone = <T>(timezone: string, run: () => T) => {
+    const originalTimezone = process.env.TZ
+    process.env.TZ = timezone
+    try {
+        return run()
+    } finally {
+        if (originalTimezone === undefined) delete process.env.TZ
+        else process.env.TZ = originalTimezone
+    }
+}
+
+describe('getKmaBaseDateTime', () => {
+    test('ncst는 KST 기준 정시로 내림한다', () => {
+        expect(getKmaBaseDateTime('ncst', KST_MIDNIGHT_45)).toEqual({ baseDate: '20250102', baseTime: '0000' })
+    })
+
+    test('ncst는 40분 이전이면 직전 시각으로 내려 날짜도 함께 넘어간다', () => {
+        expect(getKmaBaseDateTime('ncst', KST_MIDNIGHT_30)).toEqual({ baseDate: '20250101', baseTime: '2300' })
+    })
+
+    test('fcst는 30분 base time을 만든다', () => {
+        expect(getKmaBaseDateTime('fcst', KST_MIDNIGHT_45)).toEqual({ baseDate: '20250102', baseTime: '0030' })
+    })
+
+    test('vilage는 KST 02시 10분 이전이면 전날 2300을 쓴다', () => {
+        expect(getKmaBaseDateTime('vilage', KST_MIDNIGHT_45)).toEqual({ baseDate: '20250101', baseTime: '2300' })
+    })
+
+    test('baseDate는 YYYYMMDD, ncst baseTime은 HH00 형식이다', () => {
+        const { baseDate, baseTime } = getKmaBaseDateTime('ncst', KST_MIDNIGHT_45)
+        expect(baseDate).toMatch(/^\d{8}$/)
+        expect(baseTime).toMatch(/^\d{2}00$/)
+    })
+
+    test('프로세스 TZ와 무관하게 동일한 KST 값을 만든다', () => {
+        const onUtc = withTimezone('UTC', () => getKmaBaseDateTime('ncst', KST_MIDNIGHT_45))
+        const onSeoul = withTimezone('Asia/Seoul', () => getKmaBaseDateTime('ncst', KST_MIDNIGHT_45))
+        const onNewYork = withTimezone('America/New_York', () => getKmaBaseDateTime('ncst', KST_MIDNIGHT_45))
+        expect(onUtc).toEqual({ baseDate: '20250102', baseTime: '0000' })
+        expect(onSeoul).toEqual(onUtc)
+        expect(onNewYork).toEqual(onUtc)
     })
 })

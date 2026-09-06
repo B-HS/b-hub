@@ -5,6 +5,7 @@ const MAX_RETRIES = 3
 const RETRY_DELAY = 1000
 
 const MIN_CACHE_TTL = 30 * 1000
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000
 
 const getNextNcstTtl = () => {
     const now = new Date()
@@ -82,8 +83,8 @@ type KmaApiDeps = {
     fetchFn?: typeof fetch
 }
 
-const getBaseDateTime = (type: 'ncst' | 'fcst' | 'vilage') => {
-    const now = new Date(Date.now() + 9 * 60 * 60 * 1000)
+export const getKmaBaseDateTime = (type: 'ncst' | 'fcst' | 'vilage', nowMs = Date.now()) => {
+    const now = new Date(nowMs + KST_OFFSET_MS)
     const minutes = now.getUTCMinutes()
 
     if (type === 'ncst') {
@@ -220,7 +221,7 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
     }
 
     const getUltraSrtNcst = async (nx: number, ny: number) => {
-        const { baseDate, baseTime } = getBaseDateTime('ncst')
+        const { baseDate, baseTime } = getKmaBaseDateTime('ncst')
         const cacheKey = `ncst:${baseDate}:${baseTime}:${nx}:${ny}`
 
         return cachedFetch<KMAWeatherItem[]>(cacheKey, getNextNcstTtl(), () => {
@@ -239,7 +240,7 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
     }
 
     const getUltraSrtFcst = async (nx: number, ny: number) => {
-        const { baseDate, baseTime } = getBaseDateTime('fcst')
+        const { baseDate, baseTime } = getKmaBaseDateTime('fcst')
         const cacheKey = `fcst:${baseDate}:${baseTime}:${nx}:${ny}`
 
         return cachedFetch<KMAWeatherItem[]>(cacheKey, getNextFcstTtl(), () => {
@@ -258,7 +259,7 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
     }
 
     const getVilageFcst = async (nx: number, ny: number) => {
-        const { baseDate, baseTime } = getBaseDateTime('vilage')
+        const { baseDate, baseTime } = getKmaBaseDateTime('vilage')
         const cacheKey = `vilage:${baseDate}:${baseTime}:${nx}:${ny}`
 
         return cachedFetch<KMAWeatherItem[]>(cacheKey, getNextVilageTtl(), () => {
@@ -277,7 +278,7 @@ export const createKmaApiService = (deps: KmaApiDeps) => {
     }
 
     const getFcstVersion = async (ftype: string) => {
-        const { baseDate, baseTime } = getBaseDateTime('vilage')
+        const { baseDate, baseTime } = getKmaBaseDateTime('vilage')
         const cacheKey = `version:${ftype}:${baseDate}:${baseTime}`
 
         return cachedFetch<KMAVersionItem>(cacheKey, getNextVilageTtl(), async () => {

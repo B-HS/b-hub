@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from 'bun:test'
+import { describe, expect, test, mock, afterEach, setSystemTime } from 'bun:test'
 import { Hono } from 'hono'
 import { createWeatherMockRoute } from '../../../route/weather/mock'
 import { createMockKmaApiService } from '../../../service/domain/weather/mock-kma-api'
@@ -134,5 +134,45 @@ describe('rate limit / log', () => {
         const app = createApp()
         await app.request('/weather/mock/current?nx=60&ny=127', { headers: HEADERS })
         expect(mockWeatherApiKeyService.checkRateLimit).not.toHaveBeenCalled()
+    })
+})
+
+describe('GET /weather/mock/current 의 baseDate/baseTime', () => {
+    const originalTimezone = process.env.TZ
+
+    afterEach(() => {
+        setSystemTime()
+        if (originalTimezone === undefined) delete process.env.TZ
+        else process.env.TZ = originalTimezone
+    })
+
+    const requestCurrent = async () => {
+        const app = createApp()
+        const res = await app.request('/weather/mock/current?nx=60&ny=127', { headers: HEADERS })
+        return (await res.json()) as { data: { baseDate: string; baseTime: string } }
+    }
+
+    test('서버 TZ가 UTC여도 KST 초단기실황 base time을 반환한다', async () => {
+        process.env.TZ = 'UTC'
+        setSystemTime(new Date('2025-01-01T15:45:00Z'))
+
+        const body = await requestCurrent()
+        expect(body.data.baseDate).toBe('20250102')
+        expect(body.data.baseTime).toBe('0000')
+    })
+
+    test('40분 이전이면 직전 정시로 내린다', async () => {
+        process.env.TZ = 'UTC'
+        setSystemTime(new Date('2025-01-01T15:30:00Z'))
+
+        const body = await requestCurrent()
+        expect(body.data.baseDate).toBe('20250101')
+        expect(body.data.baseTime).toBe('2300')
+    })
+
+    test('YYYYMMDD 와 HH00 형식을 유지한다', async () => {
+        const body = await requestCurrent()
+        expect(body.data.baseDate).toMatch(/^\d{8}$/)
+        expect(body.data.baseTime).toMatch(/^\d{2}00$/)
     })
 })

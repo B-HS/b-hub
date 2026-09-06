@@ -14,6 +14,7 @@ import {
     versionResponseSchema,
 } from '../../dto/weather/weather'
 import { parseCurrentWeather, parseUltraForecasts, parseShortForecasts } from '../../service/domain/weather/weather-data'
+import { getKmaBaseDateTime } from '../../service/domain/weather/kma-api'
 import type { ErrorCode } from '../../lib/error-code'
 import type { KmaApiService } from '../../service/domain/weather/kma-api'
 import type { LocationService } from '../../service/domain/weather/location'
@@ -84,9 +85,7 @@ export const createWeatherRoute = (deps: WeatherRouteDeps) => {
                 })
             }
 
-            const now = new Date()
-            const baseDate = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-            const baseTime = `${String(now.getHours()).padStart(2, '0')}00`
+            const { baseDate, baseTime } = getKmaBaseDateTime('ncst')
 
             const parsed = parseCurrentWeather(result.data)
 
