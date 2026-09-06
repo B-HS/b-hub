@@ -64,6 +64,32 @@ describe('createSpotifyApiKeyService', () => {
         expect(result).toBeNull()
     })
 
+    test('validate가 반환하기 전에 lastUsedAt 갱신을 완료한다', async () => {
+        const db = createMockDb()
+        let isSettled = false
+        db.updateLastUsedAt = mock(
+            () =>
+                new Promise<void>((resolve) =>
+                    setTimeout(() => {
+                        isSettled = true
+                        resolve()
+                    }, 0),
+                ),
+        )
+        const service = createSpotifyApiKeyService({ db })
+        await service.validate('valid-token')
+        expect(isSettled).toBe(true)
+        expect(db.updateLastUsedAt).toHaveBeenCalledWith(1)
+    })
+
+    test('lastUsedAt 갱신이 실패해도 validate 는 성공한다', async () => {
+        const db = createMockDb()
+        db.updateLastUsedAt = mock(() => Promise.reject(new Error('db down')))
+        const service = createSpotifyApiKeyService({ db })
+        const result = await service.validate('valid-token')
+        expect(result).toEqual({ userId: 'user-1', spotifyAccountId: 1 })
+    })
+
     test('revoke가 키를 삭제한다', async () => {
         const db = createMockDb()
         const service = createSpotifyApiKeyService({ db })

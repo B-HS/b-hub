@@ -92,3 +92,71 @@ describe('composeSpotify 의 provider 생성', () => {
         expect(result.track?.name).toBe('Song')
     })
 })
+
+describe('composeSpotify 의 토큰 갱신', () => {
+    const originalFetch = globalThis.fetch
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    const createCapturingDb = (selectResults: unknown[][], capturedSets: Record<string, unknown>[]) => {
+        const queue = [...selectResults]
+
+        const selectChain = {
+            from: () => selectChain,
+            where: () => selectChain,
+            limit: () => Promise.resolve(queue.shift() ?? []),
+        }
+
+        const updateChain = {
+            set: (values: Record<string, unknown>) => {
+                capturedSets.push(values)
+                return { where: () => Promise.resolve(undefined) }
+            },
+        }
+
+        return { select: () => selectChain, update: () => updateChain }
+    }
+
+    const createComposedWithCapture = (capturedSets: Record<string, unknown>[]) => {
+        const oauthRow = [{ accessToken: 'access-token', refreshToken: 'refresh-token' }]
+        return composeSpotify({
+            db: createCapturingDb([[createSpotifyAccountRow()], oauthRow, oauthRow], capturedSets),
+            env: { SPOTIFY_CLIENT_ID: 'client-id', SPOTIFY_CLIENT_SECRET: 'client-secret', BETTER_AUTH_SECRET: 'auth-secret' },
+        } as never)
+    }
+
+    const mockRefreshFetch = (body: Record<string, unknown>) => {
+        let isRefreshed = false
+        globalThis.fetch = mock((input: string) => {
+            if (input.includes('accounts.spotify.com')) {
+                isRefreshed = true
+                return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+            }
+            if (!isRefreshed) return Promise.resolve(new Response(null, { status: 401 }))
+            return Promise.resolve(new Response(JSON.stringify({ is_playing: false }), { status: 200 }))
+        }) as typeof fetch
+    }
+
+    test('갱신 응답에 refresh_token 이 있으면 저장한다', async () => {
+        const capturedSets: Record<string, unknown>[] = []
+        mockRefreshFetch({ access_token: 'new-access-token', expires_in: 3600, refresh_token: 'rotated-refresh-token' })
+
+        const { spotifyDataService } = createComposedWithCapture(capturedSets)
+        await spotifyDataService.getNowPlaying(1)
+
+        expect(capturedSets[0]).toMatchObject({ accessToken: 'new-access-token', refreshToken: 'rotated-refresh-token' })
+    })
+
+    test('갱신 응답에 refresh_token 이 없으면 기존 값을 덮어쓰지 않는다', async () => {
+        const capturedSets: Record<string, unknown>[] = []
+        mockRefreshFetch({ access_token: 'new-access-token', expires_in: 3600 })
+
+        const { spotifyDataService } = createComposedWithCapture(capturedSets)
+        await spotifyDataService.getNowPlaying(1)
+
+        expect(capturedSets[0]).toMatchObject({ accessToken: 'new-access-token' })
+        expect(capturedSets[0]).not.toHaveProperty('refreshToken')
+    })
+})

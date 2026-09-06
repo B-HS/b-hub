@@ -41,7 +41,7 @@ export const createSpotifyApiKeyService = (deps: SpotifyApiKeyServiceDeps) => {
         if (!record) return null
         if (record.expiresAt && record.expiresAt < new Date()) return null
 
-        deps.db.updateLastUsedAt(record.id).catch((e) => captureException(e))
+        await deps.db.updateLastUsedAt(record.id).catch((e) => captureException(e))
 
         return { userId: record.userId, spotifyAccountId: record.spotifyAccountId }
     }

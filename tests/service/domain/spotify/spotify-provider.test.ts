@@ -66,6 +66,32 @@ describe('createSpotifyProvider', () => {
             const result = await provider.getCurrentlyPlaying()
             expect(result).toEqual({ is_playing: false })
         })
+
+        test('Retry-After 가 대기 상한(3초)을 넘으면 재시도 없이 SPOTIFY_API_ERROR 를 던진다', async () => {
+            const spotifyFetch = mock(() => Promise.resolve(new Response(null, { status: 429, headers: { 'Retry-After': '60' } })))
+            globalThis.fetch = spotifyFetch as typeof fetch
+
+            const deps = createMockDeps()
+            const provider = createSpotifyProvider(deps)
+
+            const startedAt = Date.now()
+            await expect(provider.getCurrentlyPlaying()).rejects.toMatchObject({ code: 'SPOTIFY_API_ERROR', details: { status: 429 } })
+            expect(Date.now() - startedAt).toBeLessThan(3000)
+            expect(spotifyFetch).toHaveBeenCalledTimes(1)
+        })
+
+        test('429 가 반복되어도 대기 총합이 3초를 넘지 않는다', async () => {
+            const spotifyFetch = mock(() => Promise.resolve(new Response(null, { status: 429, headers: { 'Retry-After': '2' } })))
+            globalThis.fetch = spotifyFetch as typeof fetch
+
+            const deps = createMockDeps()
+            const provider = createSpotifyProvider(deps)
+
+            const startedAt = Date.now()
+            await expect(provider.getCurrentlyPlaying()).rejects.toMatchObject({ code: 'SPOTIFY_API_ERROR', details: { status: 429 } })
+            expect(Date.now() - startedAt).toBeLessThan(3500)
+            expect(spotifyFetch).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('getRecentlyPlayed', () => {

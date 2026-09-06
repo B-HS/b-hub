@@ -10,6 +10,8 @@ import { createSpotifyWidgetTokenService } from '../service/domain/spotify/spoti
 import { createSpotifyWidgetService } from '../service/domain/spotify/spotify-widget'
 import type { ComposeSpotifyArgs } from './types'
 
+const MS_PER_SECOND = 1000
+
 export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
     const spotifyAccountDb = {
         list: async (userId: string) => {
@@ -156,12 +158,13 @@ export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
                 }),
             })
             if (!res.ok) return { status: res.status }
-            const data = (await res.json()) as { access_token: string; expires_in: number }
+            const data = (await res.json()) as { access_token: string; expires_in: number; refresh_token?: string }
             await db
                 .update(schema.account)
                 .set({
                     accessToken: data.access_token,
-                    accessTokenExpiresAt: new Date(Date.now() + data.expires_in * 1000),
+                    accessTokenExpiresAt: new Date(Date.now() + data.expires_in * MS_PER_SECOND),
+                    ...(data.refresh_token ? { refreshToken: data.refresh_token } : {}),
                 })
                 .where(eq(schema.account.id, betterAuthAccountId))
             return { accessToken: data.access_token }

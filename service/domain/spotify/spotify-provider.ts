@@ -2,6 +2,9 @@ import { createAppError } from '../../../lib/error'
 
 const SPOTIFY_API_BASE = 'https://api.spotify.com/v1'
 const MAX_RETRIES = 3
+const MAX_TOTAL_RETRY_WAIT_MS = 3000
+const DEFAULT_RETRY_AFTER_SECONDS = 1
+const MS_PER_SECOND = 1000
 
 export type SpotifyTokenRefreshResult = { accessToken: string } | { status: number }
 
@@ -48,7 +51,7 @@ export const createSpotifyProvider = (deps: SpotifyProviderDeps) => {
         return refreshPromise
     }
 
-    const spotifyFetch = async (path: string, options: RequestInit = {}, retries = MAX_RETRIES): Promise<Response> => {
+    const spotifyFetch = async (path: string, options: RequestInit = {}, retries = MAX_RETRIES, waitedMs = 0): Promise<Response> => {
         const accessToken = await ensureToken()
         const url = path.startsWith('http') ? path : `${SPOTIFY_API_BASE}${path}`
 
@@ -62,15 +65,16 @@ export const createSpotifyProvider = (deps: SpotifyProviderDeps) => {
 
         if (res.status === 401 && retries > 0) {
             await refreshToken()
-            return spotifyFetch(path, options, retries - 1)
+            return spotifyFetch(path, options, retries - 1, waitedMs)
         }
 
         if (res.status === 429 && retries > 0) {
-            const raw = res.headers.get('Retry-After') ?? '1'
-            const parsed = parseInt(raw, 10)
-            const retryAfter = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 60) : 1
-            await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000))
-            return spotifyFetch(path, options, retries - 1)
+            const parsed = parseInt(res.headers.get('Retry-After') ?? '', 10)
+            const retryAfterSeconds = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_RETRY_AFTER_SECONDS
+            const waitMs = retryAfterSeconds * MS_PER_SECOND
+            if (waitedMs + waitMs > MAX_TOTAL_RETRY_WAIT_MS) throw createAppError('SPOTIFY_API_ERROR', { status: res.status })
+            await new Promise((resolve) => setTimeout(resolve, waitMs))
+            return spotifyFetch(path, options, retries - 1, waitedMs + waitMs)
         }
 
         return res
