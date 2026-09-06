@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import { Hono } from 'hono'
 import { createManageRoute } from '../../../page/manage'
 import { issueCsrfToken } from '../../../page/admin/csrf'
@@ -118,6 +118,26 @@ describe('Manage 라우트 번들링', () => {
         }
     })
 
+    test('요청 1건당 getSession 을 1회만 호출한다', async () => {
+        const getSession = mock(() => Promise.resolve({ user: mockUser }))
+        const app = new Hono()
+        app.route(
+            '/manage',
+            createManageRoute({
+                getSession,
+                apiTokenService: stubApiTokenService(),
+                weatherApiKeyService: stubWeatherApiKeyService(),
+                csrfSecret: SECRET,
+            }),
+        )
+        for (const path of ['/manage', '/manage/tokens', '/manage/weather/keys', '/manage/login']) {
+            getSession.mockClear()
+            const res = await app.request(path)
+            expect(res.status).toBeLessThan(400)
+            expect(getSession).toHaveBeenCalledTimes(1)
+        }
+    })
+
     test('GET /manage/styles.css는 인증 없이도 200을 반환한다', async () => {
         const app = createApp(null)
         const res = await app.request('/manage/styles.css')
@@ -170,7 +190,8 @@ describe('Manage CSRF 가드', () => {
             method: 'POST',
             body: new URLSearchParams({ name: 'x', _csrf: token }),
         })
-        expect(res.status).toBe(200)
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/manage/tokens')
     })
 
     test('시크릿 없이 만든 라우트는 부팅되지만 상태 변경 POST 를 403 으로 막는다', async () => {

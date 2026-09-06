@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import { Hono } from 'hono'
 import { createAdminRoute } from '../../../page/admin'
 import { mockAdmin, mockUser, sessionOf, stubAdminDb } from './helpers'
@@ -76,6 +76,18 @@ describe('Admin route bundling', () => {
         for (const path of adminRoutes) {
             const res = await app.request(path)
             expect(res.status).toBe(403)
+        }
+    })
+
+    test('요청 1건당 getSession 을 1회만 호출한다', async () => {
+        const getSession = mock(() => Promise.resolve({ user: mockAdmin }))
+        const app = new Hono()
+        app.route('/admin', createAdminRoute({ getSession, adminDb: stubAdminDb(), csrfSecret: 'test-csrf-secret' }))
+        for (const path of ['/admin', '/admin/users', '/admin/metrics/tokens', '/admin/login']) {
+            getSession.mockClear()
+            const res = await app.request(path)
+            expect(res.status).toBeLessThan(400)
+            expect(getSession).toHaveBeenCalledTimes(1)
         }
     })
 

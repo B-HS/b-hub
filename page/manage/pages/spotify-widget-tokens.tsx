@@ -5,6 +5,7 @@ import { Badge, CsrfField, DataTable, RowAction, type Column } from '../../admin
 import { flashPath, parseFlash } from '../../admin/flash'
 import { formatDate } from '../../admin/format'
 import type { AdminSessionUser } from '../../admin/guard'
+import { setRevealValue, takeRevealValue } from '../../admin/guard'
 import type { Flash } from '../../admin/flash'
 import type { ManageContext, ManageGetSession } from '../guard'
 import { requireSessionPage } from '../guard'
@@ -127,7 +128,15 @@ export const createManageSpotifyWidgetTokensRoute = (deps: ManageSpotifyWidgetTo
         const user = c.get('manageUser')
         if (!deps.spotifyWidgetTokenService) return c.html(<NotConfiguredPage user={user} />)
         const { rows, accounts } = await loadPage(user.id)
-        return c.html(<TokensPage user={user} rows={rows} accounts={accounts} flash={parseFlash(c)} />)
+        return c.html(
+            <TokensPage
+                user={user}
+                rows={rows}
+                accounts={accounts}
+                flash={parseFlash(c)}
+                revealedToken={takeRevealValue(c, SPOTIFY_WIDGET_TOKENS_PATH)}
+            />,
+        )
     })
 
     app.post('/', async (c) => {
@@ -140,8 +149,8 @@ export const createManageSpotifyWidgetTokensRoute = (deps: ManageSpotifyWidgetTo
         try {
             await deps.spotifyAccountService.getById(spotifyAccountId, user.id)
             const { token } = await deps.spotifyWidgetTokenService.create(user.id, spotifyAccountId, emptyToUndefined(body.name))
-            const { rows, accounts } = await loadPage(user.id)
-            return c.html(<TokensPage user={user} rows={rows} accounts={accounts} revealedToken={token} />)
+            setRevealValue(c, SPOTIFY_WIDGET_TOKENS_PATH, token)
+            return c.redirect(SPOTIFY_WIDGET_TOKENS_PATH, 303)
         } catch (error) {
             return c.redirect(flashPath(SPOTIFY_WIDGET_TOKENS_PATH, 'err', errorToFlashCode(error)), 303)
         }

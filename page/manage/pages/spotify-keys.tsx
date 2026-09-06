@@ -5,6 +5,7 @@ import { CsrfField, DataTable, RowAction, type Column } from '../../admin/compon
 import { flashPath, parseFlash } from '../../admin/flash'
 import { formatDate } from '../../admin/format'
 import type { AdminSessionUser } from '../../admin/guard'
+import { setRevealValue, takeRevealValue } from '../../admin/guard'
 import type { Flash } from '../../admin/flash'
 import type { ManageContext, ManageGetSession } from '../guard'
 import { requireSessionPage } from '../guard'
@@ -111,7 +112,9 @@ export const createManageSpotifyKeysRoute = (deps: ManageSpotifyKeysDeps) => {
         const user = c.get('manageUser')
         if (!deps.spotifyApiKeyService) return c.html(<NotConfiguredPage user={user} />)
         const { rows, accounts } = await loadPage(user.id)
-        return c.html(<KeysPage user={user} rows={rows} accounts={accounts} flash={parseFlash(c)} />)
+        return c.html(
+            <KeysPage user={user} rows={rows} accounts={accounts} flash={parseFlash(c)} revealedToken={takeRevealValue(c, SPOTIFY_KEYS_PATH)} />,
+        )
     })
 
     app.post('/', async (c) => {
@@ -123,8 +126,8 @@ export const createManageSpotifyKeysRoute = (deps: ManageSpotifyKeysDeps) => {
         try {
             await deps.spotifyAccountService.getById(spotifyAccountId, user.id)
             const token = await deps.spotifyApiKeyService.create(user.id, spotifyAccountId, emptyToUndefined(body.name))
-            const { rows, accounts } = await loadPage(user.id)
-            return c.html(<KeysPage user={user} rows={rows} accounts={accounts} revealedToken={token} />)
+            setRevealValue(c, SPOTIFY_KEYS_PATH, token)
+            return c.redirect(SPOTIFY_KEYS_PATH, 303)
         } catch (error) {
             return c.redirect(flashPath(SPOTIFY_KEYS_PATH, 'err', errorToFlashCode(error)), 303)
         }

@@ -5,6 +5,7 @@ import { CsrfField, DataTable, RowAction, type Column } from '../../admin/compon
 import { flashPath, parseFlash } from '../../admin/flash'
 import { formatDate } from '../../admin/format'
 import type { AdminSessionUser } from '../../admin/guard'
+import { setRevealValue, takeRevealValue } from '../../admin/guard'
 import type { Flash } from '../../admin/flash'
 import type { ManageContext, ManageGetSession } from '../guard'
 import { requireSessionPage } from '../guard'
@@ -71,7 +72,7 @@ export const createManageTokensRoute = (deps: ManageTokensDeps) => {
     app.get('/', async (c) => {
         const user = c.get('manageUser')
         const rows = await deps.apiTokenService.listByUser(user.id)
-        return c.html(<TokensPage user={user} rows={rows} flash={parseFlash(c)} />)
+        return c.html(<TokensPage user={user} rows={rows} flash={parseFlash(c)} revealedToken={takeRevealValue(c, TOKENS_PATH)} />)
     })
 
     app.post('/', async (c) => {
@@ -79,8 +80,8 @@ export const createManageTokensRoute = (deps: ManageTokensDeps) => {
         const body = await c.req.parseBody<{ name?: string }>()
         const name = typeof body.name === 'string' && body.name.trim().length > 0 ? body.name.trim() : undefined
         const token = await deps.apiTokenService.create(user.id, name)
-        const rows = await deps.apiTokenService.listByUser(user.id)
-        return c.html(<TokensPage user={user} rows={rows} revealedToken={token} />)
+        setRevealValue(c, TOKENS_PATH, token)
+        return c.redirect(TOKENS_PATH, 303)
     })
 
     app.post('/:id/delete', async (c) => {

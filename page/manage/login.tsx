@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { FC } from 'hono/jsx'
 import type { AuthProvider } from '../../service/shared/auth-provider'
 import type { ManageGetSession } from './guard'
+import { resolveAdminSession } from '../admin/guard'
 
 const SOCIAL_PROVIDERS = ['google', 'github'] as const
 type SocialProvider = (typeof SOCIAL_PROVIDERS)[number]
@@ -62,7 +63,7 @@ export const createManageLoginRoute = (deps: ManageLoginRouteDeps) => {
 
     app.get('/', async (c) => {
         const next = sanitizeNext(c.req.query('next'))
-        const session = await deps.getSession(c)
+        const session = await resolveAdminSession(c, deps.getSession)
         if (session) return c.redirect(next, 303)
         return c.html(<LoginPage nextPath={next} />)
     })

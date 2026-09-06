@@ -1,7 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createMetricsTokensRoute } from '../../../page/admin/pages/metrics'
-import { mockAdmin, mockUser, sessionOf } from './helpers'
+import { cookieHeaderFrom, mockAdmin, mockUser, sessionOf } from './helpers'
 import type { MetricsTokenService } from '../../../service/domain/metrics/token'
 
 const sampleRow = {
@@ -48,16 +48,19 @@ describe('Admin Metrics Tokens page', () => {
         expect(html).toContain('MONGODB_URI')
     })
 
-    test('POST 발급은 평문 토큰을 1회 렌더한다', async () => {
+    test('POST 발급은 303 + 일회성 쿠키로 평문 토큰을 넘긴다', async () => {
         const service = stubService()
         const app = createApp(mockAdmin, service)
         const res = await app.request('/admin/metrics/tokens', {
             method: 'POST',
             body: new URLSearchParams({ alias: 'new-device', scope: 'admin', expiresInDays: '30' }),
         })
-        expect(res.status).toBe(200)
-        const html = await res.text()
-        expect(html).toContain('plain-token-value')
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/admin/metrics/tokens')
+        const setCookie = res.headers.get('set-cookie') ?? ''
+        expect(setCookie).toContain('hub_reveal=plain-token-value')
+        expect(setCookie).toContain('HttpOnly')
+        expect(setCookie).toContain('Path=/admin/metrics/tokens')
         const input = (service as { create: { mock: { calls: unknown[][] } } }).create.mock.calls[0][0] as {
             alias: string
             scope: string
@@ -66,6 +69,23 @@ describe('Admin Metrics Tokens page', () => {
         expect(input.alias).toBe('new-device')
         expect(input.scope).toBe('admin')
         expect(input.expiresInDays).toBe(30)
+    })
+
+    test('발급 후 GET 한 번만 평문 토큰을 노출하고 쿠키를 삭제한다', async () => {
+        const app = createApp(mockAdmin, stubService())
+        const posted = await app.request('/admin/metrics/tokens', {
+            method: 'POST',
+            body: new URLSearchParams({ alias: 'new-device', scope: 'client' }),
+        })
+
+        const revealed = await app.request('/admin/metrics/tokens', { headers: { cookie: cookieHeaderFrom(posted) } })
+        const html = await revealed.text()
+        expect(html).toContain('plain-token-value')
+        expect(html).toContain('다시 표시되지 않습니다')
+        expect(revealed.headers.get('set-cookie') ?? '').toContain('Max-Age=0')
+
+        const again = await app.request('/admin/metrics/tokens')
+        expect(await again.text()).not.toContain('plain-token-value')
     })
 
     test('POST 발급에 alias가 없으면 validation 에러로 303한다', async () => {

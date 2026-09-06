@@ -2,6 +2,9 @@ import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizz
 import type { Database } from '../../db'
 import * as s from '../../db/schema'
 import { captureException } from '../../lib/sentry'
+import { escapeLikePattern } from '../../lib/sql-utils'
+
+export const likeContains = (term: string) => `%${escapeLikePattern(term)}%`
 
 export type AdminStorage = {
     deleteObject: (key: string) => Promise<void>
@@ -127,7 +130,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listUsers: async (params: { page: number; size: number; q?: string; role?: string; banned?: 'y' | 'n' }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(or(like(s.user.email, `%${params.q}%`), like(s.user.name, `%${params.q}%`)))
+        if (params.q) conds.push(or(like(s.user.email, likeContains(params.q)), like(s.user.name, likeContains(params.q))))
         if (params.role === 'admin') conds.push(eq(s.user.role, 'admin'))
         if (params.role === 'user') conds.push(or(eq(s.user.role, 'user'), sql`${s.user.role} is null`))
         if (params.banned === 'y') conds.push(eq(s.user.banned, true))
@@ -219,7 +222,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Sessions ──────────────────────────────────────────────────────
     listSessions: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? like(s.user.email, `%${params.q}%`) : undefined
+        const where = params.q ? like(s.user.email, likeContains(params.q)) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.session)
@@ -247,7 +250,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── API Tokens / Logs ─────────────────────────────────────────────
     listApiTokens: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? or(like(s.user.email, `%${params.q}%`), like(s.apiToken.name, `%${params.q}%`)) : undefined
+        const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.apiToken.name, likeContains(params.q))) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.apiToken)
@@ -358,7 +361,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(or(like(s.posts.title, `%${params.q}%`), like(s.posts.description, `%${params.q}%`)))
+        if (params.q) conds.push(or(like(s.posts.title, likeContains(params.q)), like(s.posts.description, likeContains(params.q))))
         if (params.categoryId) conds.push(eq(s.posts.categoryId, params.categoryId))
         if (params.tagId)
             conds.push(
@@ -418,7 +421,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listComments: async (params: { page: number; size: number; q?: string; postId?: number; userId?: string; hidden?: 'y' | 'n' }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(like(s.comments.comment, `%${params.q}%`))
+        if (params.q) conds.push(like(s.comments.comment, likeContains(params.q)))
         if (params.postId) conds.push(eq(s.comments.postId, params.postId))
         if (params.userId) conds.push(eq(s.comments.userId, params.userId))
         if (params.hidden === 'y') conds.push(eq(s.comments.isHide, true))
@@ -486,7 +489,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Blog: Images ──────────────────────────────────────────────────
     listImageAssets: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? like(s.imageAssets.r2Key, `%${params.q}%`) : undefined
+        const where = params.q ? like(s.imageAssets.r2Key, likeContains(params.q)) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.imageAssets)
@@ -523,7 +526,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listMessages: async (params: { page: number; size: number; q?: string; userId?: string; includeDeleted?: 'y' | 'n' }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(like(s.messages.body, `%${params.q}%`))
+        if (params.q) conds.push(like(s.messages.body, likeContains(params.q)))
         if (params.userId) conds.push(eq(s.messages.userId, params.userId))
         if (params.includeDeleted !== 'y') conds.push(sql`${s.messages.deletedAt} is null`)
         const where = conds.length ? and(...conds) : undefined
@@ -619,7 +622,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Weather ───────────────────────────────────────────────────────
     listWeatherKeys: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? or(like(s.user.email, `%${params.q}%`), like(s.weatherApiKey.name, `%${params.q}%`)) : undefined
+        const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.weatherApiKey.name, likeContains(params.q))) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.weatherApiKey)
@@ -701,7 +704,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Mail ──────────────────────────────────────────────────────────
     listMailAccounts: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? or(like(s.user.email, `%${params.q}%`), like(s.mailAccounts.email, `%${params.q}%`)) : undefined
+        const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.mailAccounts.email, likeContains(params.q))) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.mailAccounts)
@@ -777,7 +780,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         const offset = (params.page - 1) * params.size
         const conds = []
         if (params.accountId) conds.push(eq(s.mailMessages.accountId, params.accountId))
-        if (params.q) conds.push(like(s.mailMessages.subject, `%${params.q}%`))
+        if (params.q) conds.push(like(s.mailMessages.subject, likeContains(params.q)))
         if (params.folderId) conds.push(eq(s.mailMessages.folderId, params.folderId))
         if (params.isRead === 'y') conds.push(eq(s.mailMessages.isRead, true))
         if (params.isRead === 'n') conds.push(eq(s.mailMessages.isRead, false))
@@ -810,7 +813,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
 
     listMailUploads: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? like(s.mailUploads.filename, `%${params.q}%`) : undefined
+        const where = params.q ? like(s.mailUploads.filename, likeContains(params.q)) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.mailUploads)
@@ -845,7 +848,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Spotify ───────────────────────────────────────────────────────
     listSpotifyAccounts: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? or(like(s.user.email, `%${params.q}%`), like(s.spotifyAccounts.email, `%${params.q}%`)) : undefined
+        const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.spotifyAccounts.email, likeContains(params.q))) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.spotifyAccounts)
@@ -873,7 +876,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
 
     listSpotifyKeys: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? like(s.spotifyApiKeys.name, `%${params.q}%`) : undefined
+        const where = params.q ? like(s.spotifyApiKeys.name, likeContains(params.q)) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.spotifyApiKeys)
@@ -916,7 +919,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Resume ────────────────────────────────────────────────────────
     listResumes: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
-        const where = params.q ? like(s.resumes.title, `%${params.q}%`) : undefined
+        const where = params.q ? like(s.resumes.title, likeContains(params.q)) : undefined
         const [{ c }] = await db
             .select({ c: sql<number>`count(*)` })
             .from(s.resumes)
@@ -982,7 +985,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listCalendarEvents: async (params: { page: number; size: number; q?: string; userId?: string; from?: Date; to?: Date }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(like(s.calendarEvent.summary, `%${params.q}%`))
+        if (params.q) conds.push(like(s.calendarEvent.summary, likeContains(params.q)))
         if (params.userId) conds.push(eq(s.calendarEvent.userId, params.userId))
         if (params.from) conds.push(gte(s.calendarEvent.dtstart, params.from))
         if (params.to) conds.push(lte(s.calendarEvent.dtstart, params.to))
@@ -1065,7 +1068,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listDriveAssets: async (params: { page: number; size: number; q?: string; tier?: string; status?: string; userId?: string }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(like(s.cloudAssets.originalName, `%${params.q}%`))
+        if (params.q) conds.push(like(s.cloudAssets.originalName, likeContains(params.q)))
         if (params.tier) conds.push(eq(s.cloudAssets.storageTiers, params.tier))
         if (params.status) conds.push(eq(s.cloudAssets.uploadStatus, params.status))
         if (params.userId) conds.push(eq(s.cloudAssets.userId, params.userId))
@@ -1153,7 +1156,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listAiProviders: async (params: { page: number; size: number; q?: string; provider?: string; status?: string }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(like(s.user.email, `%${params.q}%`))
+        if (params.q) conds.push(like(s.user.email, likeContains(params.q)))
         if (params.provider) conds.push(eq(s.aiProviders.provider, params.provider))
         if (params.status) conds.push(eq(s.aiProviders.status, params.status))
         const where = conds.length ? and(...conds) : undefined
@@ -1198,7 +1201,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listAiSessions: async (params: { page: number; size: number; q?: string; provider?: string }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(like(s.user.email, `%${params.q}%`))
+        if (params.q) conds.push(like(s.user.email, likeContains(params.q)))
         if (params.provider) conds.push(eq(s.aiSessions.provider, params.provider))
         const where = conds.length ? and(...conds) : undefined
         const [{ c }] = await db
@@ -1231,7 +1234,7 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listAiPrompts: async (params: { page: number; size: number; q?: string; stage?: string }) => {
         const offset = (params.page - 1) * params.size
         const conds = []
-        if (params.q) conds.push(or(like(s.user.email, `%${params.q}%`), like(s.aiPrompts.name, `%${params.q}%`)))
+        if (params.q) conds.push(or(like(s.user.email, likeContains(params.q)), like(s.aiPrompts.name, likeContains(params.q))))
         if (params.stage) conds.push(eq(s.aiPrompts.stage, params.stage))
         const where = conds.length ? and(...conds) : undefined
         const [{ c }] = await db

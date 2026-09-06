@@ -1,6 +1,7 @@
-import type { Context, MiddlewareHandler } from 'hono'
+import type { MiddlewareHandler } from 'hono'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { tryGetContext } from 'hono/context-storage'
+import { cacheAdminSession, type AdminGetSession } from './guard'
 
 export const ADMIN_CSRF_FIELD = '_csrf'
 
@@ -20,7 +21,7 @@ export const verifyCsrfToken = (token: unknown, sessionKey: string, secret: stri
 }
 
 type CsrfGuardDeps = {
-    getSession: (c: Context) => Promise<{ user: { id: string } } | null>
+    getSession: AdminGetSession
     secret?: string
 }
 
@@ -30,6 +31,7 @@ export const createAdminCsrfGuard =
         const { secret } = deps
         if (!secret) return STATE_CHANGING_METHODS.has(c.req.method) ? c.text('CSRF secret not configured', 403) : next()
         const session = await deps.getSession(c)
+        cacheAdminSession(c, session)
         if (!session) return next()
         const sessionKey = session.user.id
         c.set(CSRF_TOKEN_VAR, issueCsrfToken(sessionKey, secret))

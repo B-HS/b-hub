@@ -180,3 +180,9 @@ export const stubSpotifyWidgetTokenService = (overrides: Partial<SpotifyWidgetTo
         toggleActive: () => ok(),
         ...overrides,
     }) as unknown as SpotifyWidgetTokenService
+
+export const cookieHeaderFrom = (res: Response) =>
+    res.headers
+        .getSetCookie()
+        .map((raw) => raw.split(';')[0])
+        .join('; ')

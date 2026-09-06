@@ -2,7 +2,7 @@ import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createManageTokensRoute } from '../../../page/manage/pages/tokens'
 import type { ApiTokenService } from '../../../service/shared/api-token'
-import { mockUser, sessionOf, stubApiTokenService } from './helpers'
+import { cookieHeaderFrom, mockUser, sessionOf, stubApiTokenService } from './helpers'
 
 const sampleToken = {
     id: 7,
@@ -37,15 +37,31 @@ describe('GET /manage/tokens', () => {
 })
 
 describe('POST /manage/tokens', () => {
-    test('create를 호출하고 발급된 토큰을 1회 노출한다', async () => {
+    test('create를 호출하고 303 + 일회성 쿠키로 토큰을 넘긴다', async () => {
         const create = mock(() => Promise.resolve('brand-new-token'))
         const app = createApp({ create })
         const res = await app.request('/manage/tokens', { method: 'POST', body: new URLSearchParams({ name: 'CLI' }) })
-        expect(res.status).toBe(200)
-        const html = await res.text()
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/manage/tokens')
+        const setCookie = res.headers.get('set-cookie') ?? ''
+        expect(setCookie).toContain('hub_reveal=brand-new-token')
+        expect(setCookie).toContain('HttpOnly')
+        expect(create).toHaveBeenCalledWith('u1', 'CLI')
+    })
+
+    test('발급 후 GET 한 번만 토큰을 노출하고 쿠키를 삭제한다', async () => {
+        const app = createApp({ create: mock(() => Promise.resolve('brand-new-token')) })
+        const posted = await app.request('/manage/tokens', { method: 'POST', body: new URLSearchParams({ name: 'CLI' }) })
+        const cookie = cookieHeaderFrom(posted)
+
+        const revealed = await app.request('/manage/tokens', { headers: { cookie } })
+        const html = await revealed.text()
         expect(html).toContain('brand-new-token')
         expect(html).toContain('다시 표시되지 않습니다')
-        expect(create).toHaveBeenCalledWith('u1', 'CLI')
+        expect(revealed.headers.get('set-cookie') ?? '').toContain('Max-Age=0')
+
+        const again = await app.request('/manage/tokens')
+        expect(await again.text()).not.toContain('brand-new-token')
     })
 
     test('이름이 비면 undefined로 발급한다', async () => {

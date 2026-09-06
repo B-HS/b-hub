@@ -114,3 +114,9 @@ export const stubAdminDb = (overrides: Partial<AdminDb> = {}): AdminDb => {
     } as unknown as AdminDb
     return { ...base, ...overrides }
 }
+
+export const cookieHeaderFrom = (res: Response) =>
+    res.headers
+        .getSetCookie()
+        .map((raw) => raw.split(';')[0])
+        .join('; ')

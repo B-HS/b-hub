@@ -6,7 +6,7 @@ import { flashPath, parseFlash } from '../flash'
 import { formatDate, parseIntOr } from '../format'
 import type { Flash } from '../flash'
 import type { AdminContext, AdminGetSession, AdminSessionUser } from '../guard'
-import { requireAdminPage } from '../guard'
+import { requireAdminPage, setRevealValue, takeRevealValue } from '../guard'
 import { METRICS_TOKEN_SCOPE } from '../../../dto/metrics/token'
 import type { MetricsTokenService } from '../../../service/domain/metrics/token'
 
@@ -113,7 +113,15 @@ export const createMetricsTokensRoute = (deps: MetricsTokensDeps) => {
 
     app.get('/', async (c) => {
         const rows = deps.metricsTokenService ? await deps.metricsTokenService.listAll() : []
-        return c.html(<MetricsTokensPage user={c.get('adminUser')} rows={rows} configured={!!deps.metricsTokenService} flash={parseFlash(c)} />)
+        return c.html(
+            <MetricsTokensPage
+                user={c.get('adminUser')}
+                rows={rows}
+                configured={!!deps.metricsTokenService}
+                flash={parseFlash(c)}
+                revealedToken={takeRevealValue(c, TOKENS_PATH)}
+            />,
+        )
     })
 
     app.post('/', async (c) => {
@@ -130,8 +138,8 @@ export const createMetricsTokensRoute = (deps: MetricsTokensDeps) => {
             expiresInDays: expiresInDays > 0 ? expiresInDays : undefined,
             dailyLimit: dailyLimit > 0 ? dailyLimit : undefined,
         })
-        const rows = await deps.metricsTokenService.listAll()
-        return c.html(<MetricsTokensPage user={c.get('adminUser')} rows={rows} configured revealedToken={token} />)
+        setRevealValue(c, TOKENS_PATH, token)
+        return c.redirect(TOKENS_PATH, 303)
     })
 
     app.post('/:id/revoke', async (c) => {

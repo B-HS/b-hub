@@ -6,7 +6,7 @@ import { createManageSpotifyWidgetTokensRoute } from '../../../page/manage/pages
 import type { SpotifyAccountService } from '../../../service/domain/spotify/spotify-account'
 import type { SpotifyApiKeyService } from '../../../service/domain/spotify/spotify-api-key'
 import type { SpotifyWidgetTokenService } from '../../../service/domain/spotify/spotify-widget-token'
-import { mockUser, sessionOf, stubSpotifyAccountService, stubSpotifyApiKeyService, stubSpotifyWidgetTokenService } from './helpers'
+import { cookieHeaderFrom, mockUser, sessionOf, stubSpotifyAccountService, stubSpotifyApiKeyService, stubSpotifyWidgetTokenService } from './helpers'
 
 const sampleAccount = {
     id: 2,
@@ -67,17 +67,25 @@ describe('Spotify API Keys', () => {
         return app
     }
 
-    test('키 발급 시 원문을 1회 노출한다', async () => {
+    test('키 발급은 303 + 일회성 쿠키로 원문을 넘기고 다음 GET 에서 1회만 노출한다', async () => {
         const create = mock(() => Promise.resolve('brand-new-spotify-key'))
-        const res = await createApp({ create: create as never }).request('/manage/spotify/keys', {
+        const app = createApp({ create: create as never })
+        const res = await app.request('/manage/spotify/keys', {
             method: 'POST',
             body: new URLSearchParams({ spotifyAccountId: '2', name: 'CLI' }),
         })
-        expect(res.status).toBe(200)
-        const html = await res.text()
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/manage/spotify/keys')
+        expect(res.headers.get('set-cookie') ?? '').toContain('hub_reveal=brand-new-spotify-key')
+        expect(create).toHaveBeenCalledWith('u1', 2, 'CLI')
+
+        const revealed = await app.request('/manage/spotify/keys', { headers: { cookie: cookieHeaderFrom(res) } })
+        const html = await revealed.text()
         expect(html).toContain('brand-new-spotify-key')
         expect(html).toContain('다시 표시되지 않습니다')
-        expect(create).toHaveBeenCalledWith('u1', 2, 'CLI')
+
+        const again = await app.request('/manage/spotify/keys')
+        expect(await again.text()).not.toContain('brand-new-spotify-key')
     })
 })
 
@@ -105,13 +113,21 @@ describe('Spotify Widget Tokens', () => {
         expect(toggleActive).toHaveBeenCalledWith('u1', 5, false)
     })
 
-    test('발급 시 토큰을 1회 노출한다', async () => {
+    test('발급은 303 + 일회성 쿠키로 토큰을 넘기고 다음 GET 에서 1회만 노출한다', async () => {
         const create = mock(() => Promise.resolve({ token: 'brand-new-widget-token' }))
-        const res = await createApp({ create: create as never }).request('/manage/spotify/widget-tokens', {
+        const app = createApp({ create: create as never })
+        const res = await app.request('/manage/spotify/widget-tokens', {
             method: 'POST',
             body: new URLSearchParams({ spotifyAccountId: '2' }),
         })
-        expect(res.status).toBe(200)
-        expect(await res.text()).toContain('brand-new-widget-token')
+        expect(res.status).toBe(303)
+        expect(res.headers.get('location')).toBe('/manage/spotify/widget-tokens')
+        expect(res.headers.get('set-cookie') ?? '').toContain('hub_reveal=brand-new-widget-token')
+
+        const revealed = await app.request('/manage/spotify/widget-tokens', { headers: { cookie: cookieHeaderFrom(res) } })
+        expect(await revealed.text()).toContain('brand-new-widget-token')
+
+        const again = await app.request('/manage/spotify/widget-tokens')
+        expect(await again.text()).not.toContain('brand-new-widget-token')
     })
 })

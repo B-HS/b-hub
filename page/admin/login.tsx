@@ -1,7 +1,10 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import type { FC } from 'hono/jsx'
 import type { AuthProvider } from '../../service/shared/auth-provider'
+import { CsrfField } from './components'
 import type { AdminGetSession } from './guard'
+import { resolveAdminSession } from './guard'
 
 const SOCIAL_PROVIDERS = ['google', 'github'] as const
 type SocialProvider = (typeof SOCIAL_PROVIDERS)[number]
@@ -29,9 +32,12 @@ const LoginPage: FC<LoginPageProps> = ({ nextPath, isAuthenticated, userEmail })
                     {isAuthenticated ? (
                         <>
                             <p class='login-sub'>{userEmail} 계정에는 어드민 권한이 없습니다. 다른 계정으로 로그인해 주세요.</p>
-                            <a class='btn outline' href='/admin/login/logout'>
-                                로그아웃
-                            </a>
+                            <form method='post' action='/admin/login/logout'>
+                                <CsrfField />
+                                <button class='btn outline' type='submit'>
+                                    로그아웃
+                                </button>
+                            </form>
                             <a class='btn ghost' href='/'>
                                 홈으로
                             </a>
@@ -78,7 +84,7 @@ export const createLoginRoute = (deps: LoginRouteDeps) => {
 
     app.get('/', async (c) => {
         const next = sanitizeNext(c.req.query('next'))
-        const session = await deps.getSession(c)
+        const session = await resolveAdminSession(c, deps.getSession)
         if (session && session.user.role === 'admin') return c.redirect(next, 303)
         return c.html(<LoginPage nextPath={next} isAuthenticated={!!session} userEmail={session?.user.email} />)
     })
@@ -97,11 +103,14 @@ export const createLoginRoute = (deps: LoginRouteDeps) => {
         return forwardSetCookies(res, new Response(null, { status: 302, headers: { location: url } }))
     })
 
-    app.get('/logout', async (c) => {
+    const handleLogout = async (c: Context) => {
         if (!deps.auth) return c.redirect('/admin/login', 303)
         const res = await deps.auth.api.signOut({ headers: c.req.raw.headers, asResponse: true })
         return forwardSetCookies(res, new Response(null, { status: 302, headers: { location: '/admin/login' } }))
-    })
+    }
+
+    app.get('/logout', handleLogout)
+    app.post('/logout', handleLogout)
 
     return app
 }

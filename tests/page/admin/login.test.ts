@@ -10,17 +10,19 @@ type AuthDep = NonNullable<LoginRouteDeps['auth']>
 const makeAuth = (overrides: Partial<{ signInSocial: AuthDep['api']['signInSocial']; signOut: AuthDep['api']['signOut'] }> = {}) =>
     ({
         api: {
-            signInSocial: mock(async () =>
-                new Response(JSON.stringify({ url: 'https://accounts.google.com/o/oauth2/auth?x=1', redirect: true }), {
-                    status: 200,
-                    headers: { location: 'https://accounts.google.com/o/oauth2/auth?x=1', 'set-cookie': 'ba.state=abc; Path=/; HttpOnly' },
-                }),
+            signInSocial: mock(
+                async () =>
+                    new Response(JSON.stringify({ url: 'https://accounts.google.com/o/oauth2/auth?x=1', redirect: true }), {
+                        status: 200,
+                        headers: { 'location': 'https://accounts.google.com/o/oauth2/auth?x=1', 'set-cookie': 'ba.state=abc; Path=/; HttpOnly' },
+                    }),
             ),
-            signOut: mock(async () =>
-                new Response(JSON.stringify({ success: true }), {
-                    status: 200,
-                    headers: { 'set-cookie': 'ba.session_token=; Max-Age=0; Path=/' },
-                }),
+            signOut: mock(
+                async () =>
+                    new Response(JSON.stringify({ success: true }), {
+                        status: 200,
+                        headers: { 'set-cookie': 'ba.session_token=; Max-Age=0; Path=/' },
+                    }),
             ),
             ...overrides,
         },
@@ -80,7 +82,8 @@ describe('GET /admin/login', () => {
         const html = await res.text()
         expect(html).toContain('user@example.com')
         expect(html).toContain('어드민 권한이 없습니다')
-        expect(html).toContain('/admin/login/logout')
+        expect(html).toContain('action="/admin/login/logout"')
+        expect(html).toContain('method="post"')
     })
 })
 
@@ -109,11 +112,12 @@ describe('GET /admin/login/social/:provider', () => {
     test('Location 헤더가 없어도 JSON url로 리다이렉트한다', async () => {
         const getSession = mock(() => Promise.resolve(null))
         const auth = makeAuth({
-            signInSocial: mock(async () =>
-                new Response(JSON.stringify({ url: 'https://github.com/login/oauth/authorize?y=2', redirect: true }), {
-                    status: 200,
-                    headers: { 'set-cookie': 'ba.state=zzz; Path=/' },
-                }),
+            signInSocial: mock(
+                async () =>
+                    new Response(JSON.stringify({ url: 'https://github.com/login/oauth/authorize?y=2', redirect: true }), {
+                        status: 200,
+                        headers: { 'set-cookie': 'ba.state=zzz; Path=/' },
+                    }),
             ) as AuthDep['api']['signInSocial'],
         })
         const res = await createApp(getSession, auth).request('/admin/login/social/github?next=/admin')
@@ -138,11 +142,11 @@ describe('GET /admin/login/social/:provider', () => {
     })
 })
 
-describe('GET /admin/login/logout', () => {
+describe('POST /admin/login/logout', () => {
     test('로그아웃은 302로 /admin/login에 보내고 세션 쿠키 무효화를 전달한다', async () => {
         const getSession = mock(() => Promise.resolve({ user: mockUser }))
         const auth = makeAuth()
-        const res = await createApp(getSession, auth).request('/admin/login/logout')
+        const res = await createApp(getSession, auth).request('/admin/login/logout', { method: 'POST', body: new URLSearchParams() })
         expect(res.status).toBe(302)
         expect(res.headers.get('location')).toBe('/admin/login')
         expect(res.headers.getSetCookie()).toContain('ba.session_token=; Max-Age=0; Path=/')
@@ -151,8 +155,20 @@ describe('GET /admin/login/logout', () => {
 
     test('auth 의존성이 없으면 /admin/login으로 폴백한다', async () => {
         const getSession = mock(() => Promise.resolve(null))
-        const res = await createApp(getSession).request('/admin/login/logout')
+        const res = await createApp(getSession).request('/admin/login/logout', { method: 'POST', body: new URLSearchParams() })
         expect(res.status).toBe(303)
         expect(res.headers.get('location')).toBe('/admin/login')
+    })
+})
+
+describe('GET /admin/login/logout', () => {
+    test('기존 GET 링크도 그대로 로그아웃하고 302 로 /admin/login 에 보낸다', async () => {
+        const getSession = mock(() => Promise.resolve({ user: mockUser }))
+        const auth = makeAuth()
+        const res = await createApp(getSession, auth).request('/admin/login/logout')
+        expect(res.status).toBe(302)
+        expect(res.headers.get('location')).toBe('/admin/login')
+        expect(res.headers.getSetCookie()).toContain('ba.session_token=; Max-Age=0; Path=/')
+        expect(auth.api.signOut).toHaveBeenCalledTimes(1)
     })
 })
