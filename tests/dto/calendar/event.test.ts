@@ -378,6 +378,30 @@ describe('recurrenceRuleSchema', () => {
         expect(result.success).toBe(false)
     })
 
+    test('ordinal이 붙은 byDay를 허용한다', () => {
+        const result = recurrenceRuleSchema.safeParse({
+            freq: 'MONTHLY',
+            byDay: ['1MO', '-1FR'],
+        })
+        expect(result.success).toBe(true)
+    })
+
+    test('요일이 아닌 byDay 값은 거부한다', () => {
+        const result = recurrenceRuleSchema.safeParse({
+            freq: 'WEEKLY',
+            byDay: ['MONDAY'],
+        })
+        expect(result.success).toBe(false)
+    })
+
+    test('범위를 벗어난 ordinal byDay는 거부한다', () => {
+        const result = recurrenceRuleSchema.safeParse({
+            freq: 'MONTHLY',
+            byDay: ['6MO'],
+        })
+        expect(result.success).toBe(false)
+    })
+
     test('byMonthDay가 32면 거부한다', () => {
         const result = recurrenceRuleSchema.safeParse({
             freq: 'MONTHLY',

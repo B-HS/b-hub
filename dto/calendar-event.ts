@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { BYDAY_PATTERN } from '../lib/ics'
 
 export const recurrenceRuleSchema = z.object({
     freq: z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']),
     interval: z.number().int().positive().optional(),
     count: z.number().int().positive().optional(),
     until: z.iso.datetime().optional(),
-    byDay: z.array(z.string()).optional(),
+    byDay: z.array(z.string().regex(BYDAY_PATTERN)).optional(),
     byMonth: z.array(z.number().int().min(1).max(12)).optional(),
     byMonthDay: z.array(z.number().int().min(1).max(31)).optional(),
 })

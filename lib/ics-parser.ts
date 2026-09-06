@@ -1,3 +1,5 @@
+import { BYDAY_PATTERN, getZonedWallClockMs, isSupportedTimezone } from './ics'
+
 type RecurrenceRule = {
     freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
     interval?: number
@@ -11,12 +13,30 @@ type RecurrenceRule = {
 type EventStatus = 'TENTATIVE' | 'CONFIRMED' | 'CANCELLED'
 type EventTransparency = 'TRANSPARENT' | 'OPAQUE'
 
+const UTC_TIMEZONE = 'UTC'
+const ALL_DAY_DURATION_MS = 24 * 60 * 60 * 1000
+const DEFAULT_DURATION_MS = 60 * 60 * 1000
+
 const unescapeICSText = (text: string) => {
     const escapeMap: Record<string, string> = { '\\\\': '\\', '\\n': '\n', '\\,': ',', '\\;': ';' }
     return text.replace(/\\\\|\\n|\\,|\\;/g, (match) => escapeMap[match])
 }
 
-const parseICSDateTime = (value: string, params?: string): { date: Date; isAllDay: boolean } => {
+const getZoneOffsetMs = (instantMs: number, timezone: string) => getZonedWallClockMs(instantMs, timezone) - instantMs
+
+const wallClockToInstantMs = (wallClockMs: number, timezone: string) => {
+    const approximateInstantMs = wallClockMs - getZoneOffsetMs(wallClockMs, timezone)
+    return wallClockMs - getZoneOffsetMs(approximateInstantMs, timezone)
+}
+
+const getSourceTimezone = (value: string, params: string | undefined, targetTimezone: string) => {
+    const tzid = params?.match(/TZID=([^;:]+)/)?.[1]
+    if (tzid) return isSupportedTimezone(tzid) ? tzid : targetTimezone
+    if (value.endsWith('Z')) return UTC_TIMEZONE
+    return targetTimezone
+}
+
+export const parseICSDateTime = (value: string, params?: string, timezone = UTC_TIMEZONE) => {
     const isAllDay = params?.includes('VALUE=DATE') || value.length === 8
 
     if (isAllDay) {
@@ -34,14 +54,16 @@ const parseICSDateTime = (value: string, params?: string): { date: Date; isAllDa
     const minutes = parseInt(dateStr.slice(11, 13)) || 0
     const seconds = parseInt(dateStr.slice(13, 15)) || 0
 
-    if (value.endsWith('Z')) {
-        return { date: new Date(Date.UTC(year, month, day, hours, minutes, seconds)), isAllDay: false }
-    }
+    const wallClockMs = Date.UTC(year, month, day, hours, minutes, seconds)
+    const sourceTimezone = getSourceTimezone(value, params, timezone)
 
-    return { date: new Date(year, month, day, hours, minutes, seconds), isAllDay: false }
+    if (sourceTimezone === timezone) return { date: new Date(wallClockMs), isAllDay: false }
+
+    const instantMs = wallClockToInstantMs(wallClockMs, sourceTimezone)
+    return { date: new Date(getZonedWallClockMs(instantMs, timezone)), isAllDay: false }
 }
 
-const parseRRule = (value: string): RecurrenceRule | undefined => {
+const parseRRule = (value: string, timezone: string) => {
     const parts = value.split(';')
     const rule: Partial<RecurrenceRule> = {}
 
@@ -60,11 +82,13 @@ const parseRRule = (value: string): RecurrenceRule | undefined => {
                 rule.count = parseInt(val)
                 break
             case 'UNTIL':
-                rule.until = parseICSDateTime(val).date
+                rule.until = parseICSDateTime(val, undefined, timezone).date
                 break
-            case 'BYDAY':
-                rule.byDay = val.split(',')
+            case 'BYDAY': {
+                const byDay = val.split(',').filter((day) => BYDAY_PATTERN.test(day))
+                if (byDay.length > 0) rule.byDay = byDay
                 break
+            }
             case 'BYMONTH':
                 rule.byMonth = val.split(',').map((v) => parseInt(v))
                 break
@@ -94,7 +118,25 @@ export type ParsedICS = {
     sequence?: number
 }
 
-export const parseICS = (ics: string): ParsedICS | null => {
+type ParsingEvent = {
+    uid: string
+    summary: string
+    description?: string
+    location?: string
+    dtstart?: Date
+    dtend?: Date
+    isAllDay: boolean
+    rrule?: RecurrenceRule
+    exdate: string[]
+    status?: EventStatus
+    transp?: EventTransparency
+    priority?: number
+    categories?: string[]
+    sequence?: number
+    hasRecurrenceId: boolean
+}
+
+export const parseICS = (ics: string, timezone = UTC_TIMEZONE) => {
     const lines: string[] = []
     const rawLines = ics.split(/\r?\n/)
 
@@ -108,33 +150,36 @@ export const parseICS = (ics: string): ParsedICS | null => {
         }
     }
 
-    let inEvent = false
-    let uid = ''
-    let summary = ''
-    let description: string | undefined
-    let location: string | undefined
-    let dtstart: Date | undefined
-    let dtend: Date | undefined
-    let isAllDay = false
-    let rrule: RecurrenceRule | undefined
-    let exdate: string[] = []
-    let status: EventStatus | undefined
-    let transp: EventTransparency | undefined
-    let priority: number | undefined
-    let categories: string[] | undefined
-    let sequence: number | undefined
+    const targetTimezone = isSupportedTimezone(timezone) ? timezone : UTC_TIMEZONE
+
+    let current: ParsingEvent | null = null
+    let master: ParsingEvent | null = null
+    let inAlarm = false
 
     for (const line of lines) {
         if (line === 'BEGIN:VEVENT') {
-            inEvent = true
+            current = { uid: '', summary: '', isAllDay: false, exdate: [], hasRecurrenceId: false }
+            inAlarm = false
             continue
         }
         if (line === 'END:VEVENT') {
-            inEvent = false
+            if (current && !current.hasRecurrenceId && !master) master = current
+            current = null
+            inAlarm = false
             continue
         }
 
-        if (!inEvent) continue
+        if (!current) continue
+
+        if (line === 'BEGIN:VALARM') {
+            inAlarm = true
+            continue
+        }
+        if (line === 'END:VALARM') {
+            inAlarm = false
+            continue
+        }
+        if (inAlarm) continue
 
         const colonIndex = line.indexOf(':')
         if (colonIndex === -1) continue
@@ -146,83 +191,85 @@ export const parseICS = (ics: string): ParsedICS | null => {
 
         switch (key) {
             case 'UID':
-                uid = value
+                current.uid = value
+                break
+            case 'RECURRENCE-ID':
+                current.hasRecurrenceId = true
                 break
             case 'SUMMARY':
-                summary = unescapeICSText(value)
+                current.summary = unescapeICSText(value)
                 break
             case 'DESCRIPTION':
-                description = unescapeICSText(value)
+                current.description = unescapeICSText(value)
                 break
             case 'LOCATION':
-                location = unescapeICSText(value)
+                current.location = unescapeICSText(value)
                 break
             case 'DTSTART': {
-                const parsed = parseICSDateTime(value, params)
-                dtstart = parsed.date
-                isAllDay = parsed.isAllDay
+                const parsed = parseICSDateTime(value, params, targetTimezone)
+                current.dtstart = parsed.date
+                current.isAllDay = parsed.isAllDay
                 break
             }
             case 'DTEND': {
-                const parsed = parseICSDateTime(value, params)
-                dtend = parsed.date
+                const parsed = parseICSDateTime(value, params, targetTimezone)
+                current.dtend = parsed.date
                 break
             }
             case 'RRULE':
-                rrule = parseRRule(value)
+                current.rrule = parseRRule(value, targetTimezone)
                 break
             case 'STATUS':
                 if (['TENTATIVE', 'CONFIRMED', 'CANCELLED'].includes(value)) {
-                    status = value as EventStatus
+                    current.status = value as EventStatus
                 }
                 break
             case 'TRANSP':
                 if (['TRANSPARENT', 'OPAQUE'].includes(value)) {
-                    transp = value as EventTransparency
+                    current.transp = value as EventTransparency
                 }
                 break
             case 'PRIORITY':
-                priority = parseInt(value)
+                current.priority = parseInt(value)
                 break
             case 'CATEGORIES':
-                categories = value.split(',').map(unescapeICSText)
+                current.categories = value.split(',').map(unescapeICSText)
                 break
             case 'SEQUENCE':
-                sequence = parseInt(value)
+                current.sequence = parseInt(value)
                 break
             case 'EXDATE':
-                exdate.push(value)
+                current.exdate.push(value)
                 break
         }
     }
 
-    if (!uid || !summary || !dtstart) {
+    if (!master || !master.uid || !master.summary || !master.dtstart) {
         return null
     }
 
-    if (!dtend) {
-        dtend = isAllDay ? new Date(dtstart.getTime() + 24 * 60 * 60 * 1000) : new Date(dtstart.getTime() + 60 * 60 * 1000)
-    }
+    const dtstart = master.dtstart
+    const dtend = master.dtend ?? new Date(dtstart.getTime() + (master.isAllDay ? ALL_DAY_DURATION_MS : DEFAULT_DURATION_MS))
 
     return {
-        uid,
-        summary,
-        description,
-        location,
+        uid: master.uid,
+        summary: master.summary,
+        description: master.description,
+        location: master.location,
         dtstart,
         dtend,
-        isAllDay,
-        rrule,
-        exdate: exdate.length > 0 ? exdate : undefined,
-        status,
-        transp,
-        priority,
-        categories,
-        sequence,
+        isAllDay: master.isAllDay,
+        rrule: master.rrule,
+        exdate: master.exdate.length > 0 ? master.exdate : undefined,
+        status: master.status,
+        transp: master.transp,
+        priority: master.priority,
+        categories: master.categories,
+        sequence: master.sequence,
     }
 }
 
-export const extractUidFromICS = (ics: string): string | null => {
+export const extractUidFromICS = (ics: string) => {
     const match = ics.match(/^UID:(.+)$/m)
     return match ? match[1].trim() : null
 }

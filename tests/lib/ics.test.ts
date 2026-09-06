@@ -146,6 +146,33 @@ describe('getRecurrenceOccurrences', () => {
 
         expect(occurrences.length).toBeGreaterThanOrEqual(4)
     })
+
+    it('BYDAY ordinal(1MO)을 처리한다', () => {
+        const rrule: RecurrenceRule = { freq: 'MONTHLY', byDay: ['1MO'] }
+        const dtstart = new Date('2024-01-01T10:00:00Z')
+
+        const occurrences = getRecurrenceOccurrences(rrule, dtstart, new Date('2024-01-01T00:00:00Z'), new Date('2024-03-31T23:59:59Z'))
+
+        expect(occurrences.map((date) => date.toISOString().slice(0, 10))).toEqual(['2024-01-01', '2024-02-05', '2024-03-04'])
+    })
+
+    it('BYDAY 음수 ordinal(-1FR)을 처리한다', () => {
+        const rrule: RecurrenceRule = { freq: 'MONTHLY', byDay: ['-1FR'] }
+        const dtstart = new Date('2024-01-01T10:00:00Z')
+
+        const occurrences = getRecurrenceOccurrences(rrule, dtstart, new Date('2024-01-01T00:00:00Z'), new Date('2024-02-29T23:59:59Z'))
+
+        expect(occurrences.map((date) => date.toISOString().slice(0, 10))).toEqual(['2024-01-26', '2024-02-23'])
+    })
+
+    it('잘못된 BYDAY 값이 있어도 예외를 던지지 않는다', () => {
+        const rrule: RecurrenceRule = { freq: 'WEEKLY', byDay: ['MO', 'XX'] }
+        const dtstart = new Date('2024-01-01T10:00:00Z')
+
+        const occurrences = getRecurrenceOccurrences(rrule, dtstart, new Date('2024-01-01T00:00:00Z'), new Date('2024-01-31T23:59:59Z'))
+
+        expect(occurrences.length).toBeGreaterThan(0)
+    })
 })
 
 describe('eventsToICS', () => {
@@ -427,10 +454,91 @@ describe('generateTimezoneComponent', () => {
     })
 
     it('STANDARD 블록을 포함한다', () => {
-        const result = generateTimezoneComponent('America/New_York')
+        const result = generateTimezoneComponent('Asia/Seoul')
         const joined = result.join('\n')
 
         expect(joined).toContain('BEGIN:STANDARD')
         expect(joined).toContain('END:STANDARD')
+    })
+
+    it('실제 UTC 오프셋을 사용한다', () => {
+        const joined = generateTimezoneComponent('Asia/Seoul').join('\n')
+
+        expect(joined).toContain('TZOFFSETFROM:+0900')
+        expect(joined).toContain('TZOFFSETTO:+0900')
+    })
+
+    it('30분 단위 오프셋 타임존도 실제 값을 사용한다', () => {
+        const joined = generateTimezoneComponent('Asia/Kolkata').join('\n')
+
+        expect(joined).toContain('TZOFFSETTO:+0530')
+    })
+
+    it('음수 오프셋 타임존도 실제 값을 사용한다', () => {
+        const joined = generateTimezoneComponent('America/Phoenix').join('\n')
+
+        expect(joined).toContain('TZOFFSETTO:-0700')
+    })
+
+    it('서머타임을 쓰는 타임존은 블록을 생략한다', () => {
+        expect(generateTimezoneComponent('America/New_York')).toEqual([])
+    })
+
+    it('알 수 없는 타임존은 블록을 생략한다', () => {
+        expect(generateTimezoneComponent('Not/AZone')).toEqual([])
+    })
+})
+
+describe('formatRRule UNTIL', () => {
+    it('종일 이벤트의 UNTIL은 DATE 형식으로 출력한다', () => {
+        const events: CalendarEvent[] = [
+            {
+                uid: 'allday-until@b-calendar',
+                summary: '종일 반복',
+                dtstart: new Date('2024-01-15T00:00:00Z'),
+                dtend: new Date('2024-01-16T00:00:00Z'),
+                isAllDay: true,
+                rrule: { freq: 'DAILY', until: new Date('2024-01-31T00:00:00Z') },
+            },
+        ]
+
+        const ics = eventsToICS(events, 'Test', 'test.com', 'Asia/Seoul')
+
+        expect(ics).toContain('RRULE:FREQ=DAILY;UNTIL=20240131')
+        expect(ics).not.toContain('UNTIL=20240131T000000Z')
+    })
+
+    it('시간 이벤트의 UNTIL은 UTC 날짜시간 형식을 유지한다', () => {
+        const events: CalendarEvent[] = [
+            {
+                uid: 'timed-until@b-calendar',
+                summary: '시간 반복',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'DAILY', until: new Date('2024-01-31T10:00:00Z') },
+            },
+        ]
+
+        const ics = eventsToICS(events, 'Test', 'test.com', 'Asia/Seoul')
+
+        expect(ics).toContain('RRULE:FREQ=DAILY;UNTIL=20240131T100000Z')
+    })
+
+    it('잘못된 BYDAY 값은 RRULE에서 제외한다', () => {
+        const events: CalendarEvent[] = [
+            {
+                uid: 'bad-byday@b-calendar',
+                summary: '반복',
+                dtstart: new Date('2024-01-15T10:00:00Z'),
+                dtend: new Date('2024-01-15T11:00:00Z'),
+                isAllDay: false,
+                rrule: { freq: 'WEEKLY', byDay: ['MO', 'XX'] },
+            },
+        ]
+
+        const ics = eventsToICS(events, 'Test', 'test.com', 'Asia/Seoul')
+
+        expect(ics).toContain('RRULE:FREQ=WEEKLY;BYDAY=MO')
     })
 })

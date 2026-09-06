@@ -1,3 +1,4 @@
+import { generateTimezoneComponent as buildTimezoneComponentLines } from '../../../lib/ics'
 import type { CalendarEvent, CalendarSubscription } from './calendar'
 
 export type SyncResult = {
@@ -292,8 +293,10 @@ export const createCaldavService = (deps: CaldavServiceDeps) => {
         return { found, notFound }
     }
 
-    const generateTimezoneComponent = (timezone: string): string => {
-        return `BEGIN:VTIMEZONE\r\nTZID:${timezone}\r\nEND:VTIMEZONE`
+    const generateTimezoneComponent = (timezone: string) => {
+        const lines = buildTimezoneComponentLines(timezone)
+        if (lines.length === 0) return `BEGIN:VTIMEZONE\r\nTZID:${timezone}\r\nEND:VTIMEZONE`
+        return lines.join('\r\n')
     }
 
     const getUserTimezone = async (userId: string): Promise<string> => {

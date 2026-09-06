@@ -1,4 +1,4 @@
-import { RRule, Frequency } from 'rrule'
+import { RRule } from 'rrule'
 
 type RecurrenceRule = {
     freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
@@ -30,37 +30,52 @@ type CalendarEvent = {
     color?: string | null
 }
 
+const MS_PER_MINUTE = 60 * 1000
+const MINUTES_PER_HOUR = 60
+const ZONE_PROBE_MONTHS = 12
+const STANDARD_COMPONENT_DTSTART = '19700101T000000'
+
+export const BYDAY_PATTERN = /^([+-]?[1-5])?(MO|TU|WE|TH|FR|SA|SU)$/
+
+export const isSupportedTimezone = (timezone: string) => {
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: timezone })
+        return true
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Returns the wall-clock reading of an instant in the given IANA timezone,
+ * encoded as epoch milliseconds whose UTC fields hold that wall clock.
+ */
+export const getZonedWallClockMs = (instantMs: number, timezone: string) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hourCycle: 'h23',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+    }).formatToParts(new Date(instantMs))
+
+    const values: Record<string, number> = {}
+    for (const part of parts) {
+        if (part.type !== 'literal') values[part.type] = Number(part.value)
+    }
+
+    return Date.UTC(values.year, values.month - 1, values.day, values.hour, values.minute, values.second)
+}
+
 export const generateIcsUid = () => `${crypto.randomUUID()}@b-calendar`
 
 export const generateSubscriptionToken = () => {
     const array = new Uint8Array(32)
     crypto.getRandomValues(array)
     return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-const freqMap: Record<string, Frequency> = {
-    DAILY: RRule.DAILY,
-    WEEKLY: RRule.WEEKLY,
-    MONTHLY: RRule.MONTHLY,
-    YEARLY: RRule.YEARLY,
-}
-
-export const getRecurrenceOccurrences = (rrule: RecurrenceRule, dtstart: Date, rangeStart: Date, rangeEnd: Date): Date[] => {
-    const rule = new RRule({
-        freq: freqMap[rrule.freq],
-        interval: rrule.interval ?? 1,
-        count: rrule.count,
-        until: rrule.until ? (rrule.until instanceof Date ? rrule.until : new Date(rrule.until)) : undefined,
-        byweekday: rrule.byDay?.map((day) => {
-            const dayMap: Record<string, number> = { SU: 6, MO: 0, TU: 1, WE: 2, TH: 3, FR: 4, SA: 5 }
-            return dayMap[day]
-        }),
-        bymonth: rrule.byMonth,
-        bymonthday: rrule.byMonthDay,
-        dtstart,
-    })
-
-    return rule.between(rangeStart, rangeEnd, true)
 }
 
 const formatDateTimeICS = (date: Date, isAllDay: boolean) => {
@@ -83,32 +98,71 @@ const formatDateTimeICS = (date: Date, isAllDay: boolean) => {
 const escapeICSText = (text: string) =>
     text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n/g, '\\n').replace(/\r/g, '\\n').replace(/\n/g, '\\n')
 
-const formatRRule = (rrule: RecurrenceRule): string => {
+const formatRRule = (rrule: RecurrenceRule, isAllDay = false) => {
     const parts = [`FREQ=${rrule.freq}`]
     if (rrule.interval && rrule.interval > 1) parts.push(`INTERVAL=${rrule.interval}`)
     if (rrule.count) parts.push(`COUNT=${rrule.count}`)
-    if (rrule.until) parts.push(`UNTIL=${formatDateTimeICS(rrule.until instanceof Date ? rrule.until : new Date(rrule.until), false)}Z`)
-    if (rrule.byDay?.length) parts.push(`BYDAY=${rrule.byDay.join(',')}`)
+
+    if (rrule.until) {
+        const until = rrule.until instanceof Date ? rrule.until : new Date(rrule.until)
+        parts.push(isAllDay ? `UNTIL=${formatDateTimeICS(until, true)}` : `UNTIL=${formatDateTimeICS(until, false)}Z`)
+    }
+
+    const byDay = rrule.byDay?.filter((day) => BYDAY_PATTERN.test(day)) ?? []
+    if (byDay.length > 0) parts.push(`BYDAY=${byDay.join(',')}`)
     if (rrule.byMonth?.length) parts.push(`BYMONTH=${rrule.byMonth.join(',')}`)
     if (rrule.byMonthDay?.length) parts.push(`BYMONTHDAY=${rrule.byMonthDay.join(',')}`)
     return parts.join(';')
 }
 
-export const generateTimezoneComponent = (timezone: string): string[] => {
+export const getRecurrenceOccurrences = (rrule: RecurrenceRule, dtstart: Date, rangeStart: Date, rangeEnd: Date) => {
+    const rule = new RRule({ ...RRule.parseString(formatRRule(rrule)), dtstart })
+    return rule.between(rangeStart, rangeEnd, true)
+}
+
+const formatUtcOffset = (offsetMinutes: number) => {
+    const sign = offsetMinutes < 0 ? '-' : '+'
+    const absolute = Math.abs(offsetMinutes)
+    const hours = String(Math.floor(absolute / MINUTES_PER_HOUR)).padStart(2, '0')
+    const minutes = String(absolute % MINUTES_PER_HOUR).padStart(2, '0')
+    return `${sign}${hours}${minutes}`
+}
+
+const getZoneOffsetMinutesInYear = (timezone: string, year: number) => {
+    const offsets = new Set<number>()
+    for (let month = 0; month < ZONE_PROBE_MONTHS; month++) {
+        const instantMs = Date.UTC(year, month, 1)
+        offsets.add((getZonedWallClockMs(instantMs, timezone) - instantMs) / MS_PER_MINUTE)
+    }
+    return [...offsets]
+}
+
+/**
+ * Builds a VTIMEZONE component with the real UTC offset of the zone.
+ * Zones that observe DST cannot be expressed exactly here, so the block is
+ * omitted for them rather than emitted with a wrong offset.
+ */
+export const generateTimezoneComponent = (timezone: string) => {
+    if (!isSupportedTimezone(timezone)) return []
+
+    const offsets = getZoneOffsetMinutesInYear(timezone, new Date().getUTCFullYear())
+    if (offsets.length !== 1) return []
+
+    const offset = formatUtcOffset(offsets[0])
     return [
         'BEGIN:VTIMEZONE',
         `TZID:${timezone}`,
         'BEGIN:STANDARD',
         `TZNAME:${timezone}`,
-        'DTSTART:19700101T000000',
-        'TZOFFSETFROM:+0000',
-        'TZOFFSETTO:+0000',
+        `DTSTART:${STANDARD_COMPONENT_DTSTART}`,
+        `TZOFFSETFROM:${offset}`,
+        `TZOFFSETTO:${offset}`,
         'END:STANDARD',
         'END:VTIMEZONE',
     ]
 }
 
-export const eventsToICS = (events: CalendarEvent[], calendarName: string, domain: string, timezone: string): string => {
+export const eventsToICS = (events: CalendarEvent[], calendarName: string, domain: string, timezone: string) => {
     const lines: string[] = [
         'BEGIN:VCALENDAR',
         'VERSION:2.0',
@@ -143,7 +197,7 @@ export const eventsToICS = (events: CalendarEvent[], calendarName: string, domai
         }
 
         if (event.rrule) {
-            lines.push(`RRULE:${formatRRule(event.rrule)}`)
+            lines.push(`RRULE:${formatRRule(event.rrule, event.isAllDay)}`)
         }
 
         if (event.exdate?.length) {

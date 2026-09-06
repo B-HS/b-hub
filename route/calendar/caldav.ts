@@ -4,7 +4,7 @@ import { createAppError, isAppError } from '../../lib/error'
 import { errorResponse } from '../../lib/api-response'
 import { buildMultistatus, parsePropfind, parseReport, buildCalendarDataResponse } from '../../lib/xml'
 import { eventsToICS } from '../../lib/ics'
-import { parseICS } from '../../lib/ics-parser'
+import { parseICS, parseICSDateTime } from '../../lib/ics-parser'
 import type { CalendarService, CalendarSubscription } from '../../service/domain/calendar/calendar'
 import type { CaldavService } from '../../service/domain/calendar/caldav'
 
@@ -19,6 +19,14 @@ const DAV_HEADERS = {
 }
 
 const MAX_ICS_SIZE = 1024 * 1024
+
+const CALDAV_BASE_PATH = '/caldav'
+const DEFAULT_COLLECTION_SEGMENT = 'default'
+
+const buildCollectionHref = (token: string, isDefaultCollection: boolean) =>
+    isDefaultCollection ? `${CALDAV_BASE_PATH}/${token}/${DEFAULT_COLLECTION_SEGMENT}/` : `${CALDAV_BASE_PATH}/${token}/`
+
+const buildEventHref = (collectionHref: string, uid: string) => `${collectionHref}${uid.split('@')[0]}.ics`
 
 export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
     const route = new Hono()
@@ -53,7 +61,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
         const body = await c.req.text()
         const { props, allprop } = parsePropfind(body)
 
-        const calendarHref = `/caldav/${token}/`
+        const calendarHref = buildCollectionHref(token!, false)
         const timezone = await deps.caldavService.getUserTimezone(userId)
 
         const requestedProps = allprop
@@ -75,9 +83,8 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
             const events = await deps.calendarService.getAllEvents(userId)
             for (const event of events) {
                 const etag = deps.calendarService.getEventEtag(event)
-                const eventId = event.uid.split('@')[0]
                 responses.push({
-                    href: `${calendarHref}${eventId}.ics`,
+                    href: buildEventHref(calendarHref, event.uid),
                     propstats: [{ status: 200, props: { 'D:getetag': `"${etag}"`, 'D:getcontenttype': 'text/calendar; component=vevent' } }],
                 })
             }
@@ -100,14 +107,19 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
         const body = await c.req.text()
         const { props, allprop } = parsePropfind(body)
 
-        const calendarHref = `/caldav/${token}/default/`
+        const calendarHref = buildCollectionHref(token!, true)
         const timezone = await deps.caldavService.getUserTimezone(userId)
 
         const requestedProps = allprop
             ? ['resourcetype', 'displayname', 'getctag', 'supported-calendar-component-set', 'current-user-privilege-set', 'sync-token']
             : props
 
-        const { found: calendarProps } = deps.caldavService.getCalendarProperties(subscription, requestedProps, `/caldav/${token}/`, timezone)
+        const { found: calendarProps } = deps.caldavService.getCalendarProperties(
+            subscription,
+            requestedProps,
+            buildCollectionHref(token!, false),
+            timezone,
+        )
         const responses = [{ href: calendarHref, propstats: [{ status: 200, props: calendarProps }] }]
 
         if (depth === '1') {
@@ -115,7 +127,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
             for (const event of events) {
                 const etag = deps.calendarService.getEventEtag(event)
                 responses.push({
-                    href: `${calendarHref}${event.uid}.ics`,
+                    href: buildEventHref(calendarHref, event.uid),
                     propstats: [{ status: 200, props: { 'D:getetag': `"${etag}"`, 'D:getcontenttype': 'text/calendar; component=vevent' } }],
                 })
             }
@@ -135,7 +147,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
     route.on('PROPFIND', '/:token/default', handlePropfindCalendar)
     route.on('PROPFIND', '/:token/default/', handlePropfindCalendar)
 
-    const handleReport = async (c: Context) => {
+    const createReportHandler = (isDefaultCollection: boolean) => async (c: Context) => {
         const { userId } = await resolveToken(c)
         const token = c.req.param('token')
 
@@ -143,7 +155,7 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
         const report = parseReport(body)
         const timezone = await deps.calendarService.getUserTimezone(userId)
         const domain = new URL(c.req.url).hostname || 'b-calendar'
-        const calendarHref = `/caldav/${token}/`
+        const calendarHref = buildCollectionHref(token!, isDefaultCollection)
 
         if (report.type === 'calendar-multiget') {
             const responses: Array<{ href: string; etag: string; calendarData?: string; status?: number }> = []
@@ -173,8 +185,11 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
 
             for (const event of events) {
                 const icsContent = eventsToICS([event], 'Calendar', domain, timezone)
-                const eventId = event.uid.split('@')[0]
-                responses.push({ href: `${calendarHref}${eventId}.ics`, etag: deps.calendarService.getEventEtag(event), calendarData: icsContent })
+                responses.push({
+                    href: buildEventHref(calendarHref, event.uid),
+                    etag: deps.calendarService.getEventEtag(event),
+                    calendarData: icsContent,
+                })
             }
 
             return new Response(buildCalendarDataResponse(responses), {
@@ -186,10 +201,9 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
         if (report.type === 'sync-collection') {
             const syncResult = await deps.caldavService.getChangesFromToken(userId, report.syncToken || null)
 
-            const changedResponses = syncResult.changed.map((event) => {
-                const eventId = event.uid.split('@')[0]
-                return `  <D:response>
-    <D:href>${calendarHref}${eventId}.ics</D:href>
+            const changedResponses = syncResult.changed.map(
+                (event) => `  <D:response>
+    <D:href>${buildEventHref(calendarHref, event.uid)}</D:href>
     <D:propstat>
       <D:prop>
         <D:getetag>"${deps.calendarService.getEventEtag(event)}"</D:getetag>
@@ -197,16 +211,15 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
       </D:prop>
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
-  </D:response>`
-            })
+  </D:response>`,
+            )
 
-            const deletedResponses = syncResult.deleted.map((uid) => {
-                const eventId = uid.split('@')[0]
-                return `  <D:response>
-    <D:href>${calendarHref}${eventId}.ics</D:href>
+            const deletedResponses = syncResult.deleted.map(
+                (uid) => `  <D:response>
+    <D:href>${buildEventHref(calendarHref, uid)}</D:href>
     <D:status>HTTP/1.1 404 Not Found</D:status>
-  </D:response>`
-            })
+  </D:response>`,
+            )
 
             const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <D:multistatus xmlns:D="DAV:">
@@ -225,8 +238,8 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
                 return c.text('Missing time-range', 400)
             }
 
-            const start = new Date(report.timeRange.start)
-            const end = new Date(report.timeRange.end)
+            const start = parseICSDateTime(report.timeRange.start, undefined, timezone).date
+            const end = parseICSDateTime(report.timeRange.end, undefined, timezone).date
             const periods = await deps.caldavService.getFreeBusy(userId, start, end)
             const ics = deps.caldavService.generateFreeBusyICS(periods, start, end)
 
@@ -239,10 +252,10 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
         return c.text('Unknown report type', 400)
     }
 
-    route.on('REPORT', '/:token', handleReport)
-    route.on('REPORT', '/:token/', handleReport)
-    route.on('REPORT', '/:token/default', handleReport)
-    route.on('REPORT', '/:token/default/', handleReport)
+    route.on('REPORT', '/:token', createReportHandler(false))
+    route.on('REPORT', '/:token/', createReportHandler(false))
+    route.on('REPORT', '/:token/default', createReportHandler(true))
+    route.on('REPORT', '/:token/default/', createReportHandler(true))
 
     const handleProppatch = (c: Context) => {
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -311,7 +324,8 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
             throw createAppError('CALENDAR_ICS_TOO_LARGE')
         }
 
-        const parsed = parseICS(icsData)
+        const timezone = await deps.calendarService.getUserTimezone(userId)
+        const parsed = parseICS(icsData, timezone)
         if (!parsed) throw createAppError('CALENDAR_ICS_PARSE_FAILED')
 
         const eventUid = parsed.uid.includes('@') ? parsed.uid.split('@')[0] : parsed.uid
@@ -324,6 +338,7 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
             dtend: parsed.dtend,
             isAllDay: parsed.isAllDay,
             rrule: parsed.rrule,
+            exdate: parsed.exdate,
             status: parsed.status,
             transp: parsed.transp,
             priority: parsed.priority,
@@ -368,7 +383,8 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
             throw createAppError('CALENDAR_ICS_TOO_LARGE')
         }
 
-        const parsed = parseICS(icsData)
+        const timezone = await deps.calendarService.getUserTimezone(userId)
+        const parsed = parseICS(icsData, timezone)
         if (!parsed) throw createAppError('CALENDAR_ICS_PARSE_FAILED')
 
         const eventUid = parsed.uid.includes('@') ? parsed.uid.split('@')[0] : parsed.uid
@@ -381,6 +397,7 @@ ${[...changedResponses, ...deletedResponses].join('\n')}
             dtend: parsed.dtend,
             isAllDay: parsed.isAllDay,
             rrule: parsed.rrule,
+            exdate: parsed.exdate,
             status: parsed.status,
             transp: parsed.transp,
             priority: parsed.priority,

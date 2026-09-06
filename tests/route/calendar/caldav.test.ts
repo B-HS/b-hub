@@ -669,3 +669,207 @@ describe('CalDAV 에러 핸들링', () => {
         expect(res.status).toBe(500)
     })
 })
+
+describe('CalDAV PUT 타임존 처리', () => {
+    test('UTC ICS 값을 사용자 타임존 벽시계로 저장한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+        const icsData = [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'BEGIN:VEVENT',
+            'UID:tz-event@b-calendar',
+            'SUMMARY:타임존 이벤트',
+            'DTSTART:20240115T100000Z',
+            'DTEND:20240115T110000Z',
+            'END:VEVENT',
+            'END:VCALENDAR',
+        ].join('\r\n')
+
+        await app.request('/caldav/valid-token/tz-event.ics', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'text/calendar' },
+            body: icsData,
+        })
+
+        const [, , input] = deps.calendarService.upsertEventByUid.mock.calls[0] as unknown as [string, string, { dtstart: Date; dtend: Date }]
+        expect(input.dtstart.toISOString()).toBe('2024-01-15T19:00:00.000Z')
+        expect(input.dtend.toISOString()).toBe('2024-01-15T20:00:00.000Z')
+    })
+
+    test('VALARM 설명이 이벤트 설명을 덮어쓰지 않는다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+        const icsData = [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            'BEGIN:VEVENT',
+            'UID:alarm-event@b-calendar',
+            'SUMMARY:회의',
+            'DESCRIPTION:본문 설명',
+            'DTSTART:20240115T100000Z',
+            'DTEND:20240115T110000Z',
+            'BEGIN:VALARM',
+            'ACTION:DISPLAY',
+            'DESCRIPTION:알림',
+            'TRIGGER:-PT10M',
+            'END:VALARM',
+            'END:VEVENT',
+            'END:VCALENDAR',
+        ].join('\r\n')
+
+        await app.request('/caldav/valid-token/alarm-event.ics', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'text/calendar' },
+            body: icsData,
+        })
+
+        const [, , input] = deps.calendarService.upsertEventByUid.mock.calls[0] as unknown as [string, string, { description?: string }]
+        expect(input.description).toBe('본문 설명')
+    })
+})
+
+describe('CalDAV href 단일화 (D-16)', () => {
+    const propfindBody = '<propfind xmlns="DAV:"><allprop/></propfind>'
+    const calendarQueryBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop><D:getetag/><C:calendar-data/></D:prop>
+  <C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"/></C:comp-filter></C:filter>
+</C:calendar-query>`
+
+    test('principal 컬렉션의 PROPFIND 와 REPORT href 가 같다', async () => {
+        const { app } = createApp()
+
+        const propfind = await app.request('/caldav/valid-token/', {
+            method: 'PROPFIND',
+            headers: { Depth: '1' },
+            body: propfindBody,
+        })
+        const report = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: calendarQueryBody,
+        })
+
+        const propfindBodyText = await propfind.text()
+        const reportBodyText = await report.text()
+        expect(propfindBodyText).toContain('/caldav/valid-token/test-uid.ics')
+        expect(reportBodyText).toContain('/caldav/valid-token/test-uid.ics')
+    })
+
+    test('default 컬렉션의 PROPFIND 와 REPORT href 가 같다', async () => {
+        const { app } = createApp()
+
+        const propfind = await app.request('/caldav/valid-token/default/', {
+            method: 'PROPFIND',
+            headers: { Depth: '1' },
+            body: propfindBody,
+        })
+        const report = await app.request('/caldav/valid-token/default/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: calendarQueryBody,
+        })
+
+        const propfindBodyText = await propfind.text()
+        const reportBodyText = await report.text()
+        expect(propfindBodyText).toContain('/caldav/valid-token/default/test-uid.ics')
+        expect(reportBodyText).toContain('/caldav/valid-token/default/test-uid.ics')
+        expect(propfindBodyText).not.toContain('test-uid@b-calendar.ics')
+    })
+
+    test('sync-collection href 도 요청한 컬렉션을 따른다', async () => {
+        const deps = createMockDeps()
+        deps.caldavService.getChangesFromToken = mock(() =>
+            Promise.resolve({
+                changed: [mockEvent],
+                deleted: ['deleted-uid@b-calendar'],
+                syncToken: 'http://b-calendar/sync/2',
+            }),
+        )
+        const { app } = createApp(deps)
+        const syncBody = `<?xml version="1.0" encoding="UTF-8"?>
+<D:sync-collection xmlns:D="DAV:">
+  <D:sync-token>http://b-calendar/sync/1</D:sync-token>
+  <D:prop><D:getetag/></D:prop>
+</D:sync-collection>`
+
+        const res = await app.request('/caldav/valid-token/default/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: syncBody,
+        })
+
+        const body = await res.text()
+        expect(body).toContain('/caldav/valid-token/default/test-uid.ics')
+        expect(body).toContain('/caldav/valid-token/default/deleted-uid.ics')
+    })
+})
+
+describe('CalDAV free-busy time-range 파싱 (E-29)', () => {
+    test('ICS 형식 time-range 를 사용자 타임존 벽시계로 변환한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+        const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
+<C:free-busy-query xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <C:time-range start="20240101T000000Z" end="20240131T235959Z"/>
+</C:free-busy-query>`
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: reportBody,
+        })
+
+        expect(res.status).toBe(200)
+        const [, start, end] = deps.caldavService.getFreeBusy.mock.calls[0] as unknown as [string, Date, Date]
+        expect(Number.isNaN(start.getTime())).toBe(false)
+        expect(Number.isNaN(end.getTime())).toBe(false)
+        expect(start.toISOString()).toBe('2024-01-01T09:00:00.000Z')
+        expect(end.toISOString()).toBe('2024-02-01T08:59:59.000Z')
+    })
+})
+
+describe('CalDAV PUT EXDATE 전달 (D-15)', () => {
+    const icsWithExdate = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'BEGIN:VEVENT',
+        'UID:recurring-event@b-calendar',
+        'SUMMARY:반복 이벤트',
+        'DTSTART:20240115T100000Z',
+        'DTEND:20240115T110000Z',
+        'RRULE:FREQ=DAILY;COUNT=5',
+        'EXDATE:20240117T100000Z',
+        'END:VEVENT',
+        'END:VCALENDAR',
+    ].join('\r\n')
+
+    test('default 경로 PUT 이 exdate 를 전달한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+
+        await app.request('/caldav/valid-token/default/recurring-event.ics', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'text/calendar' },
+            body: icsWithExdate,
+        })
+
+        const [, , input] = deps.calendarService.upsertEventByUid.mock.calls[0] as unknown as [string, string, { exdate?: string[] }]
+        expect(input.exdate).toEqual(['20240117T100000Z'])
+    })
+
+    test('token 직속 경로 PUT 도 exdate 를 전달한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+
+        await app.request('/caldav/valid-token/recurring-event.ics', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'text/calendar' },
+            body: icsWithExdate,
+        })
+
+        const [, , input] = deps.calendarService.upsertEventByUid.mock.calls[0] as unknown as [string, string, { exdate?: string[] }]
+        expect(input.exdate).toEqual(['20240117T100000Z'])
+    })
+})

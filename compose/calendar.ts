@@ -71,8 +71,12 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
                     .where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.uid, uid)))
             },
 
-            deleteEventByUid: async (userId, uid) => {
-                await db.delete(schema.calendarEvent).where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.uid, uid)))
+            deleteEventWithTombstone: async ({ userId, uid, deletedEventId, syncToken }) => {
+                await db.transaction(async (tx) => {
+                    await tx.insert(schema.deletedCalendarEvent).values({ id: deletedEventId, userId, uid, syncToken })
+                    await tx.delete(schema.calendarEvent).where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.uid, uid)))
+                    await tx.update(schema.calendarSubscription).set({ ctag: syncToken }).where(eq(schema.calendarSubscription.userId, userId))
+                })
             },
 
             getGroupsByUser: async (userId) => {
@@ -159,15 +163,6 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
             incrementCtag: async (userId) => {
                 const newCtag = Date.now().toString(36)
                 await db.update(schema.calendarSubscription).set({ ctag: newCtag }).where(eq(schema.calendarSubscription.userId, userId))
-            },
-
-            insertDeletedEvent: async (data) => {
-                await db.insert(schema.deletedCalendarEvent).values({
-                    id: data.id,
-                    userId: data.userId,
-                    uid: data.uid,
-                    syncToken: data.syncToken,
-                })
             },
 
             getUserTimezone: async (userId) => {

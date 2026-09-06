@@ -111,6 +111,7 @@ export type CalendarServiceDb = {
         color: string | null
         groupId?: string | null
         dtstamp: Date
+        updatedAt: Date
     }) => Promise<void>
     updateEvent: (
         userId: string,
@@ -140,9 +141,10 @@ export type CalendarServiceDb = {
             groupId?: string | null
             sequence: number
             dtstamp: Date
+            updatedAt: Date
         },
     ) => Promise<void>
-    deleteEventByUid: (userId: string, uid: string) => Promise<void>
+    deleteEventWithTombstone: (data: { userId: string; uid: string; deletedEventId: string; syncToken: string }) => Promise<void>
     getGroupsByUser: (userId: string) => Promise<CalendarGroupRow[]>
     getGroupById: (userId: string, groupId: string) => Promise<CalendarGroupRow | null>
     insertGroup: (data: { id: string; userId: string; name: string; color: string; sortOrder: number; isVisible: boolean }) => Promise<void>
@@ -162,7 +164,6 @@ export type CalendarServiceDb = {
     updateSubscriptionIcsToken: (userId: string, icsToken: string) => Promise<void>
     updateSubscriptionLastAccessed: (id: string) => Promise<void>
     incrementCtag: (userId: string) => Promise<void>
-    insertDeletedEvent: (data: { id: string; userId: string; uid: string; syncToken: string }) => Promise<void>
     getUserTimezone: (userId: string) => Promise<string | null>
     updateUserTimezone: (userId: string, timezone: string) => Promise<void>
 }
@@ -279,6 +280,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
             color: toNull(data.color),
             groupId: toNull(data.groupId),
             dtstamp: now,
+            updatedAt: now,
         })
 
         await db.incrementCtag(userId)
@@ -320,6 +322,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
             groupId: data.groupId !== undefined ? toNull(data.groupId) : undefined,
             sequence: newSequence,
             dtstamp: now,
+            updatedAt: now,
         })
 
         await db.incrementCtag(userId)
@@ -336,17 +339,12 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
         const eventWithDomain = event ?? (await db.getEventByUidWithDomain(userId, uid))
 
         if (eventWithDomain) {
-            const newCtag = Date.now().toString(36)
-
-            await db.insertDeletedEvent({
-                id: crypto.randomUUID(),
+            await db.deleteEventWithTombstone({
                 userId,
                 uid: eventWithDomain.uid,
-                syncToken: newCtag,
+                deletedEventId: crypto.randomUUID(),
+                syncToken: Date.now().toString(36),
             })
-
-            await db.deleteEventByUid(userId, eventWithDomain.uid)
-            await db.incrementCtag(userId)
         }
     }
 
@@ -383,6 +381,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
             dtend: data.dtend,
             isAllDay: data.isAllDay,
             rrule: rruleValue,
+            exdate: data.exdate?.length ? data.exdate : null,
             status: toNull(data.status) as EventStatus | null,
             transp: toNull(data.transp) as EventTransparency | null,
             priority: toNull(data.priority),
@@ -390,6 +389,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
             color: toNull(data.color),
             groupId: toNull(data.groupId),
             dtstamp: now,
+            updatedAt: now,
         })
 
         await db.incrementCtag(userId)
