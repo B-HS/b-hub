@@ -13,6 +13,14 @@ export const driveAssetParamSchema = z.object({
     assetId: z.coerce.number().int().positive(),
 })
 
+export const driveAssetPrepareSchema = z.object({
+    originalName: z.string().min(1).max(255),
+    mimeType: z.string().min(1).max(255),
+    sizeBytes: z.coerce.number().int().positive(),
+    folderId: z.string().nullable().default(null),
+    fileHash: z.string().max(64).default(''),
+})
+
 export const driveAssetUpdateSchema = z.object({
     originalName: z.string().min(1).max(255).optional(),
     isPublic: z.boolean().optional(),
@@ -21,4 +29,5 @@ export const driveAssetUpdateSchema = z.object({
 
 export type DriveAssetListQuery = z.infer<typeof driveAssetListQuerySchema>
 export type DriveAssetParam = z.infer<typeof driveAssetParamSchema>
+export type DriveAssetPrepareInput = z.infer<typeof driveAssetPrepareSchema>
 export type DriveAssetUpdateInput = z.infer<typeof driveAssetUpdateSchema>

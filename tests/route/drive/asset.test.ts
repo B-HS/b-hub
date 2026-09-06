@@ -196,6 +196,74 @@ describe('GET /drive/quota', () => {
     })
 })
 
+describe('POST /drive/assets/prepare', () => {
+    const createPrepareApp = () => {
+        const deps = {
+            driveAssetService: {
+                prepare: mock(() =>
+                    Promise.resolve({ assetId: 1, s3Key: 'users/user-1/uuid/video.mp4', uploadToken: 'tok', uploadStatus: 'preparing' }),
+                ),
+            },
+            getSession: mock(() => Promise.resolve({ user: { id: 'user-1', role: 'user' } })),
+        }
+        const app = new Hono()
+        app.route('/drive', createDriveAssetRoute(deps as never))
+        return { app, deps }
+    }
+
+    const prepareRequest = (app: Hono, body: unknown) =>
+        app.request('/drive/assets/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+    test('검증을 통과하면 prepare 응답을 그대로 반환한다', async () => {
+        const { app, deps } = createPrepareApp()
+        const res = await prepareRequest(app, {
+            originalName: 'video.mp4',
+            mimeType: 'video/mp4',
+            sizeBytes: 500_000,
+            folderId: null,
+            fileHash: 'abc123',
+        })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({
+            success: true,
+            data: { assetId: 1, s3Key: 'users/user-1/uuid/video.mp4', uploadToken: 'tok', uploadStatus: 'preparing' },
+        })
+        expect(deps.driveAssetService.prepare).toHaveBeenCalledWith('user-1', {
+            originalName: 'video.mp4',
+            mimeType: 'video/mp4',
+            sizeBytes: 500_000,
+            folderId: null,
+            fileHash: 'abc123',
+        })
+    })
+
+    test('sizeBytes 가 없으면 400 을 반환하고 서비스를 호출하지 않는다', async () => {
+        const { app, deps } = createPrepareApp()
+        const res = await prepareRequest(app, { originalName: 'video.mp4', mimeType: 'video/mp4' })
+
+        expect(res.status).toBe(400)
+        expect((await res.json()).success).toBe(false)
+        expect(deps.driveAssetService.prepare).not.toHaveBeenCalled()
+    })
+
+    test('sizeBytes 가 음수면 400 을 반환한다', async () => {
+        const { app, deps } = createPrepareApp()
+        const res = await prepareRequest(app, { originalName: 'video.mp4', mimeType: 'video/mp4', sizeBytes: -1 })
+
+        expect(res.status).toBe(400)
+        expect(deps.driveAssetService.prepare).not.toHaveBeenCalled()
+    })
+
+    test('originalName 이 비어 있으면 400 을 반환한다', async () => {
+        const { app, deps } = createPrepareApp()
+        const res = await prepareRequest(app, { originalName: '', mimeType: 'video/mp4', sizeBytes: 10 })
+
+        expect(res.status).toBe(400)
+        expect(deps.driveAssetService.prepare).not.toHaveBeenCalled()
+    })
+})
+
 const UPLOAD_SERVER_SECRET = 'upload-server-secret'
 
 const createCallbackApp = (uploadServerSecret = UPLOAD_SERVER_SECRET) => {
@@ -291,6 +359,30 @@ describe('upload-server 콜백 인증', () => {
         expect(res.status).toBe(200)
         expect(await res.json()).toEqual({ success: true, data: { id: 1, uploadStatus: 'ready' } })
         expect(deps.driveAssetService.complete).toHaveBeenCalled()
+    })
+
+    test('POST /drive/assets/1/complete 는 upload-server 가 보낸 실제 sizeBytes 를 서비스에 전달한다', async () => {
+        const { app, deps } = createCallbackApp()
+        await callbackRequest(
+            app,
+            '/drive/assets/1/complete',
+            { Authorization: `Bearer ${UPLOAD_SERVER_SECRET}` },
+            { uploadToken: 'token', fileHash: 'abc', storageTiers: 'L1', gdriveFileId: null, sizeBytes: 4096 },
+        )
+
+        expect(deps.driveAssetService.complete).toHaveBeenCalledWith(1, 'token', expect.objectContaining({ sizeBytes: 4096 }))
+    })
+
+    test('POST /drive/assets/1/complete 는 sizeBytes 가 없으면 null 로 전달한다', async () => {
+        const { app, deps } = createCallbackApp()
+        await callbackRequest(
+            app,
+            '/drive/assets/1/complete',
+            { Authorization: `Bearer ${UPLOAD_SERVER_SECRET}` },
+            { uploadToken: 'token', fileHash: 'abc', storageTiers: 'L1' },
+        )
+
+        expect(deps.driveAssetService.complete).toHaveBeenCalledWith(1, 'token', expect.objectContaining({ sizeBytes: null }))
     })
 
     test('POST /drive/assets/1/complete 는 헤더가 없으면 401을 반환하고 서비스를 호출하지 않는다', async () => {

@@ -32,6 +32,7 @@ const createMockDeps = () => ({
         del: mock(() => Promise.resolve()),
         getUrl: (key: string) => `https://cdn.example.com/${key}`,
         getPresignedUrl: mock(() => Promise.resolve('https://presigned.example.com/file?token=abc')),
+        getObjectStream: mock(() => Promise.resolve(null as ReadableStream | null)),
     },
     getGdriveStorage: mock(() => Promise.resolve(null as { download: () => Promise<ReadableStream>; del: () => Promise<void> } | null)),
     imageProcessor: {
@@ -42,11 +43,11 @@ const createMockDeps = () => ({
         getById: mock(() => Promise.resolve({ id: 'folder-1', userId: 'user-1' } as { id: string; userId: string } | null)),
     },
     db: {
-        insert: mock(() => Promise.resolve({ id: 1 })),
+        insert: mock(() => Promise.resolve({ id: 1 } as { id: number } | null)),
         getById: mock(() => Promise.resolve(mockAssetRow() as ReturnType<typeof mockAssetRow> | null)),
         getByUserAndHash: mock(() => Promise.resolve(null as ReturnType<typeof mockAssetRow> | null)),
         list: mock(() => Promise.resolve({ data: [mockAssetRow()], total: 1 })),
-        update: mock(() => Promise.resolve()),
+        update: mock(() => Promise.resolve({ id: 1 } as { id: number } | null)),
         remove: mock(() => Promise.resolve()),
         getTotalSizeByUser: mock(() => Promise.resolve(1000)),
     },
@@ -652,6 +653,212 @@ describe('createDriveAssetService', () => {
             })
 
             expect(result.uploadStatus).toBe('failed')
+        })
+    })
+
+    describe('complete: 실제 크기 재검증', () => {
+        const preparingRow = () =>
+            mockAssetRow({
+                fileHash: '',
+                uploadStatus: 'preparing',
+                uploadToken: 'valid-token',
+                storageTiers: '',
+                thumbnailBlob: null,
+                sizeBytes: 100,
+            })
+
+        test('신고 크기와 실제 크기가 다르면 실제 크기로 갱신한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(preparingRow()))
+            const service = createDriveAssetService(deps)
+
+            await service.complete(1, 'valid-token', {
+                fileHash: 'abc',
+                storageTiers: 'L1',
+                gdriveFileId: null,
+                localPath: null,
+                thumbnailBase64: null,
+                sizeBytes: 5000,
+            })
+
+            expect(deps.db.update).toHaveBeenCalledWith(1, expect.objectContaining({ sizeBytes: 5000, uploadStatus: 'ready' }))
+        })
+
+        test('신고 크기와 실제 크기가 같으면 sizeBytes 를 갱신하지 않는다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(preparingRow()))
+            const service = createDriveAssetService(deps)
+
+            await service.complete(1, 'valid-token', {
+                fileHash: 'abc',
+                storageTiers: 'L1',
+                gdriveFileId: null,
+                localPath: null,
+                thumbnailBase64: null,
+                sizeBytes: 100,
+            })
+
+            const updateArg = (deps.db.update as ReturnType<typeof mock>).mock.calls[0][1] as Record<string, unknown>
+            expect(updateArg.sizeBytes).toBeUndefined()
+        })
+
+        test('sizeBytes 가 없으면 기존 동작대로 크기를 건드리지 않는다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(preparingRow()))
+            const service = createDriveAssetService(deps)
+
+            await service.complete(1, 'valid-token', {
+                fileHash: 'abc',
+                storageTiers: 'L1',
+                gdriveFileId: null,
+                localPath: null,
+                thumbnailBase64: null,
+            })
+
+            const updateArg = (deps.db.update as ReturnType<typeof mock>).mock.calls[0][1] as Record<string, unknown>
+            expect(updateArg.sizeBytes).toBeUndefined()
+            expect(deps.getUserQuotaBytes).not.toHaveBeenCalled()
+        })
+
+        test('실제 크기가 쿼터를 넘기면 failed 로 두고 실물을 정리한 뒤 DRIVE_QUOTA_EXCEEDED 를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(preparingRow()))
+            deps.getUserQuotaBytes = mock(() => Promise.resolve(1000))
+            deps.db.getTotalSizeByUser = mock(() => Promise.resolve(900))
+            const gdriveDel = mock(() => Promise.resolve())
+            deps.getGdriveStorage = mock(() => Promise.resolve({ download: () => Promise.resolve(new ReadableStream()), del: gdriveDel } as never))
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.complete(1, 'valid-token', {
+                    fileHash: 'abc',
+                    storageTiers: 'L1,L3',
+                    gdriveFileId: 'gd-1',
+                    localPath: null,
+                    thumbnailBase64: null,
+                    sizeBytes: 900_000,
+                }),
+            ).rejects.toMatchObject({ code: 'DRIVE_QUOTA_EXCEEDED' })
+
+            expect(deps.db.update).toHaveBeenCalledWith(1, expect.objectContaining({ uploadStatus: 'failed', storageTiers: '' }))
+            expect(deps.storage.del).toHaveBeenCalledWith('users/user-1/uuid/photo.jpg')
+            expect(gdriveDel).toHaveBeenCalledWith('gd-1')
+        })
+    })
+
+    describe('중복 fileHash: 409 처리', () => {
+        test('prepare 에서 유니크 위반으로 insert 가 null 이면 DRIVE_DUPLICATE_FILE 을 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.insert = mock(() => Promise.resolve(null as { id: number } | null))
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.prepare('user-1', { originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 10, folderId: null, fileHash: 'dup' }),
+            ).rejects.toMatchObject({ code: 'DRIVE_DUPLICATE_FILE', statusCode: 409 })
+        })
+
+        test('upload 에서 insert 가 null 이면 R2 오브젝트를 지우고 DRIVE_DUPLICATE_FILE 을 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.insert = mock(() => Promise.resolve(null as { id: number } | null))
+            const service = createDriveAssetService(deps)
+
+            const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(1020).fill(0)])], 'photo.jpg', { type: 'image/jpeg' })
+
+            await expect(service.upload(file, 'user-1')).rejects.toMatchObject({ code: 'DRIVE_DUPLICATE_FILE', statusCode: 409 })
+            expect(deps.storage.del).toHaveBeenCalledWith('users/user-1/test-uuid/photo.jpg')
+        })
+
+        test('complete 에서 update 가 null 이면 failed 로 두고 실물을 정리한 뒤 DRIVE_DUPLICATE_FILE 을 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() =>
+                Promise.resolve(
+                    mockAssetRow({ fileHash: '', uploadStatus: 'uploading', uploadToken: 'valid-token', storageTiers: '', thumbnailBlob: null }),
+                ),
+            )
+            deps.db.update = mock(() => Promise.resolve(null as { id: number } | null))
+            const service = createDriveAssetService(deps)
+
+            await expect(
+                service.complete(1, 'valid-token', {
+                    fileHash: 'dup-hash',
+                    storageTiers: 'L1',
+                    gdriveFileId: null,
+                    localPath: null,
+                    thumbnailBase64: null,
+                }),
+            ).rejects.toMatchObject({ code: 'DRIVE_DUPLICATE_FILE', statusCode: 409 })
+
+            expect(deps.db.update).toHaveBeenLastCalledWith(1, { uploadStatus: 'failed', uploadToken: null, storageTiers: '' })
+            expect(deps.storage.del).toHaveBeenCalledWith('users/user-1/uuid/photo.jpg')
+        })
+    })
+
+    describe('download', () => {
+        test('L3 사본이 있으면 Google Drive 스트림을 반환한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L3', gdriveFileId: 'gd-1' })))
+            const gdriveStream = new ReadableStream()
+            deps.getGdriveStorage = mock(() =>
+                Promise.resolve({ download: () => Promise.resolve(gdriveStream), del: () => Promise.resolve() } as never),
+            )
+            const service = createDriveAssetService(deps)
+
+            const result = await service.download(1, 'user-1')
+
+            expect(result.stream).toBe(gdriveStream)
+            expect(deps.storage.getObjectStream).not.toHaveBeenCalled()
+        })
+
+        test('L1 만 있는 자산은 R2 스트림으로 응답한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L1', gdriveFileId: null, sizeBytes: 5000 })))
+            const r2Stream = new ReadableStream()
+            deps.storage.getObjectStream = mock(() => Promise.resolve(r2Stream as ReadableStream | null))
+            const service = createDriveAssetService(deps)
+
+            const result = await service.download(1, 'user-1')
+
+            expect(result).toEqual({ stream: r2Stream, mimeType: 'image/jpeg', originalName: 'photo.jpg', sizeBytes: 5000 })
+            expect(deps.storage.getObjectStream).toHaveBeenCalledWith('users/user-1/uuid/photo.jpg')
+        })
+
+        test('L3 다운로드가 실패하면 기존 동작대로 예외를 전파하고 L1 로 폴백하지 않는다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L1,L3', gdriveFileId: 'gd-1' })))
+            deps.getGdriveStorage = mock(() =>
+                Promise.resolve({ download: () => Promise.reject(new Error('gdrive down')), del: () => Promise.resolve() } as never),
+            )
+            const service = createDriveAssetService(deps)
+
+            await expect(service.download(1, 'user-1')).rejects.toThrow('gdrive down')
+            expect(deps.storage.getObjectStream).not.toHaveBeenCalled()
+        })
+
+        test('gdrive 저장소가 구성되지 않았고 L1 사본이 있으면 R2 스트림으로 응답한다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L1,L3', gdriveFileId: 'gd-1' })))
+            deps.getGdriveStorage = mock(() => Promise.resolve(null))
+            const r2Stream = new ReadableStream()
+            deps.storage.getObjectStream = mock(() => Promise.resolve(r2Stream as ReadableStream | null))
+            const service = createDriveAssetService(deps)
+
+            expect((await service.download(1, 'user-1')).stream).toBe(r2Stream)
+        })
+
+        test('L1 오브젝트도 없으면 DRIVE_ALL_TIERS_FAILED 를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L1', gdriveFileId: null })))
+            const service = createDriveAssetService(deps)
+
+            await expect(service.download(1, 'user-1')).rejects.toMatchObject({ code: 'DRIVE_ALL_TIERS_FAILED' })
+        })
+
+        test('다른 사용자의 자산은 DRIVE_ASSET_NOT_FOUND 를 던진다', async () => {
+            const deps = createMockDeps()
+            deps.db.getById = mock(() => Promise.resolve(mockAssetRow({ storageTiers: 'L1' })))
+            const service = createDriveAssetService(deps)
+
+            await expect(service.download(1, 'user-2')).rejects.toMatchObject({ code: 'DRIVE_ASSET_NOT_FOUND' })
         })
     })
 

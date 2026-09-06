@@ -3,6 +3,7 @@ import * as schema from '../db/schema'
 import { createDriveAssetService } from '../service/domain/drive/drive-asset'
 import { createDriveFolderService } from '../service/domain/drive/drive-folder'
 import { createStorageLifecycleService } from '../service/shared/storage-lifecycle'
+import { isDuplicateKeyError } from '../lib/db-helper'
 import type { ComposeDriveArgs } from './types'
 
 export const composeDrive = ({ db, env, storageService, imageProcessor, initGdriveStorage }: ComposeDriveArgs) => {
@@ -108,27 +109,32 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
             storageTiers: string
             accessCount: number
         }) => {
-            const [result] = await db
-                .insert(schema.cloudAssets)
-                .values({
-                    userId: data.userId,
-                    s3Key: data.s3Key,
-                    originalName: data.originalName,
-                    mimeType: data.mimeType,
-                    sizeBytes: data.sizeBytes,
-                    fileHash: data.fileHash,
-                    folderId: data.folderId,
-                    thumbnailBlob: data.thumbnailBlob,
-                    isPublic: data.isPublic,
-                    uploadStatus: data.uploadStatus,
-                    uploadToken: data.uploadToken,
-                    localPath: data.localPath,
-                    gdriveFileId: data.gdriveFileId,
-                    storageTiers: data.storageTiers,
-                    accessCount: data.accessCount,
-                })
-                .$returningId()
-            return { id: result.id }
+            try {
+                const [result] = await db
+                    .insert(schema.cloudAssets)
+                    .values({
+                        userId: data.userId,
+                        s3Key: data.s3Key,
+                        originalName: data.originalName,
+                        mimeType: data.mimeType,
+                        sizeBytes: data.sizeBytes,
+                        fileHash: data.fileHash,
+                        folderId: data.folderId,
+                        thumbnailBlob: data.thumbnailBlob,
+                        isPublic: data.isPublic,
+                        uploadStatus: data.uploadStatus,
+                        uploadToken: data.uploadToken,
+                        localPath: data.localPath,
+                        gdriveFileId: data.gdriveFileId,
+                        storageTiers: data.storageTiers,
+                        accessCount: data.accessCount,
+                    })
+                    .$returningId()
+                return { id: result.id }
+            } catch (error) {
+                if (isDuplicateKeyError(error)) return null
+                throw error
+            }
         },
 
         getById: async (id: number) => {
@@ -211,9 +217,16 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                 gdriveFileId: string | null
                 thumbnailBlob: Buffer | null
                 fileHash: string
+                sizeBytes: number
             }>,
         ) => {
-            await db.update(schema.cloudAssets).set(data).where(eq(schema.cloudAssets.id, id))
+            try {
+                await db.update(schema.cloudAssets).set(data).where(eq(schema.cloudAssets.id, id))
+                return { id }
+            } catch (error) {
+                if (isDuplicateKeyError(error)) return null
+                throw error
+            }
         },
 
         remove: async (id: number) => {

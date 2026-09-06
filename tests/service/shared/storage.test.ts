@@ -79,6 +79,40 @@ describe('createStorageService', () => {
         expect(url.endsWith('uploads/photo.png')).toBe(true)
     })
 
+    test('getObjectStream이 R2 오브젝트의 웹 스트림을 반환한다', async () => {
+        const stream = new ReadableStream()
+        const mockS3 = { send: mock(() => Promise.resolve({ Body: { transformToWebStream: () => stream } })) }
+        const storage = createStorageService({
+            s3: mockS3 as never,
+            bucket: 'test-bucket',
+            cdnDomain: 'https://cdn.test.com',
+        })
+
+        expect(await storage.getObjectStream('users/user-1/uuid/photo.jpg')).toBe(stream)
+    })
+
+    test('getObjectStream이 Body 없으면 null을 반환한다', async () => {
+        const mockS3 = { send: mock(() => Promise.resolve({})) }
+        const storage = createStorageService({
+            s3: mockS3 as never,
+            bucket: 'test-bucket',
+            cdnDomain: 'https://cdn.test.com',
+        })
+
+        expect(await storage.getObjectStream('missing')).toBeNull()
+    })
+
+    test('getObjectStream이 S3 에러를 null로 흡수한다', async () => {
+        const mockS3 = { send: mock(() => Promise.reject(new Error('NoSuchKey'))) }
+        const storage = createStorageService({
+            s3: mockS3 as never,
+            bucket: 'test-bucket',
+            cdnDomain: 'https://cdn.test.com',
+        })
+
+        expect(await storage.getObjectStream('missing')).toBeNull()
+    })
+
     test('del에서 S3 에러가 STORAGE_DELETE_FAILED로 변환된다', async () => {
         const mockS3 = { send: mock(() => Promise.reject(new Error('S3 error'))) }
         const storage = createStorageService({

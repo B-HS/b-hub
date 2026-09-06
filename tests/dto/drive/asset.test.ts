@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { driveAssetListQuerySchema, driveAssetParamSchema, driveAssetUpdateSchema } from '../../../dto/drive/asset'
+import { driveAssetListQuerySchema, driveAssetParamSchema, driveAssetPrepareSchema, driveAssetUpdateSchema } from '../../../dto/drive/asset'
 
 describe('driveAssetListQuerySchema', () => {
     test('기본값으로 파싱한다', () => {
@@ -96,5 +96,62 @@ describe('driveAssetUpdateSchema', () => {
         const result = driveAssetUpdateSchema.parse({})
         expect(result.isPublic).toBeUndefined()
         expect(result.folderId).toBeUndefined()
+    })
+})
+
+describe('driveAssetPrepareSchema', () => {
+    test('Storage 가 보내는 본문을 그대로 파싱한다', () => {
+        const result = driveAssetPrepareSchema.parse({
+            originalName: 'video.mp4',
+            mimeType: 'video/mp4',
+            sizeBytes: 500_000,
+            folderId: 'folder-1',
+            fileHash: 'a'.repeat(64),
+        })
+
+        expect(result).toEqual({
+            originalName: 'video.mp4',
+            mimeType: 'video/mp4',
+            sizeBytes: 500_000,
+            folderId: 'folder-1',
+            fileHash: 'a'.repeat(64),
+        })
+    })
+
+    test('folderId 와 fileHash 는 생략하면 기본값을 채운다', () => {
+        const result = driveAssetPrepareSchema.parse({ originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 10 })
+
+        expect(result.folderId).toBeNull()
+        expect(result.fileHash).toBe('')
+    })
+
+    test('folderId 는 null 을 허용한다', () => {
+        expect(driveAssetPrepareSchema.parse({ originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: 10, folderId: null }).folderId).toBeNull()
+    })
+
+    test('sizeBytes 는 문자열로 와도 숫자로 강제 변환한다', () => {
+        expect(driveAssetPrepareSchema.parse({ originalName: 'a.txt', mimeType: 'text/plain', sizeBytes: '2048' }).sizeBytes).toBe(2048)
+    })
+
+    test('sizeBytes 가 0·음수·소수·비숫자면 거부한다', () => {
+        const base = { originalName: 'a.txt', mimeType: 'text/plain' }
+        expect(() => driveAssetPrepareSchema.parse({ ...base, sizeBytes: 0 })).toThrow()
+        expect(() => driveAssetPrepareSchema.parse({ ...base, sizeBytes: -1 })).toThrow()
+        expect(() => driveAssetPrepareSchema.parse({ ...base, sizeBytes: 1.5 })).toThrow()
+        expect(() => driveAssetPrepareSchema.parse({ ...base, sizeBytes: 'abc' })).toThrow()
+        expect(() => driveAssetPrepareSchema.parse(base)).toThrow()
+    })
+
+    test('originalName 은 1..255 자여야 한다', () => {
+        const base = { mimeType: 'text/plain', sizeBytes: 10 }
+        expect(() => driveAssetPrepareSchema.parse({ ...base, originalName: '' })).toThrow()
+        expect(() => driveAssetPrepareSchema.parse({ ...base, originalName: 'a'.repeat(256) })).toThrow()
+        expect(driveAssetPrepareSchema.parse({ ...base, originalName: 'a'.repeat(255) }).originalName).toHaveLength(255)
+    })
+
+    test('mimeType 이 없거나 비어 있으면 거부한다', () => {
+        const base = { originalName: 'a.txt', sizeBytes: 10 }
+        expect(() => driveAssetPrepareSchema.parse({ ...base, mimeType: '' })).toThrow()
+        expect(() => driveAssetPrepareSchema.parse(base)).toThrow()
     })
 })

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { createReadStream, createWriteStream, unlinkSync, mkdirSync } from 'fs'
+import { createReadStream, createWriteStream, statSync, unlinkSync, mkdirSync } from 'fs'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 import { join } from 'path'
@@ -116,7 +116,8 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                 const storageKey = hubS3Key ?? s3Key
 
                 await saveFileToDisk(file, tmpPath)
-                console.log(`[upload] saved to disk: ${tmpPath}`)
+                const sizeBytes = statSync(tmpPath).size
+                console.log(`[upload] saved to disk: ${tmpPath} size=${sizeBytes}`)
 
                 const fileHash = await computeHashFromFile(tmpPath)
                 console.log(`[upload] hash=${fileHash.slice(0, 12)}...`)
@@ -172,7 +173,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                     console.log(`[upload] gdrive skipped (token endpoint ${tokenRes.status})`)
                 }
 
-                if (file.size <= deps.l1MaxFileSize) {
+                if (sizeBytes <= deps.l1MaxFileSize) {
                     const r2Result = await withRetry(async () => {
                         const result = await deps.r2.upload(storageKey, tmpPath, file.type)
                         if (!result.success) throw new Error(result.error)
@@ -186,7 +187,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                         console.error(`[upload] r2 failed: ${r2Result.error}`)
                     }
                 } else {
-                    console.log(`[upload] r2 skipped (size ${file.size} > ${deps.l1MaxFileSize})`)
+                    console.log(`[upload] r2 skipped (size ${sizeBytes} > ${deps.l1MaxFileSize})`)
                 }
 
                 // TODO: 10GB 초과 파일은 Mac Studio로 스트리밍-스트리밍 전송
@@ -211,6 +212,7 @@ export const createUploadHandler = (deps: UploadHandlerDeps) => {
                         gdriveFileId,
                         localPath,
                         thumbnailBase64,
+                        sizeBytes,
                     }),
                 })
 

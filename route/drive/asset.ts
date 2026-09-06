@@ -6,7 +6,7 @@ import { createAppError } from '../../lib/error'
 import { isSecretMatch } from '../../lib/cron-auth'
 import { successResponse, paginatedResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
-import { driveAssetListQuerySchema, driveAssetParamSchema, driveAssetUpdateSchema } from '../../dto/drive/asset'
+import { driveAssetListQuerySchema, driveAssetParamSchema, driveAssetPrepareSchema, driveAssetUpdateSchema } from '../../dto/drive/asset'
 import type { DriveAssetService } from '../../service/domain/drive/drive-asset'
 
 type DriveAssetRouteDeps = {
@@ -60,18 +60,13 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 ...errorResponses(['UNAUTHORIZED', 'DRIVE_QUOTA_EXCEEDED', 'DRIVE_INVALID_MIME_TYPE']),
             },
         }),
+        validator('json', driveAssetPrepareSchema),
         withErrorHandling(async (c) => {
             const session = await deps.getSession(c)
             if (!session) throw createAppError('UNAUTHORIZED')
 
-            const body = await c.req.json()
-            const result = await deps.driveAssetService.prepare(session.user.id, {
-                originalName: body.originalName,
-                mimeType: body.mimeType,
-                sizeBytes: Number(body.sizeBytes),
-                folderId: body.folderId ?? null,
-                fileHash: body.fileHash ?? '',
-            })
+            const body = c.req.valid('json' as never) as z.infer<typeof driveAssetPrepareSchema>
+            const result = await deps.driveAssetService.prepare(session.user.id, body)
             return c.json(successResponse(result))
         }),
     )
@@ -95,7 +90,13 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
             summary: '업로드 완료 콜백 (Lightsail → hyun-hub)',
             responses: {
                 200: { description: '업로드 완료 상태' },
-                ...errorResponses(['UNAUTHORIZED', 'DRIVE_ASSET_NOT_FOUND', 'DRIVE_UPLOAD_EVENT_FAILED']),
+                ...errorResponses([
+                    'UNAUTHORIZED',
+                    'DRIVE_ASSET_NOT_FOUND',
+                    'DRIVE_UPLOAD_EVENT_FAILED',
+                    'DRIVE_DUPLICATE_FILE',
+                    'DRIVE_QUOTA_EXCEEDED',
+                ]),
             },
         }),
         validator('param', driveAssetParamSchema),
@@ -110,6 +111,7 @@ export const createDriveAssetRoute = (deps: DriveAssetRouteDeps) => {
                 gdriveFileId: body.gdriveFileId ?? null,
                 localPath: body.localPath ?? null,
                 thumbnailBase64: body.thumbnailBase64 ?? null,
+                sizeBytes: typeof body.sizeBytes === 'number' ? body.sizeBytes : null,
             })
             return c.json(successResponse(result))
         }),

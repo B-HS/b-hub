@@ -7,6 +7,7 @@ type DriveStorageService = {
     del: (key: string) => Promise<void>
     getUrl: (key: string) => string
     getPresignedUrl: (key: string, expiresIn?: number) => Promise<string>
+    getObjectStream: (key: string) => Promise<ReadableStream | null>
 }
 
 type DriveGdriveService = {
@@ -60,7 +61,7 @@ type DriveAssetServiceDb = {
         gdriveFileId: string | null
         storageTiers: string
         accessCount: number
-    }) => Promise<{ id: number }>
+    }) => Promise<{ id: number } | null>
     getById: (id: number) => Promise<DriveAssetRow | null>
     getByUserAndHash: (userId: string, fileHash: string) => Promise<DriveAssetRow | null>
     list: (params: {
@@ -87,8 +88,9 @@ type DriveAssetServiceDb = {
             gdriveFileId: string | null
             thumbnailBlob: Buffer | null
             fileHash: string
+            sizeBytes: number
         }>,
-    ) => Promise<void>
+    ) => Promise<{ id: number } | null>
     remove: (id: number) => Promise<void>
     getTotalSizeByUser: (userId: string) => Promise<number>
 }
@@ -176,6 +178,27 @@ const validateMagicBytes = (buffer: Buffer, mimeType: string) => {
 
 const parseTiers = (storageTiers: string): Set<string> => new Set(storageTiers.split(',').filter(Boolean))
 
+const removeStorageObjectQuietly = async (storage: DriveStorageService, s3Key: string) => {
+    try {
+        await storage.del(s3Key)
+    } catch {}
+}
+
+const cleanupUploadedTiers = async (deps: DriveAssetServiceDeps, target: { s3Key: string; storageTiers: string; gdriveFileId: string | null }) => {
+    const tiers = parseTiers(target.storageTiers)
+
+    if (tiers.has('L1')) {
+        await removeStorageObjectQuietly(deps.storage, target.s3Key)
+    }
+
+    if (tiers.has('L3') && target.gdriveFileId) {
+        try {
+            const gdriveStorage = await deps.getGdriveStorage()
+            if (gdriveStorage) await gdriveStorage.del(target.gdriveFileId)
+        } catch {}
+    }
+}
+
 const generateToken = () => {
     const bytes = new Uint8Array(32)
     crypto.getRandomValues(bytes)
@@ -256,10 +279,13 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
                 accessCount: 0,
             })
         } catch (error) {
-            try {
-                await deps.storage.del(s3Key)
-            } catch {}
+            await removeStorageObjectQuietly(deps.storage, s3Key)
             throw error
+        }
+
+        if (!result) {
+            await removeStorageObjectQuietly(deps.storage, s3Key)
+            throw createAppError('DRIVE_DUPLICATE_FILE')
         }
 
         return {
@@ -327,6 +353,8 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             accessCount: 0,
         })
 
+        if (!result) throw createAppError('DRIVE_DUPLICATE_FILE')
+
         return {
             assetId: result.id,
             s3Key,
@@ -362,6 +390,7 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             gdriveFileId: string | null
             localPath: string | null
             thumbnailBase64: string | null
+            sizeBytes?: number | null
         },
     ) => {
         const asset = await deps.db.getById(assetId)
@@ -375,19 +404,41 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             throw createAppError('DRIVE_UPLOAD_EVENT_FAILED')
         }
 
-        const thumbnailBlob = data.thumbnailBase64 ? Buffer.from(data.thumbnailBase64, 'base64') : null
+        const uploadedTiers = { s3Key: asset.s3Key, storageTiers: data.storageTiers, gdriveFileId: data.gdriveFileId }
+        const mismatchedSizeBytes =
+            typeof data.sizeBytes === 'number' && data.sizeBytes > 0 && data.sizeBytes !== asset.sizeBytes ? data.sizeBytes : null
 
-        await deps.db.update(assetId, {
-            uploadStatus: data.storageTiers ? 'ready' : 'failed',
+        if (mismatchedSizeBytes !== null) {
+            const quotaBytes = await deps.getUserQuotaBytes(asset.userId)
+            const currentUsage = await deps.db.getTotalSizeByUser(asset.userId)
+            if (currentUsage - asset.sizeBytes + mismatchedSizeBytes > quotaBytes) {
+                await deps.db.update(assetId, { uploadStatus: 'failed', uploadToken: null, storageTiers: '' })
+                await cleanupUploadedTiers(deps, uploadedTiers)
+                throw createAppError('DRIVE_QUOTA_EXCEEDED')
+            }
+        }
+
+        const thumbnailBlob = data.thumbnailBase64 ? Buffer.from(data.thumbnailBase64, 'base64') : null
+        const uploadStatus = data.storageTiers ? 'ready' : 'failed'
+
+        const updated = await deps.db.update(assetId, {
+            uploadStatus,
             uploadToken: null,
             storageTiers: data.storageTiers || '',
             gdriveFileId: data.gdriveFileId,
             localPath: data.localPath,
             thumbnailBlob,
+            ...(mismatchedSizeBytes !== null ? { sizeBytes: mismatchedSizeBytes } : {}),
             ...(data.fileHash ? { fileHash: data.fileHash } : {}),
         })
 
-        return { id: assetId, uploadStatus: data.storageTiers ? 'ready' : 'failed' }
+        if (updated === null) {
+            await deps.db.update(assetId, { uploadStatus: 'failed', uploadToken: null, storageTiers: '' })
+            await cleanupUploadedTiers(deps, uploadedTiers)
+            throw createAppError('DRIVE_DUPLICATE_FILE')
+        }
+
+        return { id: assetId, uploadStatus }
     },
 
     list: async (userId: string, query: { page: number; limit: number; mimeType?: string; folderId?: string; sort: string; order: string }) => {
@@ -469,6 +520,13 @@ export const createDriveAssetService = (deps: DriveAssetServiceDeps) => ({
             const gdriveStorage = await deps.getGdriveStorage()
             if (gdriveStorage) {
                 const stream = await gdriveStorage.download(asset.gdriveFileId)
+                return { stream, mimeType: asset.mimeType, originalName: asset.originalName, sizeBytes: asset.sizeBytes }
+            }
+        }
+
+        if (tiers.has('L1')) {
+            const stream = await deps.storage.getObjectStream(asset.s3Key)
+            if (stream) {
                 return { stream, mimeType: asset.mimeType, originalName: asset.originalName, sizeBytes: asset.sizeBytes }
             }
         }

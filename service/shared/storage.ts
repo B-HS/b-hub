@@ -74,7 +74,21 @@ export const createStorageService = (deps: StorageDeps) => {
         }
     }
 
-    return { upload, del, list, getUrl, getPresignedUrl, getObject }
+    const getObjectStream = async (key: string) => {
+        try {
+            const command = new GetObjectCommand({
+                Bucket: deps.bucket,
+                Key: key,
+            })
+            const result = await deps.s3.send(command)
+            if (!result.Body) return null
+            return result.Body.transformToWebStream()
+        } catch (error) {
+            return null
+        }
+    }
+
+    return { upload, del, list, getUrl, getPresignedUrl, getObject, getObjectStream }
 }
 
 export type StorageService = ReturnType<typeof createStorageService>

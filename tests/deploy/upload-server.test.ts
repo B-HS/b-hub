@@ -220,6 +220,39 @@ describe('createUploadHandler.handle - hub s3Key 대조', () => {
     })
 })
 
+describe('createUploadHandler.handle - complete 콜백 본문', () => {
+    test('디스크에 기록된 실제 바이트 수를 sizeBytes 로 hub 에 보고한다', async () => {
+        const tmpDir = createTmpDir()
+        const { deps } = createUploadDeps(tmpDir)
+        const completeBodies: Record<string, unknown>[] = []
+        const originalFetch = globalThis.fetch
+
+        globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input)
+            if (url.endsWith('/status')) return new Response(JSON.stringify({ success: true, data: {} }), { status: 200 })
+            if (url.endsWith('/gdrive-token')) return new Response(JSON.stringify({ success: false }), { status: 200 })
+            if (url.endsWith('/complete')) {
+                completeBodies.push(JSON.parse(String(init?.body)))
+                return new Response(JSON.stringify({ success: true }), { status: 200 })
+            }
+            throw new Error(`unexpected fetch: ${url}`)
+        }) as unknown as typeof fetch
+
+        try {
+            const handler = createUploadHandler(deps)
+            const content = 'hello-upload-with-known-size'
+            const result = await handler.handle(new File([content], 'hello.txt', { type: 'text/plain' }), 1, VALID_S3_KEY, 'token-1')
+
+            expect(result.success).toBe(true)
+            expect(completeBodies).toHaveLength(1)
+            expect(completeBodies[0].sizeBytes).toBe(Buffer.byteLength(content))
+        } finally {
+            globalThis.fetch = originalFetch
+            rmSync(tmpDir, { recursive: true, force: true })
+        }
+    })
+})
+
 describe('createBlogImageHandler.handle - assetId 검증', () => {
     const createBlogDeps = (tmpDir: string) => {
         const calls = { r2Keys: [] as string[] }
