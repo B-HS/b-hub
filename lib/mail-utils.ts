@@ -137,6 +137,10 @@ export const isBlockedHost = (host: string): boolean => {
     return false
 }
 
+const LOCAL_FOLDER_REMOTE_ID_PREFIX = '__local_'
+
+export const isLocalMailFolder = (remoteFolderId: string): boolean => remoteFolderId.startsWith(LOCAL_FOLDER_REMOTE_ID_PREFIX)
+
 export const maskProviderError = (message: string): string => {
     return message
         .replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, '[redacted]')

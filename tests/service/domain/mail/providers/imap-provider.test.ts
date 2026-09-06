@@ -12,6 +12,11 @@ let mockMessageCount: number | null = null
 let capturedFetchFields: unknown[] = []
 let mockEnvelopeByUid: Record<number, Record<string, unknown>> = {}
 let mockReferencesByUid: Record<number, string> = {}
+let capturedLockPaths: string[] = []
+let capturedMailboxOps: { op: string; range: unknown; arg?: unknown; lockedPaths: string[] }[] = []
+let mockMoveResult: unknown = false
+let mockMailboxes: { path: string; name: string; parentPath?: string; specialUse?: string }[] = []
+let capturedStatusPaths: string[] = []
 
 mock.module('imapflow', () => ({
     ImapFlow: class {
@@ -20,8 +25,35 @@ mock.module('imapflow', () => ({
         }
         connect = mockImapConnect
         logout = mockImapLogout
-        getMailboxLock = mock(() => Promise.resolve({ release: () => {} }))
-        status = mock(() => Promise.resolve({ messages: mockMessageCount ?? mockUids.length }))
+        getMailboxLock = mock((path: string) => {
+            capturedLockPaths.push(path)
+            return Promise.resolve({
+                release: () => {
+                    capturedLockPaths = capturedLockPaths.filter((p) => p !== path)
+                },
+            })
+        })
+        messageFlagsAdd = mock((range: unknown, flags: unknown) => {
+            capturedMailboxOps.push({ op: 'flagsAdd', range, arg: flags, lockedPaths: [...capturedLockPaths] })
+            return Promise.resolve(true)
+        })
+        messageFlagsRemove = mock((range: unknown, flags: unknown) => {
+            capturedMailboxOps.push({ op: 'flagsRemove', range, arg: flags, lockedPaths: [...capturedLockPaths] })
+            return Promise.resolve(true)
+        })
+        messageMove = mock((range: unknown, destination: unknown) => {
+            capturedMailboxOps.push({ op: 'move', range, arg: destination, lockedPaths: [...capturedLockPaths] })
+            return Promise.resolve(mockMoveResult)
+        })
+        messageDelete = mock((range: unknown) => {
+            capturedMailboxOps.push({ op: 'delete', range, lockedPaths: [...capturedLockPaths] })
+            return Promise.resolve(true)
+        })
+        list = mock(() => Promise.resolve(mockMailboxes))
+        status = mock((path: string) => {
+            capturedStatusPaths.push(path)
+            return Promise.resolve({ messages: mockMessageCount ?? mockUids.length })
+        })
         fetch(range: unknown, fields: unknown, _options?: unknown) {
             capturedFetchQueries.push(range)
             capturedFetchFields.push(fields)
@@ -100,6 +132,11 @@ beforeEach(() => {
     mockMessageCount = null
     mockEnvelopeByUid = {}
     mockReferencesByUid = {}
+    capturedLockPaths = []
+    capturedMailboxOps = []
+    mockMoveResult = false
+    mockMailboxes = []
+    capturedStatusPaths = []
 })
 
 describe('createImapProvider auth.user', () => {
@@ -311,8 +348,7 @@ describe('threadId derive', () => {
         await provider.fetchMessages({ folderId: 'INBOX', batchSize: 100 })
 
         const detailFetch = capturedFetchFields.find((f) => f && typeof f === 'object' && 'headers' in (f as object)) as
-            | { headers?: unknown }
-            | undefined
+            { headers?: unknown } | undefined
         expect(detailFetch?.headers).toEqual(['references'])
     })
 
@@ -325,5 +361,151 @@ describe('threadId derive', () => {
 
         expect(msg?.threadId).toBe('<root@a.com>')
         expect(msg?.references).toBe('<root@a.com> <reply1@b.com> <reply2@c.com>')
+    })
+})
+
+describe('메일함 선택 후 플래그/이동/삭제 실행', () => {
+    test('markRead는 폴더 lock 안에서 \\Seen 플래그를 추가한다', async () => {
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        await provider.markRead(['10', '11'], 'INBOX')
+
+        expect(capturedMailboxOps).toHaveLength(2)
+        expect(capturedMailboxOps[0]).toMatchObject({ op: 'flagsAdd', range: '10', arg: ['\\Seen'], lockedPaths: ['INBOX'] })
+        expect(capturedMailboxOps[1].lockedPaths).toEqual(['INBOX'])
+        expect(capturedLockPaths).toEqual([])
+    })
+
+    test('unmarkStarred는 폴더 lock 안에서 \\Flagged 플래그를 제거한다', async () => {
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        await provider.unmarkStarred(['12'], 'INBOX')
+
+        expect(capturedMailboxOps[0]).toMatchObject({ op: 'flagsRemove', arg: ['\\Flagged'], lockedPaths: ['INBOX'] })
+    })
+
+    test('moveMessage는 원본 폴더 lock 안에서 한 번에 이동한다', async () => {
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        await provider.moveMessage(['10', '11'], 'ARCHIVE', 'INBOX')
+
+        expect(capturedMailboxOps).toHaveLength(1)
+        expect(capturedMailboxOps[0]).toMatchObject({ op: 'move', range: '10,11', arg: 'ARCHIVE', lockedPaths: ['INBOX'] })
+    })
+
+    test('moveMessage는 uidMap을 문자열 맵으로 반환한다', async () => {
+        mockMoveResult = {
+            uidMap: new Map([
+                [10, 90],
+                [11, 91],
+            ]),
+        }
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.moveMessage(['10', '11'], 'ARCHIVE', 'INBOX')
+
+        expect(result).toEqual({ uidMap: { '10': '90', '11': '91' } })
+    })
+
+    test('moveMessage는 uidMap이 없으면 빈 객체를 반환한다', async () => {
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.moveMessage(['10'], 'ARCHIVE', 'INBOX')
+
+        expect(result).toEqual({})
+    })
+
+    test('deleteMessage는 폴더 lock 안에서 \\Deleted 플래그 후 삭제한다', async () => {
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        await provider.deleteMessage(['10', '11'], 'INBOX')
+
+        expect(capturedMailboxOps.map((o) => o.op)).toEqual(['flagsAdd', 'delete'])
+        expect(capturedMailboxOps[0]).toMatchObject({ range: '10,11', arg: ['\\Deleted'], lockedPaths: ['INBOX'] })
+        expect(capturedMailboxOps[1]).toMatchObject({ range: '10,11', lockedPaths: ['INBOX'] })
+        expect(capturedLockPaths).toEqual([])
+    })
+
+    test('빈 messageIds면 서버 호출을 하지 않는다', async () => {
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        await provider.deleteMessage([], 'INBOX')
+        await provider.moveMessage([], 'ARCHIVE', 'INBOX')
+
+        expect(capturedMailboxOps).toHaveLength(0)
+    })
+})
+
+describe('fetchMessages 증분(forward) 배치', () => {
+    test('N:* 가 되돌려준 마지막 UID(=cursor)를 다시 수신하지 않는다', async () => {
+        mockUids = [30]
+        mockMessageCount = 30
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '30', batchSize: 100 })
+
+        expect(result.messages.length).toBe(0)
+        expect(result.newSyncCursor).toBe('30')
+    })
+
+    test('batchSize 를 초과하면 오래된 UID 부터 batchSize 만큼 가져오고 커서를 그만큼만 전진시킨다', async () => {
+        mockUids = [30, 31, 32, 33, 34, 35, 36]
+        mockMessageCount = 36
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '30', batchSize: 3 })
+
+        expect(result.messages.map((m) => m.id)).toEqual(['31', '32', '33'])
+        expect(result.newSyncCursor).toBe('33')
+    })
+
+    test('다음 실행에서 남은 UID 를 이어서 가져온다', async () => {
+        mockUids = [33, 34, 35, 36]
+        mockMessageCount = 36
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', cursor: '33', batchSize: 3 })
+
+        expect(result.messages.map((m) => m.id)).toEqual(['34', '35', '36'])
+        expect(result.newSyncCursor).toBe('36')
+    })
+
+    test('초기(cursor 없음) 동기화는 최신 UID 부터 batchSize 만큼 가져온다', async () => {
+        mockUids = [10, 20, 30, 40]
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const result = await provider.fetchMessages({ folderId: 'INBOX', batchSize: 2 })
+
+        expect([...result.messages.map((m) => m.id)].sort()).toEqual(['30', '40'])
+        expect(result.newSyncCursor).toBe('40')
+    })
+})
+
+describe('fetchFolders includeCounts', () => {
+    const mailboxes = [
+        { path: 'INBOX', name: 'INBOX', specialUse: '\\Inbox' },
+        { path: 'Sent', name: 'Sent', specialUse: '\\Sent' },
+    ]
+
+    test('includeCounts 가 false 면 status 를 호출하지 않고 카운트를 0 으로 둔다', async () => {
+        mockMailboxes = mailboxes
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const folders = await provider.fetchFolders({ includeCounts: false })
+
+        expect(capturedStatusPaths).toEqual([])
+        expect(folders.map((f) => f.id)).toEqual(['INBOX', 'Sent'])
+        expect(folders.every((f) => f.messageCount === 0 && f.unreadCount === 0)).toBe(true)
+    })
+
+    test('옵션이 없으면 폴더마다 status 를 호출한다', async () => {
+        mockMailboxes = mailboxes
+        mockMessageCount = 7
+        const provider = createImapProvider({ ...baseDeps })
+        await provider.connect()
+        const folders = await provider.fetchFolders()
+
+        expect(capturedStatusPaths).toEqual(['INBOX', 'Sent'])
+        expect(folders[0].messageCount).toBe(7)
     })
 })

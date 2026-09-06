@@ -462,7 +462,7 @@ export const mailMessages = mysqlTable(
             .notNull(),
     },
     (table) => [
-        unique('uq_mail_messages_account_remote').on(table.accountId, table.remoteMessageId),
+        unique('uq_mail_messages_account_remote').on(table.accountId, table.folderId, table.remoteMessageId),
         index('idx_mail_messages_folder').on(table.folderId),
         index('idx_mail_messages_sent_at').on(table.sentAt),
         index('idx_mail_messages_thread').on(table.threadId),

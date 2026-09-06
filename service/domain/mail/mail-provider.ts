@@ -45,6 +45,10 @@ export type ProviderMessage = {
     attachments: ProviderAttachment[]
 }
 
+export type FetchFoldersOptions = {
+    includeCounts?: boolean
+}
+
 export type FetchMessagesOptions = {
     folderId: string
     cursor?: string
@@ -79,6 +83,10 @@ export type ComposeEmailData = {
     attachments?: ComposeAttachment[]
 }
 
+export type MoveMessageResult = {
+    uidMap?: Record<string, string>
+}
+
 export type AttachmentData = {
     content: Buffer
     filename: string
@@ -90,7 +98,7 @@ export type MailProvider = {
     disconnect(): Promise<void>
     testConnection(): Promise<{ success: boolean; error?: string }>
 
-    fetchFolders(): Promise<ProviderFolder[]>
+    fetchFolders(options?: FetchFoldersOptions): Promise<ProviderFolder[]>
 
     fetchMessages(options: FetchMessagesOptions): Promise<ProviderSyncResult>
     fetchMessageDetail(messageId: string): Promise<ProviderMessage | null>
@@ -100,8 +108,8 @@ export type MailProvider = {
     markStarred(messageIds: string[], folderId?: string): Promise<void>
     unmarkStarred(messageIds: string[], folderId?: string): Promise<void>
 
-    moveMessage(messageIds: string[], targetFolderId: string, sourceFolderId?: string): Promise<void>
-    deleteMessage(messageIds: string[]): Promise<void>
+    moveMessage(messageIds: string[], targetFolderId: string, sourceFolderId?: string): Promise<MoveMessageResult | void>
+    deleteMessage(messageIds: string[], folderId?: string): Promise<void>
 
     downloadAttachment(messageId: string, attachmentId: string, folderId?: string): Promise<AttachmentData>
 

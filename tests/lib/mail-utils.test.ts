@@ -8,6 +8,7 @@ import {
     isBlockedHost,
     maskProviderError,
     deriveThreadId,
+    isLocalMailFolder,
 } from '../../lib/mail-utils'
 
 describe('sanitizeHeaderValue', () => {
@@ -373,5 +374,18 @@ describe('deriveThreadId', () => {
 
     test('앞뒤 공백을 제거하고 정규화한다', () => {
         expect(deriveThreadId({ messageIdHeader: '  <self@d.com>  ' })).toBe('<self@d.com>')
+    })
+})
+
+describe('isLocalMailFolder', () => {
+    test('__local_ 접두 폴더는 로컬 폴더로 판정한다', () => {
+        expect(isLocalMailFolder('__local_drafts__')).toBe(true)
+        expect(isLocalMailFolder('__local_outbox__')).toBe(true)
+    })
+
+    test('원격 폴더는 로컬 폴더가 아니다', () => {
+        expect(isLocalMailFolder('INBOX')).toBe(false)
+        expect(isLocalMailFolder('DRAFTS')).toBe(false)
+        expect(isLocalMailFolder('folder__local_')).toBe(false)
     })
 })

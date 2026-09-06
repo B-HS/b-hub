@@ -129,6 +129,33 @@ describe('fetchFolders', () => {
         expect(folders.length).toBe(1)
         expect(folders[0].id).toBe('INBOX')
     })
+
+    test('includeCounts 가 false 면 라벨 상세를 조회하지 않고 카운트를 0 으로 둔다', async () => {
+        setFetchResponse('/labels', {
+            labels: [
+                { id: 'INBOX', name: 'INBOX' },
+                { id: 'Label_1', name: 'MyLabel' },
+            ],
+        })
+
+        const provider = createGmailProvider(createDeps())
+        const folders = await provider.fetchFolders({ includeCounts: false })
+
+        expect(folders.map((f) => f.id)).toEqual(['INBOX', 'Label_1'])
+        expect(folders.every((f) => f.messageCount === 0 && f.unreadCount === 0)).toBe(true)
+        expect(fetchCalls.filter((c) => /\/labels\/[^/?]+/.test(c.url)).length).toBe(0)
+    })
+
+    test('옵션이 없으면 라벨마다 상세를 조회한다', async () => {
+        setFetchResponse('/labels', { labels: [{ id: 'INBOX', name: 'INBOX' }] })
+        setFetchResponse('/labels/INBOX', { messagesTotal: 3, messagesUnread: 1 })
+
+        const provider = createGmailProvider(createDeps())
+        const folders = await provider.fetchFolders()
+
+        expect(fetchCalls.filter((c) => c.url.includes('/labels/INBOX')).length).toBe(1)
+        expect(folders[0].messageCount).toBe(3)
+    })
 })
 
 describe('fetchMessageDetail', () => {
@@ -645,5 +672,52 @@ describe('429 exponential backoff', () => {
         expect(result.success).toBe(true)
         const profileCalls = fetchCalls.filter((c) => c.url.includes('/profile'))
         expect(profileCalls.length).toBe(3)
+    })
+})
+
+describe('fetchMessages 초기 동기화 커서', () => {
+    const makeFullMessage = (id: string) => ({
+        id,
+        threadId: `thread-${id}`,
+        snippet: `snippet-${id}`,
+        labelIds: ['INBOX'],
+        internalDate: '1700000000000',
+        payload: {
+            headers: [
+                { name: 'From', value: 'sender@test.com' },
+                { name: 'To', value: 'to@test.com' },
+                { name: 'Subject', value: `Subject ${id}` },
+            ],
+            mimeType: 'text/plain',
+            body: { data: '', size: 0 },
+        },
+    })
+
+    test('목록 조회보다 /profile 을 먼저 호출한다', async () => {
+        setFetchResponse('/profile', { historyId: '77777' })
+        setFetchResponse('/messages?', { messages: [{ id: 'm1' }], resultSizeEstimate: 1 })
+        setFetchResponse('/messages/m1', makeFullMessage('m1'))
+
+        const provider = createGmailProvider(createDeps())
+        await provider.fetchMessages({ folderId: 'INBOX', batchSize: 10 })
+
+        const profileIndex = fetchCalls.findIndex((c) => c.url.includes('/profile'))
+        const listIndex = fetchCalls.findIndex((c) => c.url.includes('/messages?'))
+        expect(profileIndex).toBeGreaterThanOrEqual(0)
+        expect(listIndex).toBeGreaterThanOrEqual(0)
+        expect(profileIndex).toBeLessThan(listIndex)
+    })
+
+    test('목록 조회 직전의 historyId 를 커서로 사용한다', async () => {
+        setFetchResponse('/profile', { historyId: '77777' })
+        setFetchResponse('/messages?', { messages: [{ id: 'm1' }], resultSizeEstimate: 3 })
+        setFetchResponse('/messages/m1', makeFullMessage('m1'))
+
+        const provider = createGmailProvider(createDeps())
+        const result = await provider.fetchMessages({ folderId: 'INBOX', batchSize: 10 })
+
+        expect(result.newSyncCursor).toBe('77777')
+        expect(result.totalEstimate).toBe(3)
+        expect(result.messages.length).toBe(1)
     })
 })

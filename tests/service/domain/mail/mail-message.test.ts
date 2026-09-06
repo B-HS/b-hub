@@ -51,7 +51,7 @@ const createMockDb = () => ({
     getThread: mock(() => Promise.resolve([mockMessage()])),
     search: mock(() => Promise.resolve({ data: [mockMessage()], total: 1 })),
     updateFlags: mock(() => Promise.resolve()),
-    moveToFolder: mock(() => Promise.resolve()),
+    moveMessages: mock(() => Promise.resolve()),
     deleteMessages: mock(() => Promise.resolve()),
     getByIds: mock(() => Promise.resolve([mockMessage()])),
     getAttachment: mock((id: number) => Promise.resolve(id === 10 ? mockAttachment() : null)),
@@ -587,7 +587,7 @@ describe('createMailMessageService', () => {
             await service.moveToFolder('user-1', [1], 2)
 
             expect(accountService._provider.moveMessage).toHaveBeenCalled()
-            expect(deps.db.moveToFolder).toHaveBeenCalledWith([1], 2)
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1 }], 2)
         })
 
         test('프로바이더 실패 시에도 DB는 업데이트한다', async () => {
@@ -596,7 +596,7 @@ describe('createMailMessageService', () => {
             const deps = createDeps({ accountService: accountService as never })
             const service = createMailMessageService(deps)
             await service.moveToFolder('user-1', [1], 2)
-            expect(deps.db.moveToFolder).toHaveBeenCalledWith([1], 2)
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1 }], 2)
         })
 
         test('다른 계정의 targetFolderId로 이동 시 에러를 발생시킨다 (IDOR 방어)', async () => {
@@ -619,7 +619,7 @@ describe('createMailMessageService', () => {
             })
             const service = createMailMessageService(deps)
             await service.moveToFolder('user-1', [1], 2)
-            expect(deps.db.moveToFolder).toHaveBeenCalledWith([1], 2)
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1 }], 2)
         })
 
         test('moveToFolder에서 원본 폴더의 remoteFolderId를 조회한다', async () => {
@@ -638,6 +638,137 @@ describe('createMailMessageService', () => {
             await service.moveToFolder('user-1', [1], 2)
 
             expect(accountService._provider.moveMessage).toHaveBeenCalledWith(['remote-1'], 'ARCHIVE', 'INBOX')
+        })
+    })
+
+    describe('프로바이더 연결 정리', () => {
+        test('플래그 처리 실패 시에도 disconnect한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.markRead = mock(() => Promise.reject(new Error('IMAP fail')))
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await service.markRead('user-1', [1])
+
+            expect(accountService._provider.disconnect).toHaveBeenCalled()
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1], { isRead: true })
+        })
+
+        test('이동 실패 시에도 disconnect한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.moveMessage = mock(() => Promise.reject(new Error('IMAP fail')))
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await service.moveToFolder('user-1', [1], 2)
+
+            expect(accountService._provider.disconnect).toHaveBeenCalled()
+        })
+
+        test('삭제 실패 시에도 disconnect한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.deleteMessage = mock(() => Promise.reject(new Error('IMAP fail')))
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await service.deleteMessages('user-1', [1])
+
+            expect(accountService._provider.disconnect).toHaveBeenCalled()
+            expect(deps.db.deleteMessages).toHaveBeenCalledWith([1])
+        })
+    })
+
+    describe('deleteMessages', () => {
+        test('폴더의 remoteFolderId를 프로바이더에 전달한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await service.deleteMessages('user-1', [1])
+
+            expect(accountService._provider.deleteMessage).toHaveBeenCalledWith(['remote-1'], 'INBOX')
+        })
+
+        test('계정·폴더 단위로 묶어 호출한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: {
+                    getAccountIdsByMessageIds: mock(() =>
+                        Promise.resolve([
+                            { messageId: 1, accountId: 1, remoteMessageId: 'remote-1', folderId: 1 },
+                            { messageId: 2, accountId: 1, remoteMessageId: 'remote-2', folderId: 1 },
+                            { messageId: 3, accountId: 1, remoteMessageId: 'remote-3', folderId: 2 },
+                        ]),
+                    ),
+                    getFolderById: mock((id: number) => Promise.resolve({ id, accountId: 1, remoteFolderId: id === 1 ? 'INBOX' : 'ARCHIVE' })),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.deleteMessages('user-1', [1, 2, 3])
+
+            expect(accountService._provider.deleteMessage).toHaveBeenCalledTimes(2)
+            expect(accountService._provider.deleteMessage).toHaveBeenCalledWith(['remote-1', 'remote-2'], 'INBOX')
+            expect(accountService._provider.deleteMessage).toHaveBeenCalledWith(['remote-3'], 'ARCHIVE')
+        })
+    })
+
+    describe('이동 후 uidMap 반영', () => {
+        test('uidMap이 오면 remoteMessageId와 uid를 갱신한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.moveMessage = mock(() => Promise.resolve({ uidMap: { 'remote-1': '90' } }))
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: {
+                    getFolderById: mock((id: number) => Promise.resolve({ id, accountId: 1, remoteFolderId: id === 1 ? 'INBOX' : 'ARCHIVE' })),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.moveToFolder('user-1', [1], 2)
+
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1, remoteMessageId: '90', uid: 90 }], 2)
+        })
+
+        test('uidMap이 없으면 folderId만 갱신하도록 remoteMessageId 없이 넘긴다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+            await service.moveToFolder('user-1', [1], 2)
+
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1 }], 2)
+        })
+
+        test('uidMap에 없는 메시지는 remoteMessageId 없이, 한 번의 moveMessages 호출로 넘긴다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.moveMessage = mock(() => Promise.resolve({ uidMap: { 'remote-2': '91' } }))
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: {
+                    getAccountIdsByMessageIds: mock(() =>
+                        Promise.resolve([
+                            { messageId: 1, accountId: 1, remoteMessageId: 'remote-1', folderId: 1 },
+                            { messageId: 2, accountId: 1, remoteMessageId: 'remote-2', folderId: 1 },
+                        ]),
+                    ),
+                    getFolderById: mock((id: number) => Promise.resolve({ id, accountId: 1, remoteFolderId: id === 1 ? 'INBOX' : 'ARCHIVE' })),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.moveToFolder('user-1', [1, 2], 2)
+
+            expect(deps.db.moveMessages).toHaveBeenCalledTimes(1)
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1 }, { messageId: 2, remoteMessageId: '91', uid: 91 }], 2)
+        })
+
+        test('uidMap 값이 숫자가 아니면 uid를 null로 넘긴다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.moveMessage = mock(() => Promise.resolve({ uidMap: { 'remote-1': 'gmail-id' } }))
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: {
+                    getFolderById: mock((id: number) => Promise.resolve({ id, accountId: 1, remoteFolderId: id === 1 ? 'INBOX' : 'ARCHIVE' })),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.moveToFolder('user-1', [1], 2)
+
+            expect(deps.db.moveMessages).toHaveBeenCalledWith([{ messageId: 1, remoteMessageId: 'gmail-id', uid: null }], 2)
         })
     })
 

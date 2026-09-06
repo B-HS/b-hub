@@ -7,6 +7,7 @@ import type {
     ProviderMessage,
     ProviderSyncResult,
     FetchMessagesOptions,
+    FetchFoldersOptions,
     ComposeEmailData,
     AttachmentData,
     EmailAddress,
@@ -106,6 +107,26 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
         }
     }
 
+    const runInMailbox = async <T>(folderId: string | undefined, run: (imap: ImapFlow) => Promise<T>) => {
+        const imap = getClient()
+        if (!folderId) return run(imap)
+
+        const lock = await imap.getMailboxLock(folderId)
+        try {
+            return await run(imap)
+        } finally {
+            lock.release()
+        }
+    }
+
+    const applyFlags = (messageIds: string[], flags: string[], mode: 'add' | 'remove', folderId?: string) =>
+        runInMailbox(folderId, async (imap) => {
+            for (const id of messageIds) {
+                if (mode === 'add') await imap.messageFlagsAdd(id, flags, { uid: true })
+                else await imap.messageFlagsRemove(id, flags, { uid: true })
+            }
+        })
+
     const detectFolderType = (mailbox: { specialUse?: string; path: string }): ProviderFolder['type'] => {
         if (mailbox.specialUse) {
             return FOLDER_TYPE_MAP[mailbox.specialUse] ?? 'custom'
@@ -144,19 +165,22 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
             }
         },
 
-        async fetchFolders(): Promise<ProviderFolder[]> {
+        async fetchFolders(options?: FetchFoldersOptions): Promise<ProviderFolder[]> {
             const imap = getClient()
             const mailboxes = await imap.list()
+            const includeCounts = options?.includeCounts ?? true
 
             const folders: ProviderFolder[] = []
             for (const mb of mailboxes) {
                 let messageCount = 0
                 let unreadCount = 0
-                try {
-                    const status = await imap.status(mb.path, { messages: true, unseen: true })
-                    messageCount = status.messages ?? 0
-                    unreadCount = status.unseen ?? 0
-                } catch {}
+                if (includeCounts) {
+                    try {
+                        const status = await imap.status(mb.path, { messages: true, unseen: true })
+                        messageCount = status.messages ?? 0
+                        unreadCount = status.unseen ?? 0
+                    } catch {}
+                }
                 folders.push({
                     id: mb.path,
                     name: mb.name,
@@ -197,8 +221,10 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                     }
                 }
 
-                uids.sort((a, b) => b - a)
-                const batchUids = uids.slice(0, batchSize)
+                const isIncrementalForward = direction === 'forward' && lastUid > 0
+                const candidateUids = lastUid > 0 ? uids.filter((uid) => (direction === 'backward' ? uid < lastUid : uid > lastUid)) : uids
+                const sortedUids = [...candidateUids].sort((a, b) => (isIncrementalForward ? a - b : b - a))
+                const batchUids = sortedUids.slice(0, batchSize)
 
                 if (batchUids.length === 0) {
                     return { messages: [], deletedIds: [], newSyncCursor: direction === 'backward' ? null : (cursor ?? null), totalEstimate }
@@ -292,7 +318,7 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
                 if (batchUids.length === 0) {
                     newCursor = null
                 } else if (direction === 'backward') {
-                    newCursor = uids.length > batchSize ? Math.min(...batchUids).toString() : null
+                    newCursor = candidateUids.length > batchSize ? Math.min(...batchUids).toString() : null
                 } else {
                     newCursor = Math.max(...batchUids).toString()
                 }
@@ -366,90 +392,39 @@ export const createImapProvider = (deps: ImapProviderDeps): MailProvider => {
         },
 
         async markRead(messageIds: string[], folderId?: string) {
-            const imap = getClient()
-            if (folderId) {
-                const lock = await imap.getMailboxLock(folderId)
-                try {
-                    for (const id of messageIds) {
-                        await imap.messageFlagsAdd(id, ['\\Seen'], { uid: true })
-                    }
-                } finally {
-                    lock.release()
-                }
-            } else {
-                for (const id of messageIds) {
-                    await imap.messageFlagsAdd(id, ['\\Seen'], { uid: true })
-                }
-            }
+            await applyFlags(messageIds, ['\\Seen'], 'add', folderId)
         },
 
         async markUnread(messageIds: string[], folderId?: string) {
-            const imap = getClient()
-            if (folderId) {
-                const lock = await imap.getMailboxLock(folderId)
-                try {
-                    for (const id of messageIds) {
-                        await imap.messageFlagsRemove(id, ['\\Seen'], { uid: true })
-                    }
-                } finally {
-                    lock.release()
-                }
-            } else {
-                for (const id of messageIds) {
-                    await imap.messageFlagsRemove(id, ['\\Seen'], { uid: true })
-                }
-            }
+            await applyFlags(messageIds, ['\\Seen'], 'remove', folderId)
         },
 
         async markStarred(messageIds: string[], folderId?: string) {
-            const imap = getClient()
-            if (folderId) {
-                const lock = await imap.getMailboxLock(folderId)
-                try {
-                    for (const id of messageIds) {
-                        await imap.messageFlagsAdd(id, ['\\Flagged'], { uid: true })
-                    }
-                } finally {
-                    lock.release()
-                }
-            } else {
-                for (const id of messageIds) {
-                    await imap.messageFlagsAdd(id, ['\\Flagged'], { uid: true })
-                }
-            }
+            await applyFlags(messageIds, ['\\Flagged'], 'add', folderId)
         },
 
         async unmarkStarred(messageIds: string[], folderId?: string) {
-            const imap = getClient()
-            if (folderId) {
-                const lock = await imap.getMailboxLock(folderId)
-                try {
-                    for (const id of messageIds) {
-                        await imap.messageFlagsRemove(id, ['\\Flagged'], { uid: true })
-                    }
-                } finally {
-                    lock.release()
-                }
-            } else {
-                for (const id of messageIds) {
-                    await imap.messageFlagsRemove(id, ['\\Flagged'], { uid: true })
-                }
-            }
+            await applyFlags(messageIds, ['\\Flagged'], 'remove', folderId)
         },
 
-        async moveMessage(messageIds: string[], targetFolderId: string, _sourceFolderId?: string) {
-            const imap = getClient()
-            for (const id of messageIds) {
-                await imap.messageMove(id, targetFolderId, { uid: true })
-            }
+        async moveMessage(messageIds: string[], targetFolderId: string, sourceFolderId?: string) {
+            if (messageIds.length === 0) return {}
+
+            return runInMailbox(sourceFolderId, async (imap) => {
+                const result = await imap.messageMove(messageIds.join(','), targetFolderId, { uid: true })
+                if (!result || !result.uidMap) return {}
+                return { uidMap: Object.fromEntries([...result.uidMap].map(([from, to]) => [String(from), String(to)])) }
+            })
         },
 
-        async deleteMessage(messageIds: string[]) {
-            const imap = getClient()
-            for (const id of messageIds) {
-                await imap.messageFlagsAdd(id, ['\\Deleted'], { uid: true })
-            }
-            await imap.messageDelete(messageIds.join(','), { uid: true })
+        async deleteMessage(messageIds: string[], folderId?: string) {
+            if (messageIds.length === 0) return
+
+            await runInMailbox(folderId, async (imap) => {
+                const range = messageIds.join(',')
+                await imap.messageFlagsAdd(range, ['\\Deleted'], { uid: true })
+                await imap.messageDelete(range, { uid: true })
+            })
         },
 
         async downloadAttachment(messageId: string, attachmentId: string, folderId?: string): Promise<AttachmentData> {

@@ -2,7 +2,8 @@ import type { MailSyncLog, MailSyncSession, MailFolder, MailMessage, MailAttachm
 import type { MailAccountService } from './mail-account'
 import type { MailProvider, ProviderMessage } from './mail-provider'
 import { createAppError } from '../../../lib/error'
-import { maskProviderError } from '../../../lib/mail-utils'
+import { captureException } from '../../../lib/sentry'
+import { isLocalMailFolder, maskProviderError } from '../../../lib/mail-utils'
 
 type MailSyncDb = {
     upsertFolder: (data: {
@@ -23,6 +24,7 @@ type MailSyncDb = {
     upsertMessage: (data: {
         accountId: number
         folderId: number
+        identityScope: 'account' | 'folder'
         remoteMessageId: string
         messageIdHeader: string | null
         threadId: string | null
@@ -44,7 +46,12 @@ type MailSyncDb = {
         receivedAt: Date | null
         uid: number | null
     }) => Promise<MailMessage & { isNew: boolean }>
-    deleteMessagesByRemoteIds: (accountId: number, remoteIds: string[]) => Promise<void>
+    deleteMessagesByRemoteIds: (params: {
+        accountId: number
+        folderId: number
+        identityScope: 'account' | 'folder'
+        remoteIds: string[]
+    }) => Promise<void>
 
     upsertAttachment: (data: {
         messageId: number
@@ -95,6 +102,7 @@ type MailSyncServiceDeps = {
 }
 
 const SESSION_STALE_MS = 30 * 60 * 1000
+const GMAIL_PROVIDER = 'gmail'
 
 export const createMailSyncService = (deps: MailSyncServiceDeps) => {
     const yieldEventLoop = () => new Promise<void>((r) => setTimeout(r, 0))
@@ -103,6 +111,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
         accountId: number,
         folderId: number,
         messages: ProviderMessage[],
+        identityScope: 'account' | 'folder',
     ): Promise<{ added: number; updated: number }> => {
         let added = 0
         let updated = 0
@@ -112,6 +121,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             const dbMsg = await deps.db.upsertMessage({
                 accountId,
                 folderId,
+                identityScope,
                 remoteMessageId: msg.id,
                 messageIdHeader: msg.messageIdHeader ?? null,
                 threadId: msg.threadId ?? null,
@@ -155,7 +165,8 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
         return { added, updated }
     }
 
-    const syncFolder = async (provider: MailProvider, accountId: number, folder: MailFolder, fallbackCursor?: string) => {
+    const syncFolder = async (provider: MailProvider, accountId: number, accountProvider: string, folder: MailFolder, fallbackCursor?: string) => {
+        const identityScope = accountProvider === GMAIL_PROVIDER ? 'account' : 'folder'
         const cursor = folder.syncCursor ?? fallbackCursor ?? undefined
         const result = await provider.fetchMessages({
             folderId: folder.remoteFolderId,
@@ -163,10 +174,10 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             batchSize: 100,
         })
 
-        const { added, updated } = await upsertMessagesFromProvider(accountId, folder.id, result.messages)
+        const { added, updated } = await upsertMessagesFromProvider(accountId, folder.id, result.messages, identityScope)
 
         if (result.deletedIds.length > 0) {
-            await deps.db.deleteMessagesByRemoteIds(accountId, result.deletedIds)
+            await deps.db.deleteMessagesByRemoteIds({ accountId, folderId: folder.id, identityScope, remoteIds: result.deletedIds })
         }
 
         if (result.newSyncCursor) {
@@ -200,37 +211,37 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
         try {
             await provider.connect()
 
-            let dbFolders = await deps.db.getFoldersByAccount(accountId)
-            const isIncremental = dbFolders.length > 0 && dbFolders.some((f) => f.syncCursor)
+            const existingFolders = await deps.db.getFoldersByAccount(accountId)
+            const isIncremental = existingFolders.some((f) => f.syncCursor)
 
-            if (!isIncremental) {
-                const folders = await provider.fetchFolders()
-                await Promise.all(
-                    folders.map((f) =>
-                        deps.db.upsertFolder({
-                            accountId,
-                            remoteFolderId: f.id,
-                            name: f.name,
-                            type: f.type,
-                            parentId: null,
-                            messageCount: f.messageCount,
-                            unreadCount: f.unreadCount,
-                            uidValidity: f.uidValidity ?? null,
-                        }),
-                    ),
-                )
-                dbFolders = await deps.db.getFoldersByAccount(accountId)
-            }
+            const folders = await provider.fetchFolders({ includeCounts: !isIncremental })
+            await Promise.all(
+                folders.map((f) =>
+                    deps.db.upsertFolder({
+                        accountId,
+                        remoteFolderId: f.id,
+                        name: f.name,
+                        type: f.type,
+                        parentId: null,
+                        messageCount: f.messageCount,
+                        unreadCount: f.unreadCount,
+                        uidValidity: f.uidValidity ?? null,
+                    }),
+                ),
+            )
+
+            const dbFolders = await deps.db.getFoldersByAccount(accountId)
 
             let totalAdded = 0
             let totalUpdated = 0
             let totalDeleted = 0
 
-            const foldersToSync = folderId ? dbFolders.filter((f) => f.id === folderId) : dbFolders
+            const syncableFolders = dbFolders.filter((f) => !isLocalMailFolder(f.remoteFolderId))
+            const foldersToSync = folderId ? syncableFolders.filter((f) => f.id === folderId) : syncableFolders
 
             if (isIncremental) {
                 const results = await Promise.all(
-                    foldersToSync.map((folder) => syncFolder(provider, accountId, folder, account.syncCursor ?? undefined)),
+                    foldersToSync.map((folder) => syncFolder(provider, accountId, account.provider, folder, account.syncCursor ?? undefined)),
                 )
                 for (const r of results) {
                     totalAdded += r.added
@@ -239,14 +250,12 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 }
             } else {
                 for (const folder of foldersToSync) {
-                    const r = await syncFolder(provider, accountId, folder, account.syncCursor ?? undefined)
+                    const r = await syncFolder(provider, accountId, account.provider, folder, account.syncCursor ?? undefined)
                     totalAdded += r.added
                     totalUpdated += r.updated
                     totalDeleted += r.deleted
                 }
             }
-
-            await provider.disconnect()
 
             const durationMs = Date.now() - startTime
             await deps.db.updateSyncLog(syncLog.id, {
@@ -274,6 +283,8 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
 
             await deps.accountService.updateSyncStatus(accountId, 'error')
             throw createAppError('MAIL_PROVIDER_ERROR', { message: maskProviderError(errorMessage) })
+        } finally {
+            await provider.disconnect().catch(captureException)
         }
     }
 
@@ -286,7 +297,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             cursor?: string
         },
     ) => {
-        const { provider } = await deps.accountService.getProvider(accountId, userId)
+        const { provider, account } = await deps.accountService.getProvider(accountId, userId)
         const batchSize = options.batchSize ?? 100
 
         let session = await deps.db.getActiveSession(accountId)
@@ -316,7 +327,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                     ),
                 )
 
-                const dbFolders = await deps.db.getFoldersByAccount(accountId)
+                const dbFolders = (await deps.db.getFoldersByAccount(accountId)).filter((f) => !isLocalMailFolder(f.remoteFolderId))
                 const inbox = dbFolders.find((f) => f.type === 'inbox')
                 targetFolderId = inbox?.id ?? dbFolders[0]?.id
             }
@@ -324,7 +335,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             if (!targetFolderId) throw createAppError('MAIL_FOLDER_NOT_FOUND')
 
             const folder = await deps.db.getFolderById(targetFolderId)
-            if (!folder) throw createAppError('MAIL_FOLDER_NOT_FOUND')
+            if (!folder || isLocalMailFolder(folder.remoteFolderId)) throw createAppError('MAIL_FOLDER_NOT_FOUND')
 
             const cursor = options.cursor ?? session?.cursor ?? undefined
 
@@ -348,7 +359,8 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 direction: 'backward',
             })
 
-            const { added } = await upsertMessagesFromProvider(accountId, folder.id, result.messages)
+            const identityScope = account.provider === GMAIL_PROVIDER ? 'account' : 'folder'
+            const { added } = await upsertMessagesFromProvider(accountId, folder.id, result.messages, identityScope)
 
             const syncedSoFar = (session.syncedCount ?? 0) + added
             const totalEstimate = result.totalEstimate ?? session.totalEstimate ?? null
@@ -365,8 +377,6 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(folder.id), deps.db.countUnreadByFolder(folder.id)])
             await deps.db.updateFolderCounts(folder.id, msgCount, unreadCount)
 
-            await provider.disconnect()
-
             return {
                 synced: added,
                 totalEstimate,
@@ -380,12 +390,13 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             if (session) {
                 await deps.db.updateSession(session.id, { status: 'error' })
             }
-            await provider.disconnect().catch(() => {})
 
             if (error && typeof error === 'object' && 'code' in error) throw error
             throw createAppError('MAIL_PROVIDER_ERROR', {
                 message: maskProviderError(error instanceof Error ? error.message : 'Unknown error'),
             })
+        } finally {
+            await provider.disconnect().catch(captureException)
         }
     }
 

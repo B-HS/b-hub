@@ -4,6 +4,7 @@ import type {
     ProviderMessage,
     ProviderSyncResult,
     FetchMessagesOptions,
+    FetchFoldersOptions,
     ComposeEmailData,
     AttachmentData,
     EmailAddress,
@@ -157,7 +158,8 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             }
         },
 
-        async fetchFolders(): Promise<ProviderFolder[]> {
+        async fetchFolders(options?: FetchFoldersOptions): Promise<ProviderFolder[]> {
+            const includeCounts = options?.includeCounts ?? true
             const res = await gmailFetch('/labels')
             const data = (await res.json()) as { labels: Record<string, unknown>[] }
 
@@ -180,6 +182,8 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                     const id = label.id as string
                     const name = label.name as string
                     const type = LABEL_TYPE_MAP[id] ?? 'custom'
+
+                    if (!includeCounts) return { id, name, type, messageCount: 0, unreadCount: 0 } as ProviderFolder
 
                     const detailRes = await gmailFetch(`/labels/${id}`)
                     const detail = (await detailRes.json()) as Record<string, unknown>
@@ -281,6 +285,10 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
                 }
             }
 
+            const profileRes = await gmailFetch('/profile')
+            const profile = (await profileRes.json()) as Record<string, unknown>
+            const baselineHistoryId = (profile.historyId as string)?.toString() ?? null
+
             const params = new URLSearchParams({ maxResults: batchSize.toString() })
             if (folderId) params.set('labelIds', folderId)
 
@@ -288,14 +296,12 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
             const listData = (await listRes.json()) as Record<string, unknown>
             const messageRefs = (listData.messages as { id: string }[]) ?? []
 
-            const [messages, profileRes] = await Promise.all([fetchMessagesBatch(messageRefs.map((r) => r.id)), gmailFetch('/profile')])
-
-            const profile = (await profileRes.json()) as Record<string, unknown>
+            const messages = await fetchMessagesBatch(messageRefs.map((r) => r.id))
 
             return {
                 messages,
                 deletedIds: [],
-                newSyncCursor: (profile.historyId as string)?.toString() ?? null,
+                newSyncCursor: baselineHistoryId,
                 totalEstimate: (listData.resultSizeEstimate as number) ?? undefined,
             }
         },

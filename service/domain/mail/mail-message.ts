@@ -3,6 +3,7 @@ import type { MailAccountService } from './mail-account'
 import type { AttachmentData, ComposeEmailData, EmailAddress, MailProvider, ProviderAttachment } from './mail-provider'
 import type { MailUploadService } from './mail-upload'
 import { createAppError, isAppError } from '../../../lib/error'
+import { captureException } from '../../../lib/sentry'
 import { escapeHtml, sanitizeFilename, sanitizeHeaderValue, maskProviderError } from '../../../lib/mail-utils'
 
 type MailMessageSummary = Omit<MailMessage, 'bodyHtml' | 'bodyText'>
@@ -36,7 +37,7 @@ type MailMessageDb = {
         limit: number
     }) => Promise<{ data: MailMessageSummary[]; total: number }>
     updateFlags: (messageIds: number[], flags: Partial<Pick<MailMessage, 'isRead' | 'isStarred'>>) => Promise<void>
-    moveToFolder: (messageIds: number[], targetFolderId: number) => Promise<void>
+    moveMessages: (items: { messageId: number; remoteMessageId?: string; uid?: number | null }[], targetFolderId: number) => Promise<void>
     deleteMessages: (messageIds: number[]) => Promise<void>
     getByIds: (ids: number[]) => Promise<MailMessage[]>
     getAttachment: (attachmentId: number) => Promise<MailAttachment | null>
@@ -57,6 +58,8 @@ type MailMessageDb = {
     getFolderById: (id: number) => Promise<{ id: number; accountId: number; remoteFolderId: string } | null>
 }
 
+type MailMessageInfo = Awaited<ReturnType<MailMessageDb['getAccountIdsByMessageIds']>>[number]
+
 type StorageService = {
     upload: (key: string, body: Buffer, contentType: string) => Promise<void>
     getUrl: (key: string) => string
@@ -68,6 +71,17 @@ type MailMessageServiceDeps = {
     accountService: MailAccountService
     storageService?: StorageService
     uploadService?: MailUploadService
+}
+
+const groupByAccountFolder = (infos: MailMessageInfo[]) => {
+    const grouped = new Map<string, { accountId: number; folderId: number; infos: MailMessageInfo[] }>()
+    for (const info of infos) {
+        const key = `${info.accountId}:${info.folderId}`
+        const group = grouped.get(key) ?? { accountId: info.accountId, folderId: info.folderId, infos: [] }
+        group.infos.push(info)
+        grouped.set(key, group)
+    }
+    return [...grouped.values()]
 }
 
 const matchAttachmentRef = (refs: ProviderAttachment[], attachment: MailAttachment): ProviderAttachment | null => {
@@ -134,7 +148,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         if (!accounts.some((a) => a.id === msg.accountId)) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
         if (!msg.isRead) {
-            applyFlagAction(userId, [messageId], 'markRead').catch(() => {})
+            applyFlagAction(userId, [messageId], 'markRead').catch(captureException)
         }
 
         return msg
@@ -158,22 +172,22 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                     ? { isStarred: true }
                     : { isStarred: false }
 
-        const grouped = new Map<string, { accountId: number; folderId: number; remoteIds: string[] }>()
-        for (const info of msgInfos) {
-            const key = `${info.accountId}:${info.folderId}`
-            const group = grouped.get(key) ?? { accountId: info.accountId, folderId: info.folderId, remoteIds: [] }
-            group.remoteIds.push(info.remoteMessageId)
-            grouped.set(key, group)
-        }
-
-        for (const { accountId, folderId, remoteIds } of grouped.values()) {
+        for (const { accountId, folderId, infos } of groupByAccountFolder(msgInfos)) {
             try {
                 const { provider } = await deps.accountService.getProvider(accountId, userId)
                 const folder = await deps.db.getFolderById(folderId)
                 await provider.connect()
-                await provider[action](remoteIds, folder?.remoteFolderId)
-                await provider.disconnect()
-            } catch {}
+                try {
+                    await provider[action](
+                        infos.map((info) => info.remoteMessageId),
+                        folder?.remoteFolderId,
+                    )
+                } finally {
+                    await provider.disconnect().catch(captureException)
+                }
+            } catch (error) {
+                captureException(error)
+            }
         }
 
         await deps.db.updateFlags(messageIds, flagUpdate)
@@ -223,12 +237,14 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             try {
                 for (const [fid, remoteIds] of grouped) {
                     const folder = await deps.db.getFolderById(fid)
-                    await provider.markRead(remoteIds, folder?.remoteFolderId).catch(() => {})
+                    await provider.markRead(remoteIds, folder?.remoteFolderId).catch(captureException)
                 }
             } finally {
-                await provider.disconnect().catch(() => {})
+                await provider.disconnect().catch(captureException)
             }
-        } catch {}
+        } catch (error) {
+            captureException(error)
+        }
 
         await deps.db.updateFlags(
             unread.map((m) => m.id),
@@ -252,57 +268,77 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
         if (msgInfos.length !== messageIds.length) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
-        const grouped = new Map<number, { remoteIds: string[]; sourceFolderIds: Set<number> }>()
-        for (const info of msgInfos) {
-            const group = grouped.get(info.accountId) ?? { remoteIds: [], sourceFolderIds: new Set() }
-            group.remoteIds.push(info.remoteMessageId)
-            group.sourceFolderIds.add(info.folderId)
-            grouped.set(info.accountId, group)
-        }
-
         const targetFolder = await deps.db.getFolderById(targetFolderId)
         if (!targetFolder) throw createAppError('MAIL_FOLDER_NOT_FOUND')
 
-        const accountIds = [...grouped.keys()]
+        const accountIds = [...new Set(msgInfos.map((info) => info.accountId))]
         if (!accountIds.includes(targetFolder.accountId)) {
             throw createAppError('MAIL_FOLDER_NOT_FOUND')
         }
 
-        for (const [accountId, { remoteIds, sourceFolderIds }] of grouped) {
+        const movedRemoteIds = new Map<number, { remoteMessageId: string; uid: number | null }>()
+
+        for (const { accountId, folderId, infos } of groupByAccountFolder(msgInfos)) {
             try {
                 const { provider } = await deps.accountService.getProvider(accountId, userId)
+                const sourceFolder = await deps.db.getFolderById(folderId)
                 await provider.connect()
-                let sourceFolderRemoteId: string | undefined
-                if (sourceFolderIds.size === 1) {
-                    const sourceFolder = await deps.db.getFolderById([...sourceFolderIds][0])
-                    sourceFolderRemoteId = sourceFolder?.remoteFolderId
+                try {
+                    const moved = await provider.moveMessage(
+                        infos.map((info) => info.remoteMessageId),
+                        targetFolder.remoteFolderId,
+                        sourceFolder?.remoteFolderId,
+                    )
+                    const uidMap = moved?.uidMap
+                    if (uidMap) {
+                        for (const info of infos) {
+                            const movedRemoteId = uidMap[info.remoteMessageId]
+                            if (!movedRemoteId) continue
+                            const movedUid = Number.parseInt(movedRemoteId, 10)
+                            movedRemoteIds.set(info.messageId, {
+                                remoteMessageId: movedRemoteId,
+                                uid: Number.isNaN(movedUid) ? null : movedUid,
+                            })
+                        }
+                    }
+                } finally {
+                    await provider.disconnect().catch(captureException)
                 }
-                await provider.moveMessage(remoteIds, targetFolder?.remoteFolderId ?? targetFolderId.toString(), sourceFolderRemoteId)
-                await provider.disconnect()
-            } catch {}
+            } catch (error) {
+                captureException(error)
+            }
         }
 
-        await deps.db.moveToFolder(messageIds, targetFolderId)
+        await deps.db.moveMessages(
+            messageIds.map((messageId) => {
+                const moved = movedRemoteIds.get(messageId)
+                if (!moved) return { messageId }
+                return { messageId, remoteMessageId: moved.remoteMessageId, uid: moved.uid }
+            }),
+            targetFolderId,
+        )
     }
 
     const deleteMessages = async (userId: string, messageIds: number[]) => {
         const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
         if (msgInfos.length !== messageIds.length) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
-        const grouped = new Map<number, string[]>()
-        for (const info of msgInfos) {
-            const arr = grouped.get(info.accountId) ?? []
-            arr.push(info.remoteMessageId)
-            grouped.set(info.accountId, arr)
-        }
-
-        for (const [accountId, remoteIds] of grouped) {
+        for (const { accountId, folderId, infos } of groupByAccountFolder(msgInfos)) {
             try {
                 const { provider } = await deps.accountService.getProvider(accountId, userId)
+                const folder = await deps.db.getFolderById(folderId)
                 await provider.connect()
-                await provider.deleteMessage(remoteIds)
-                await provider.disconnect()
-            } catch {}
+                try {
+                    await provider.deleteMessage(
+                        infos.map((info) => info.remoteMessageId),
+                        folder?.remoteFolderId,
+                    )
+                } finally {
+                    await provider.disconnect().catch(captureException)
+                }
+            } catch (error) {
+                captureException(error)
+            }
         }
 
         await deps.db.deleteMessages(messageIds)

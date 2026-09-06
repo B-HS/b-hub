@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
 import { createMailCrypto } from '../service/domain/mail/mail-crypto'
@@ -216,55 +216,77 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         },
 
         upsertMessage: async (data: Record<string, unknown>) => {
-            const [existing] = await db
-                .select({ id: schema.mailMessages.id })
-                .from(schema.mailMessages)
-                .where(
-                    and(
-                        eq(schema.mailMessages.accountId, data.accountId as number),
-                        eq(schema.mailMessages.remoteMessageId, data.remoteMessageId as string),
-                    ),
-                )
-                .limit(1)
+            const { identityScope, ...insertData } = data
+            const isAccountScope = identityScope === 'account'
+            const messageIdentity = isAccountScope
+                ? and(
+                      eq(schema.mailMessages.accountId, data.accountId as number),
+                      eq(schema.mailMessages.remoteMessageId, data.remoteMessageId as string),
+                  )
+                : and(
+                      eq(schema.mailMessages.accountId, data.accountId as number),
+                      eq(schema.mailMessages.folderId, data.folderId as number),
+                      eq(schema.mailMessages.remoteMessageId, data.remoteMessageId as string),
+                  )
+            const [existing] = await db.select({ id: schema.mailMessages.id }).from(schema.mailMessages).where(messageIdentity).limit(1)
             const isNew = !existing
 
-            const insertData = { ...data }
+            const mutableFields = {
+                subject: data.subject,
+                bodyHtml: data.bodyHtml,
+                bodyText: data.bodyText,
+                snippet: data.snippet,
+                isRead: data.isRead,
+                isStarred: data.isStarred,
+                isDraft: data.isDraft,
+                hasAttachments: data.hasAttachments,
+                threadId: data.threadId,
+                messageIdHeader: data.messageIdHeader,
+                inReplyTo: data.inReplyTo,
+                referencesHeader: data.referencesHeader,
+            }
+
+            if (existing) {
+                await db
+                    .update(schema.mailMessages)
+                    .set(mutableFields as never)
+                    .where(eq(schema.mailMessages.id, existing.id))
+                const [updatedMsg] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, existing.id)).limit(1)
+                return { ...updatedMsg, isNew }
+            }
+
             await db
                 .insert(schema.mailMessages)
                 .values(insertData as never)
-                .onDuplicateKeyUpdate({
-                    set: {
-                        subject: data.subject,
-                        bodyHtml: data.bodyHtml,
-                        bodyText: data.bodyText,
-                        snippet: data.snippet,
-                        isRead: data.isRead,
-                        isStarred: data.isStarred,
-                        isDraft: data.isDraft,
-                        hasAttachments: data.hasAttachments,
-                        threadId: data.threadId,
-                        messageIdHeader: data.messageIdHeader,
-                        inReplyTo: data.inReplyTo,
-                        referencesHeader: data.referencesHeader,
-                    } as never,
-                })
-            const [msg] = await db
-                .select()
-                .from(schema.mailMessages)
-                .where(
-                    and(
-                        eq(schema.mailMessages.accountId, data.accountId as number),
-                        eq(schema.mailMessages.remoteMessageId, data.remoteMessageId as string),
+                .onDuplicateKeyUpdate({ set: mutableFields as never })
+
+            if (!isAccountScope) {
+                const [msg] = await db.select().from(schema.mailMessages).where(messageIdentity).limit(1)
+                return { ...msg, isNew }
+            }
+
+            const [msg, ...duplicates] = await db.select().from(schema.mailMessages).where(messageIdentity).orderBy(schema.mailMessages.id)
+            if (duplicates.length > 0) {
+                await db.delete(schema.mailMessages).where(
+                    inArray(
+                        schema.mailMessages.id,
+                        duplicates.map((row) => row.id),
                     ),
                 )
-                .limit(1)
+            }
             return { ...msg, isNew }
         },
-        deleteMessagesByRemoteIds: async (accountId: number, remoteIds: string[]) => {
-            if (remoteIds.length === 0) return
-            await db
-                .delete(schema.mailMessages)
-                .where(and(eq(schema.mailMessages.accountId, accountId), inArray(schema.mailMessages.remoteMessageId, remoteIds)))
+        deleteMessagesByRemoteIds: async (params: {
+            accountId: number
+            folderId: number
+            identityScope: 'account' | 'folder'
+            remoteIds: string[]
+        }) => {
+            if (params.remoteIds.length === 0) return
+            const conditions = [eq(schema.mailMessages.accountId, params.accountId)]
+            if (params.identityScope !== 'account') conditions.push(eq(schema.mailMessages.folderId, params.folderId))
+            conditions.push(inArray(schema.mailMessages.remoteMessageId, params.remoteIds))
+            await db.delete(schema.mailMessages).where(and(...conditions))
         },
 
         upsertAttachment: async (data: Record<string, unknown>) => {
@@ -576,8 +598,54 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                 .set(flags as never)
                 .where(inArray(schema.mailMessages.id, messageIds))
         },
-        moveToFolder: async (messageIds: number[], targetFolderId: number) => {
-            await db.update(schema.mailMessages).set({ folderId: targetFolderId }).where(inArray(schema.mailMessages.id, messageIds))
+        moveMessages: async (items: { messageId: number; remoteMessageId?: string; uid?: number | null }[], targetFolderId: number) => {
+            if (items.length === 0) return
+
+            await db.transaction(async (tx) => {
+                for (const item of items) {
+                    if (item.remoteMessageId) {
+                        await tx
+                            .delete(schema.mailMessages)
+                            .where(
+                                and(
+                                    eq(schema.mailMessages.folderId, targetFolderId),
+                                    eq(schema.mailMessages.remoteMessageId, item.remoteMessageId),
+                                    ne(schema.mailMessages.id, item.messageId),
+                                ),
+                            )
+                        await tx
+                            .update(schema.mailMessages)
+                            .set({ folderId: targetFolderId, remoteMessageId: item.remoteMessageId, uid: item.uid ?? null })
+                            .where(eq(schema.mailMessages.id, item.messageId))
+                        continue
+                    }
+
+                    const [current] = await tx
+                        .select({ remoteMessageId: schema.mailMessages.remoteMessageId })
+                        .from(schema.mailMessages)
+                        .where(eq(schema.mailMessages.id, item.messageId))
+                        .limit(1)
+                    if (!current) continue
+
+                    const [conflict] = await tx
+                        .select({ id: schema.mailMessages.id })
+                        .from(schema.mailMessages)
+                        .where(
+                            and(
+                                eq(schema.mailMessages.folderId, targetFolderId),
+                                eq(schema.mailMessages.remoteMessageId, current.remoteMessageId),
+                                ne(schema.mailMessages.id, item.messageId),
+                            ),
+                        )
+                        .limit(1)
+                    if (conflict) {
+                        await tx.delete(schema.mailMessages).where(eq(schema.mailMessages.id, item.messageId))
+                        continue
+                    }
+
+                    await tx.update(schema.mailMessages).set({ folderId: targetFolderId }).where(eq(schema.mailMessages.id, item.messageId))
+                }
+            })
         },
         deleteMessages: async (messageIds: number[]) => {
             await db.delete(schema.mailMessages).where(inArray(schema.mailMessages.id, messageIds))
@@ -819,6 +887,8 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         mailDraftService,
         mailUploadService,
         mailFolderDb,
+        mailMessageDb,
+        mailSyncDb,
         mailCheckLimit,
     }
 }
