@@ -17,6 +17,8 @@
     "dependencies": {
         "@aws-sdk/client-s3": "^3.1078.0",
         "@aws-sdk/s3-request-presigner": "^3.1078.0",
+        "@fontsource/inter": "^5.2.8",
+        "@fontsource/noto-sans-kr": "^5.2.9",
         "@google/genai": "^2",
         "@hono/standard-validator": "^0.2.3",
         "@hono/swagger-ui": "^0.6",
@@ -43,8 +45,6 @@
         "zod": "^4.4.3"
     },
     "devDependencies": {
-        "@fontsource/inter": "^5.2.8",
-        "@fontsource/noto-sans-kr": "^5.2.9",
         "@types/bun": "latest",
         "@types/mailparser": "^3.4.6",
         "@types/nodemailer": "^8",

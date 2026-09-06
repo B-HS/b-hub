@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import { captureException } from '../../lib/sentry'
 import { createCache } from './cache'
 
 type FontInfo = {
@@ -57,7 +58,8 @@ export const createFontLoader = (deps: FontLoaderDeps = {}) => {
         try {
             const buffer = await readFile(filePath)
             return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
-        } catch {
+        } catch (error) {
+            captureException(error)
             return null
         }
     }

@@ -133,3 +133,26 @@ describe('createFontLoader', () => {
         })
     })
 })
+
+describe('loadLocal 실패 기록', () => {
+    test('로컬 폰트 읽기가 실패하면 captureException 으로 기록하고 null 을 반환한다', async () => {
+        const realFsPromises = await import('fs/promises')
+        const captured: unknown[] = []
+        mock.module('../../../lib/sentry', () => ({
+            captureException: (error: unknown) => captured.push(error),
+            initSentry: () => {},
+        }))
+        mock.module('fs/promises', () => ({ ...realFsPromises, readFile: () => Promise.reject(new Error('ENOENT')) }))
+
+        const { createFontLoader: createLoader } = await import('../../../service/shared/font-loader')
+        const loader = createLoader()
+
+        const result = await loader.loadLocal('Inter', 400)
+
+        mock.module('fs/promises', () => realFsPromises)
+
+        expect(result).toBeNull()
+        expect(captured).toHaveLength(1)
+        expect((captured[0] as Error).message).toBe('ENOENT')
+    })
+})
