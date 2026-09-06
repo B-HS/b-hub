@@ -31,11 +31,11 @@ export const createDeviceKeyService = (deps: DeviceKeyDeps) => {
         if (!record) return null
         if (record.revokedAt) return null
 
-        deps.db
-            .update(deviceKey)
-            .set({ lastUsedAt: new Date() })
-            .where(eq(deviceKey.id, record.id))
-            .catch((e) => captureException(e))
+        try {
+            await deps.db.update(deviceKey).set({ lastUsedAt: new Date() }).where(eq(deviceKey.id, record.id))
+        } catch (e) {
+            captureException(e)
+        }
 
         return record
     }

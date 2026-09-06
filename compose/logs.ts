@@ -1,11 +1,14 @@
-import { and, desc, eq, gte, isNull, lt, lte, sql } from 'drizzle-orm'
-import { logEvents } from '../db/schema'
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
+import { logEvents, mailSyncLogs, mailSyncSessions, weatherApiLog } from '../db/schema'
 import { createLogEventService } from '../service/domain/logs/log-event'
 import { createDeviceKeyService } from '../service/domain/logs/device-key'
 import { sendDiscordAlert } from '../lib/discord'
 import { captureException } from '../lib/sentry'
 import type { LogAlerter, LogEventServiceDb } from '../service/domain/logs/log-event'
 import type { ComposeLogsArgs } from './types'
+
+const ALERT_THROTTLE_WINDOW_MS = 60_000
+const ALERT_THROTTLE_MAX_KEYS = 500
 
 export const composeLogs = ({ db, env }: ComposeLogsArgs) => {
     const logEventDb: LogEventServiceDb = {
@@ -34,7 +37,10 @@ export const composeLogs = ({ db, env }: ComposeLogsArgs) => {
             if (filter.from) conds.push(gte(logEvents.createdAt, filter.from))
             if (filter.to) conds.push(lte(logEvents.createdAt, filter.to))
             const where = conds.length ? and(...conds) : undefined
-            const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(logEvents).where(where)
+            const [{ total }] = await db
+                .select({ total: sql<number>`count(*)` })
+                .from(logEvents)
+                .where(where)
             const rows = await db.select().from(logEvents).where(where).orderBy(desc(logEvents.createdAt)).limit(filter.limit).offset(filter.offset)
             return { rows, total: Number(total) }
         },
@@ -42,20 +48,56 @@ export const composeLogs = ({ db, env }: ComposeLogsArgs) => {
             const [row] = await db.select().from(logEvents).where(eq(logEvents.id, id)).limit(1)
             return row ?? null
         },
-        deleteOlderThan: async (before, maxSeverity) => {
-            const [res] = await db.delete(logEvents).where(and(lte(logEvents.severity, maxSeverity), lt(logEvents.createdAt, before)))
+        deleteOlderThan: async (before, maxSeverity, limit) => {
+            const [res] = await db
+                .delete(logEvents)
+                .where(and(lte(logEvents.severity, maxSeverity), lt(logEvents.createdAt, before)))
+                .limit(limit)
+            return res.affectedRows
+        },
+        deleteWeatherApiLogsBefore: async (before, limit) => {
+            const [res] = await db.delete(weatherApiLog).where(lt(weatherApiLog.createdAt, before)).limit(limit)
+            return res.affectedRows
+        },
+        deleteMailSyncLogsBefore: async (before, limit) => {
+            const [res] = await db.delete(mailSyncLogs).where(lt(mailSyncLogs.createdAt, before)).limit(limit)
+            return res.affectedRows
+        },
+        deleteCompletedMailSyncSessionsBefore: async (before, limit) => {
+            const [res] = await db
+                .delete(mailSyncSessions)
+                .where(and(isNotNull(mailSyncSessions.completedAt), lt(mailSyncSessions.completedAt, before)))
+                .limit(limit)
             return res.affectedRows
         },
     }
 
     const alertThrottle = new Map<string, number>()
-    const alerter: LogAlerter | undefined = env.DISCORD_WEBHOOK_URL
-        ? (e) => {
+    const pruneThrottle = (now: number) => {
+        for (const [key, at] of alertThrottle) {
+            if (now - at >= ALERT_THROTTLE_WINDOW_MS) alertThrottle.delete(key)
+        }
+        while (alertThrottle.size > ALERT_THROTTLE_MAX_KEYS) {
+            const oldest = alertThrottle.keys().next()
+            if (oldest.done) break
+            alertThrottle.delete(oldest.value)
+        }
+    }
+
+    const webhookUrl = env.DISCORD_WEBHOOK_URL
+    const alerter: LogAlerter | undefined = webhookUrl
+        ? async (e) => {
               const key = `${e.service}:${e.errorCode}`
               const now = Date.now()
-              if (now - (alertThrottle.get(key) ?? 0) < 60_000) return
+              if (now - (alertThrottle.get(key) ?? 0) < ALERT_THROTTLE_WINDOW_MS) return
+              alertThrottle.delete(key)
               alertThrottle.set(key, now)
-              sendDiscordAlert(env.DISCORD_WEBHOOK_URL!, e).catch((err) => captureException(err))
+              pruneThrottle(now)
+              try {
+                  await sendDiscordAlert(webhookUrl, e)
+              } catch (err) {
+                  captureException(err)
+              }
           }
         : undefined
 

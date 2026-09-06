@@ -65,6 +65,16 @@ describe('logCapture middleware', () => {
         expect(arg.details.path).toBe('/caldav/[REDACTED]')
     })
 
+    test('오류 로그 적재를 응답 반환 전에 await 한다', async () => {
+        let stored = false
+        const capture = mock(async (_e: CaptureArg) => {
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            stored = true
+        })
+        await createApp(capture).request('/api/mail/boom')
+        expect(stored).toBe(true)
+    })
+
     test('토큰이 없는 경로는 details.path를 그대로 저장한다', async () => {
         const capture = mock(async (_e: CaptureArg) => {})
         await createApp(capture).request('/api/mail/notfound')

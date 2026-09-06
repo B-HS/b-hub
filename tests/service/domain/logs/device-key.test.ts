@@ -30,3 +30,39 @@ describe('createDeviceKeyService.checkRateLimit', () => {
         expect(await createService(1999).checkRateLimit('device-1', 2000)).toBe(true)
     })
 })
+
+const createValidateDb = (onUpdate: () => Promise<void>) => ({
+    select: () => ({
+        from: () => ({
+            where: () => ({ limit: () => Promise.resolve([{ id: 7, token: 'hashed', deviceId: 'AA:BB:CC', revokedAt: null }]) }),
+        }),
+    }),
+    update: () => ({ set: () => ({ where: () => onUpdate() }) }),
+})
+
+describe('createDeviceKeyService.validate', () => {
+    test('lastUsedAt 갱신을 반환 전에 await 한다', async () => {
+        let touched = false
+        const service = createDeviceKeyService({
+            db: createValidateDb(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+                touched = true
+            }) as never,
+        })
+
+        const record = await service.validate('token')
+        expect(record?.id).toBe(7)
+        expect(touched).toBe(true)
+    })
+
+    test('lastUsedAt 갱신이 실패해도 키 검증은 성공한다', async () => {
+        const service = createDeviceKeyService({
+            db: createValidateDb(async () => {
+                throw new Error('db down')
+            }) as never,
+        })
+
+        const record = await service.validate('token')
+        expect(record?.id).toBe(7)
+    })
+})

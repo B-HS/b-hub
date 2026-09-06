@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import type { Context } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import { z } from 'zod'
@@ -8,6 +9,7 @@ import { successResponse, paginatedResponse } from '../../lib/api-response'
 import { errorResponses } from '../../dto/error-response'
 import { createAppError } from '../../lib/error'
 import { requireDeviceKey } from '../../middleware/require-device-key'
+import { createLogPurgeRoute } from './purge'
 import {
     logEventIngestSchema,
     logEventBatchSchema,
@@ -20,6 +22,14 @@ import type { DeviceKeyService } from '../../service/domain/logs/device-key'
 import type { AuthContext } from '../../lib/hono-types'
 
 const LOG_BATCH_MAX_EVENTS = 50
+const LOG_BODY_MAX_BYTES = 1024 * 1024
+
+const logBodyLimit = bodyLimit({
+    maxSize: LOG_BODY_MAX_BYTES,
+    onError: () => {
+        throw createAppError('LOG_BATCH_TOO_LARGE')
+    },
+})
 
 const readDeviceId = (c: Context) => c.get('deviceKeyDeviceId' as never) as string
 
@@ -27,6 +37,7 @@ type LogEventRouteDeps = {
     logEventService: LogEventService
     deviceKeyService: DeviceKeyService
     getSession: Parameters<typeof withAuth>[0]['getSession']
+    cronSecret?: string
 }
 
 export const createLogEventRoute = (deps: LogEventRouteDeps) => {
@@ -46,6 +57,7 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
             },
         }),
         requireDeviceKey({ deviceKeyService: deps.deviceKeyService }),
+        logBodyLimit,
         validator('json', logEventIngestSchema),
         withErrorHandling(async (c) => {
             const body = c.req.valid('json' as never) as z.infer<typeof logEventIngestSchema>
@@ -72,6 +84,7 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
             },
         }),
         requireDeviceKey({ deviceKeyService: deps.deviceKeyService }),
+        logBodyLimit,
         validator('json', logEventBatchSchema),
         withErrorHandling(async (c) => {
             const body = c.req.valid('json' as never) as z.infer<typeof logEventBatchSchema>
@@ -127,6 +140,8 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
             }),
         ),
     )
+
+    route.route('/purge', createLogPurgeRoute({ logEventService: deps.logEventService, cronSecret: deps.cronSecret }))
 
     route.post(
         '/purge',

@@ -31,18 +31,16 @@ export const logCapture = (deps: LogCaptureDeps) => async (c: Context, next: Nex
         const errorDetail = readVar(c, 'errorDetail') as string | null
         const description = errorDetail ?? ERROR_MESSAGE[errorCode as ErrorCode] ?? errorCode
 
-        deps.logEventService
-            .captureServerError({
-                service: serviceNameFromPath(c.req.path),
-                errorCode,
-                severity: severityFromStatus(status),
-                errorDescription: String(description).slice(0, 2000),
-                correlationId: c.req.header('x-correlation-id') ?? undefined,
-                ingestIp: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined,
-                source: 'server',
-                details: { path: maskSensitivePath(c.req.path), method: c.req.method, status, durationMs: Date.now() - start },
-            })
-            .catch((e) => captureException(e))
+        await deps.logEventService.captureServerError({
+            service: serviceNameFromPath(c.req.path),
+            errorCode,
+            severity: severityFromStatus(status),
+            errorDescription: String(description).slice(0, 2000),
+            correlationId: c.req.header('x-correlation-id') ?? undefined,
+            ingestIp: c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined,
+            source: 'server',
+            details: { path: maskSensitivePath(c.req.path), method: c.req.method, status, durationMs: Date.now() - start },
+        })
     } catch (e) {
         captureException(e)
     }

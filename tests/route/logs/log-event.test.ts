@@ -116,3 +116,31 @@ describe('POST /logs/batch', () => {
         expect(res.status).toBe(401)
     })
 })
+
+describe('로그 수집 본문 크기 제한', () => {
+    test('1MB 를 넘는 본문은 413 LOG_BATCH_TOO_LARGE 다', async () => {
+        const { app, ingest } = createMocks()
+        const huge = { ...event(), errorDescription: 'x'.repeat(1024 * 1024 + 1024) }
+        const res = await post(app, '/logs', huge)
+
+        expect(res.status).toBe(413)
+        expect((await res.json()).error.code).toBe('LOG_BATCH_TOO_LARGE')
+        expect(ingest).not.toHaveBeenCalled()
+    })
+
+    test('크기 제한보다 디바이스 키 검사가 먼저다', async () => {
+        const { app } = createMocks({ key: null })
+        const huge = { ...event(), errorDescription: 'x'.repeat(1024 * 1024 + 1024) }
+        const res = await post(app, '/logs', huge)
+
+        expect(res.status).toBe(401)
+    })
+
+    test('제한 이하 본문은 정상 수집한다', async () => {
+        const { app, ingest } = createMocks()
+        const res = await post(app, '/logs', { ...event(), errorDescription: 'x'.repeat(1000) })
+
+        expect(res.status).toBe(200)
+        expect(ingest).toHaveBeenCalledTimes(1)
+    })
+})
