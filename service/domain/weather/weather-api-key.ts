@@ -4,8 +4,20 @@ import { generateToken, hashToken } from '../../../lib/token-utils'
 import type { Database } from '../../../db/index'
 import { captureException } from '../../../lib/sentry'
 
+const WEATHER_LOG_ENDPOINT_MAX_LENGTH = 50
+const WEATHER_LOG_IP_MAX_LENGTH = 45
+const WEATHER_LOG_USER_AGENT_MAX_LENGTH = 512
+const WEATHER_LOG_ERROR_CODE_MAX_LENGTH = 50
+
 type WeatherApiKeyDeps = {
     db: Database
+}
+
+const normalizeIp = (ip?: string) => {
+    if (!ip) return null
+    const first = ip.split(',')[0].trim()
+    if (!first) return null
+    return first.slice(0, WEATHER_LOG_IP_MAX_LENGTH)
 }
 
 export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
@@ -66,14 +78,14 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
             .values({
                 keyId: data.keyId,
                 userId: data.userId,
-                endpoint: data.endpoint,
+                endpoint: data.endpoint.slice(0, WEATHER_LOG_ENDPOINT_MAX_LENGTH),
                 nx: data.nx ?? null,
                 ny: data.ny ?? null,
                 statusCode: data.statusCode,
-                ip: data.ip ?? null,
-                userAgent: data.userAgent ?? null,
+                ip: normalizeIp(data.ip),
+                userAgent: data.userAgent?.slice(0, WEATHER_LOG_USER_AGENT_MAX_LENGTH) ?? null,
                 durationMs: data.durationMs ?? null,
-                errorCode: data.errorCode ?? null,
+                errorCode: data.errorCode?.slice(0, WEATHER_LOG_ERROR_CODE_MAX_LENGTH) ?? null,
             })
             .catch((e) => captureException(e))
     }

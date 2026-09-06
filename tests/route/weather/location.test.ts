@@ -1,6 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createLocationRoute } from '../../../route/weather/location'
+import { createWeatherApiKeyService } from '../../../service/domain/weather/weather-api-key'
 
 const mockLocations = [
     {
@@ -144,5 +145,55 @@ describe('GET /locations/:keyword', () => {
         expect(res.status).toBe(200)
         const body = await res.json()
         expect(body.data).toHaveLength(0)
+    })
+})
+
+const createRealKeyServiceDb = () => {
+    const record = {
+        id: 1,
+        userId: 'user-1',
+        token: 'hashed',
+        name: 'test',
+        dailyLimit: 100,
+        expiresAt: null,
+        lastUsedAt: null,
+        createdAt: new Date(),
+    }
+    const values = mock((_row: Record<string, unknown>) => Promise.resolve())
+    const db = {
+        select: (columns?: unknown) => ({
+            from: () => ({
+                where: () => (columns ? Promise.resolve([{ count: 0 }]) : { limit: () => Promise.resolve([record]) }),
+            }),
+        }),
+        update: () => ({ set: () => ({ where: () => ({ catch: () => {} }) }) }),
+        insert: () => ({ values }),
+    }
+    return { db, values }
+}
+
+const flushPendingLog = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('GET /locations/:keyword 요청 로그', () => {
+    test('경로가 50자를 넘어도 endpoint 를 잘라 항상 기록한다', async () => {
+        const { db, values } = createRealKeyServiceDb()
+        const app = new Hono()
+        app.route(
+            '/locations',
+            createLocationRoute({
+                locationService: createMockLocationService(),
+                weatherApiKeyService: createWeatherApiKeyService({ db: db as never }),
+            }),
+        )
+
+        const keyword = '가'.repeat(100)
+        const res = await app.request(`/locations/${keyword}`, { headers: { ...HEADERS, 'x-forwarded-for': '203.0.113.7, 70.41.3.18' } })
+        await flushPendingLog()
+
+        expect(res.status).toBe(200)
+        const row = values.mock.calls[0][0]
+        expect(`/locations/${keyword}`.length).toBeGreaterThan(50)
+        expect(row.endpoint).toHaveLength(50)
+        expect(row.ip).toBe('203.0.113.7')
     })
 })

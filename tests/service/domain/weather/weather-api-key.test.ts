@@ -132,3 +132,59 @@ describe('createWeatherApiKeyService', () => {
         })
     })
 })
+
+const createLogCaptureDb = () => {
+    const values = mock((_row: Record<string, unknown>) => Promise.resolve())
+    return { db: { insert: mock(() => ({ values })) }, values }
+}
+
+const logRequestWith = async (data: { endpoint?: string; ip?: string; userAgent?: string }) => {
+    const { db, values } = createLogCaptureDb()
+    const service = createWeatherApiKeyService({ db: db as never })
+
+    await service.logRequest({
+        keyId: 1,
+        userId: 'user-1',
+        endpoint: data.endpoint ?? '/test',
+        statusCode: 200,
+        ip: data.ip,
+        userAgent: data.userAgent,
+    })
+
+    return values.mock.calls[0][0]
+}
+
+describe('createWeatherApiKeyService.logRequest 컬럼 길이 보정', () => {
+    test('endpoint 는 50자로 잘라 저장한다', async () => {
+        const row = await logRequestWith({ endpoint: `/weather/locations/${'가'.repeat(100)}` })
+        expect(row.endpoint).toHaveLength(50)
+        expect(row.endpoint).toBe(`/weather/locations/${'가'.repeat(100)}`.slice(0, 50))
+    })
+
+    test('ip 는 x-forwarded-for 의 첫 IP 만 저장한다', async () => {
+        const row = await logRequestWith({ ip: '203.0.113.7, 70.41.3.18, 150.172.238.178' })
+        expect(row.ip).toBe('203.0.113.7')
+    })
+
+    test('ip 는 45자를 넘지 않는다', async () => {
+        const row = await logRequestWith({ ip: 'a'.repeat(80) })
+        expect(row.ip).toHaveLength(45)
+    })
+
+    test('빈 ip 문자열은 null 로 저장한다', async () => {
+        const row = await logRequestWith({ ip: '  ' })
+        expect(row.ip).toBeNull()
+    })
+
+    test('userAgent 는 512자로 잘라 저장한다', async () => {
+        const row = await logRequestWith({ userAgent: 'u'.repeat(2000) })
+        expect(row.userAgent).toHaveLength(512)
+    })
+
+    test('짧은 값은 그대로 저장한다', async () => {
+        const row = await logRequestWith({ endpoint: '/weather/current', ip: '203.0.113.7', userAgent: 'esp32-weather/1.0' })
+        expect(row.endpoint).toBe('/weather/current')
+        expect(row.ip).toBe('203.0.113.7')
+        expect(row.userAgent).toBe('esp32-weather/1.0')
+    })
+})
