@@ -315,3 +315,156 @@ describe('composeMail mailMessageDb.moveMessages', () => {
         expect(queries).toHaveLength(0)
     })
 })
+
+const createLockCompose = (affectedRows: number) => {
+    const queries: { sql: string; params: unknown[] }[] = []
+    const db = drizzle(
+        async (sql, params) => {
+            queries.push({ sql, params })
+            if (sql.startsWith('select')) return { rows: [] }
+            return { rows: [{ insertId: 0, affectedRows }] }
+        },
+        { schema, mode: 'default' },
+    ) as unknown as ComposeMailArgs['db']
+
+    const composed = composeMail({
+        db,
+        env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+        storageService: {} as unknown as ComposeMailArgs['storageService'],
+    })
+
+    return { composed, queries }
+}
+
+describe('composeMail mailSyncDb 동기화 락', () => {
+    test('tryAcquireSyncLock 은 running 이 아니거나 오래된 행만 조건부로 갱신하고 성공 여부를 반환한다', async () => {
+        const { composed, queries } = createLockCompose(1)
+        const acquired = await composed.mailSyncDb.tryAcquireSyncLock(3, 300_000)
+
+        expect(acquired).toBe(true)
+        const update = queries.find((q) => q.sql.startsWith('update `mail_accounts`'))
+        expect(update).toBeDefined()
+        expect(update?.sql).toContain('`last_sync_status` = ?')
+        expect(update?.sql).toContain('`last_sync_at` is null')
+        expect(update?.sql).toContain('`last_sync_at` < ?')
+        expect(update?.params).toContain('running')
+        expect(update?.params).toContain(3)
+    })
+
+    test('조건에 맞는 행이 없으면 tryAcquireSyncLock 이 false 를 반환한다', async () => {
+        const { composed } = createLockCompose(0)
+        expect(await composed.mailSyncDb.tryAcquireSyncLock(3, 300_000)).toBe(false)
+    })
+
+    test('releaseSyncLock 은 아직 running 인 행만 되돌린다', async () => {
+        const { composed, queries } = createLockCompose(1)
+        await composed.mailSyncDb.releaseSyncLock(3)
+
+        const update = queries.find((q) => q.sql.startsWith('update `mail_accounts`'))
+        expect(update?.params).toContain('error')
+        expect(update?.params.slice(-2)).toEqual([3, 'running'])
+    })
+})
+
+const createDeleteMessagesCompose = (r2Keys: string[]) => {
+    const queries: { sql: string; params: unknown[] }[] = []
+    const deletedKeys: string[] = []
+    const db = drizzle(
+        async (sql, params) => {
+            queries.push({ sql, params })
+            if (sql.startsWith('select `r2_key`')) return { rows: r2Keys.map((key) => [key]) }
+            if (sql.startsWith('select')) return { rows: [] }
+            return { rows: [{ insertId: 0, affectedRows: 1 }] }
+        },
+        { schema, mode: 'default' },
+    ) as unknown as ComposeMailArgs['db']
+
+    const composed = composeMail({
+        db,
+        env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+        storageService: {
+            del: async (key: string) => {
+                deletedKeys.push(key)
+            },
+        } as unknown as ComposeMailArgs['storageService'],
+    })
+
+    return { composed, queries, deletedKeys }
+}
+
+describe('composeMail mailMessageDb.deleteMessages', () => {
+    test('캐시된 첨부의 R2 오브젝트를 먼저 지운 뒤 메시지 행을 삭제한다', async () => {
+        const { composed, queries, deletedKeys } = createDeleteMessagesCompose(['mail/attachments/1/10/a.pdf'])
+        await composed.mailMessageDb.deleteMessages([1])
+
+        expect(deletedKeys).toEqual(['mail/attachments/1/10/a.pdf'])
+        const selectIndex = queries.findIndex((q) => q.sql.startsWith('select `r2_key`'))
+        const deleteIndex = queries.findIndex((q) => q.sql.startsWith('delete from `mail_messages`'))
+        expect(selectIndex).toBeGreaterThanOrEqual(0)
+        expect(deleteIndex).toBeGreaterThan(selectIndex)
+    })
+
+    test('R2 삭제가 실패해도 메시지 행 삭제는 진행한다', async () => {
+        const queries: { sql: string; params: unknown[] }[] = []
+        const db = drizzle(
+            async (sql, params) => {
+                queries.push({ sql, params })
+                if (sql.startsWith('select `r2_key`')) return { rows: [['mail/attachments/1/10/a.pdf']] }
+                if (sql.startsWith('select')) return { rows: [] }
+                return { rows: [{ insertId: 0, affectedRows: 1 }] }
+            },
+            { schema, mode: 'default' },
+        ) as unknown as ComposeMailArgs['db']
+        const composed = composeMail({
+            db,
+            env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+            storageService: { del: async () => Promise.reject(new Error('R2 down')) } as unknown as ComposeMailArgs['storageService'],
+        })
+
+        await composed.mailMessageDb.deleteMessages([1])
+        expect(queries.some((q) => q.sql.startsWith('delete from `mail_messages`'))).toBe(true)
+    })
+
+    test('빈 목록이면 아무 쿼리도 실행하지 않는다', async () => {
+        const { composed, queries } = createDeleteMessagesCompose([])
+        await composed.mailMessageDb.deleteMessages([])
+
+        expect(queries).toHaveLength(0)
+    })
+})
+
+describe('composeMail FULLTEXT 프로브', () => {
+    test('프로브가 실패하면 LIKE 로 폴백하고 다음 검색에서 다시 프로브한다', async () => {
+        const probeQueries: string[] = []
+        const searchQueries: string[] = []
+        let shouldProbeFail = true
+        const db = drizzle(
+            async (sql) => {
+                if (sql.includes('information_schema')) {
+                    probeQueries.push(sql)
+                    if (shouldProbeFail) throw new Error('probe failed')
+                    return { rows: [[1]] }
+                }
+                if (sql.startsWith('select `id` from `mail_accounts`')) return { rows: [[1]] }
+                if (sql.includes('COUNT(*)')) return { rows: [[0]] }
+                searchQueries.push(sql)
+                return { rows: [] }
+            },
+            { schema, mode: 'default' },
+        ) as unknown as ComposeMailArgs['db']
+        const composed = composeMail({
+            db,
+            env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+            storageService: {} as unknown as ComposeMailArgs['storageService'],
+        })
+
+        await composed.mailMessageDb.search({ q: 'hello', accountId: 1, userId: 'user-1', page: 1, limit: 20 })
+        expect(probeQueries).toHaveLength(1)
+        expect(searchQueries.some((sql) => sql.includes('LIKE'))).toBe(true)
+
+        shouldProbeFail = false
+        await composed.mailMessageDb.search({ q: 'hello', accountId: 1, userId: 'user-1', page: 1, limit: 20 })
+        expect(probeQueries).toHaveLength(2)
+        expect(searchQueries.some((sql) => sql.includes('MATCH'))).toBe(true)
+    })
+})

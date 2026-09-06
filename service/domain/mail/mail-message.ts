@@ -60,6 +60,8 @@ type MailMessageDb = {
 
 type MailMessageInfo = Awaited<ReturnType<MailMessageDb['getAccountIdsByMessageIds']>>[number]
 
+type FlagAction = 'markRead' | 'markUnread' | 'markStarred' | 'unmarkStarred'
+
 type StorageService = {
     upload: (key: string, body: Buffer, contentType: string) => Promise<void>
     getUrl: (key: string) => string
@@ -148,7 +150,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         if (!accounts.some((a) => a.id === msg.accountId)) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
 
         if (!msg.isRead) {
-            applyFlagAction(userId, [messageId], 'markRead').catch(captureException)
+            await applyFlagAction(userId, [messageId], 'markRead', { remoteSync: 'background' }).catch(captureException)
         }
 
         return msg
@@ -159,19 +161,7 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
         return deps.db.getThread(accountId, threadId)
     }
 
-    const applyFlagAction = async (userId: string, messageIds: number[], action: 'markRead' | 'markUnread' | 'markStarred' | 'unmarkStarred') => {
-        const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
-        if (msgInfos.length !== messageIds.length) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
-
-        const flagUpdate: Partial<Pick<MailMessage, 'isRead' | 'isStarred'>> =
-            action === 'markRead'
-                ? { isRead: true }
-                : action === 'markUnread'
-                  ? { isRead: false }
-                  : action === 'markStarred'
-                    ? { isStarred: true }
-                    : { isStarred: false }
-
+    const syncFlagActionToProvider = async (userId: string, msgInfos: MailMessageInfo[], action: FlagAction) => {
         for (const { accountId, folderId, infos } of groupByAccountFolder(msgInfos)) {
             try {
                 const { provider } = await deps.accountService.getProvider(accountId, userId)
@@ -189,6 +179,23 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
                 captureException(error)
             }
         }
+    }
+
+    const applyFlagAction = async (userId: string, messageIds: number[], action: FlagAction, options: { remoteSync?: 'background' } = {}) => {
+        const msgInfos = await deps.db.getAccountIdsByMessageIds(messageIds, userId)
+        if (msgInfos.length !== messageIds.length) throw createAppError('MAIL_MESSAGE_NOT_FOUND')
+
+        const flagUpdate: Partial<Pick<MailMessage, 'isRead' | 'isStarred'>> =
+            action === 'markRead'
+                ? { isRead: true }
+                : action === 'markUnread'
+                  ? { isRead: false }
+                  : action === 'markStarred'
+                    ? { isStarred: true }
+                    : { isStarred: false }
+
+        if (options.remoteSync === 'background') syncFlagActionToProvider(userId, msgInfos, action).catch(captureException)
+        else await syncFlagActionToProvider(userId, msgInfos, action)
 
         await deps.db.updateFlags(messageIds, flagUpdate)
 

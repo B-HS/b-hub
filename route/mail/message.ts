@@ -27,11 +27,16 @@ import type { AuthContext } from '../../lib/hono-types'
 type MailMessageRouteDeps = {
     mailMessageService: MailMessageService
     getSession: Parameters<typeof withAuth>[0]['getSession']
-    checkLimit?: (key: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number }
+    checkLimit?: Parameters<typeof withRateLimit>[0]['checkLimit']
 }
+
+const SEND_RATE_LIMIT_PATH_KEY = 'mail:messages:send'
 
 export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
     const route = new Hono<AuthContext>()
+
+    const withSendRateLimit = (handler: Parameters<ReturnType<typeof withRateLimit>>[0]) =>
+        deps.checkLimit ? withRateLimit({ checkLimit: deps.checkLimit, pathKey: SEND_RATE_LIMIT_PATH_KEY })(handler) : handler
 
     route.get(
         '/',
@@ -247,17 +252,11 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
         validator('json', mailComposeSchema),
         withErrorHandling(
             withAuth({ getSession: deps.getSession })(
-                deps.checkLimit
-                    ? withRateLimit({ checkLimit: deps.checkLimit })(async (c, user) => {
-                          const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
-                          const result = await deps.mailMessageService.send(user.id, body.accountId, body)
-                          return c.json(successResponse(result))
-                      })
-                    : async (c, user) => {
-                          const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
-                          const result = await deps.mailMessageService.send(user.id, body.accountId, body)
-                          return c.json(successResponse(result))
-                      },
+                withSendRateLimit(async (c, user) => {
+                    const body = c.req.valid('json' as never) as z.infer<typeof mailComposeSchema>
+                    const result = await deps.mailMessageService.send(user.id, body.accountId, body)
+                    return c.json(successResponse(result))
+                }),
             ),
         ),
     )
@@ -267,17 +266,22 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
         describeRoute({
             tags: ['Mail'],
             summary: '답장',
-            responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED']) },
+            responses: {
+                200: { description: '발송 완료' },
+                ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED', 'RATE_LIMIT_EXCEEDED']),
+            },
         }),
         validator('param', mailMessageParamSchema),
         validator('json', mailReplySchema),
         withErrorHandling(
-            withAuth({ getSession: deps.getSession })(async (c, user) => {
-                const { messageId } = c.req.valid('param' as never) as z.infer<typeof mailMessageParamSchema>
-                const body = c.req.valid('json' as never) as z.infer<typeof mailReplySchema>
-                const result = await deps.mailMessageService.reply(user.id, messageId, body)
-                return c.json(successResponse(result))
-            }),
+            withAuth({ getSession: deps.getSession })(
+                withSendRateLimit(async (c, user) => {
+                    const { messageId } = c.req.valid('param' as never) as z.infer<typeof mailMessageParamSchema>
+                    const body = c.req.valid('json' as never) as z.infer<typeof mailReplySchema>
+                    const result = await deps.mailMessageService.reply(user.id, messageId, body)
+                    return c.json(successResponse(result))
+                }),
+            ),
         ),
     )
 
@@ -286,17 +290,22 @@ export const createMailMessageRoute = (deps: MailMessageRouteDeps) => {
         describeRoute({
             tags: ['Mail'],
             summary: '전달',
-            responses: { 200: { description: '발송 완료' }, ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED']) },
+            responses: {
+                200: { description: '발송 완료' },
+                ...errorResponses(['UNAUTHORIZED', 'MAIL_MESSAGE_NOT_FOUND', 'MAIL_SEND_FAILED', 'RATE_LIMIT_EXCEEDED']),
+            },
         }),
         validator('param', mailMessageParamSchema),
         validator('json', mailForwardSchema),
         withErrorHandling(
-            withAuth({ getSession: deps.getSession })(async (c, user) => {
-                const { messageId } = c.req.valid('param' as never) as z.infer<typeof mailMessageParamSchema>
-                const body = c.req.valid('json' as never) as z.infer<typeof mailForwardSchema>
-                const result = await deps.mailMessageService.forward(user.id, messageId, body)
-                return c.json(successResponse(result))
-            }),
+            withAuth({ getSession: deps.getSession })(
+                withSendRateLimit(async (c, user) => {
+                    const { messageId } = c.req.valid('param' as never) as z.infer<typeof mailMessageParamSchema>
+                    const body = c.req.valid('json' as never) as z.infer<typeof mailForwardSchema>
+                    const result = await deps.mailMessageService.forward(user.id, messageId, body)
+                    return c.json(successResponse(result))
+                }),
+            ),
         ),
     )
 

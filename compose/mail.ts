@@ -1,7 +1,8 @@
-import { and, desc, eq, gte, inArray, lte, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
 import { isDuplicateKeyError } from '../lib/db-helper'
+import { captureException } from '../lib/sentry'
 import { createMailCrypto } from '../service/domain/mail/mail-crypto'
 import { createMailProviderFactory } from '../service/domain/mail/mail-provider-factory'
 import { createMailAccountService } from '../service/domain/mail/mail-account'
@@ -13,7 +14,10 @@ import { createMailOAuthConnectService } from '../service/domain/mail/mail-oauth
 import { createRateLimiter } from '../lib/rate-limit'
 import type { ComposeMailArgs } from './types'
 
-export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
+const SYNC_LOCK_HELD_STATUS = 'running'
+const SYNC_LOCK_INTERRUPTED_STATUS = 'error'
+
+export const composeMail = ({ db, env, storageService, rateLimitStore }: ComposeMailArgs) => {
     if (!env.MAIL_ENCRYPTION_KEY) {
         throw new Error('MAIL_ENCRYPTION_KEY is required for mail functionality')
     }
@@ -338,6 +342,30 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             return log ?? null
         },
 
+        tryAcquireSyncLock: async (accountId: number, staleMs: number) => {
+            const [result] = await db
+                .update(schema.mailAccounts)
+                .set({ lastSyncStatus: SYNC_LOCK_HELD_STATUS, lastSyncAt: new Date() })
+                .where(
+                    and(
+                        eq(schema.mailAccounts.id, accountId),
+                        or(
+                            isNull(schema.mailAccounts.lastSyncStatus),
+                            ne(schema.mailAccounts.lastSyncStatus, SYNC_LOCK_HELD_STATUS),
+                            isNull(schema.mailAccounts.lastSyncAt),
+                            lt(schema.mailAccounts.lastSyncAt, new Date(Date.now() - staleMs)),
+                        ),
+                    ),
+                )
+            return (result?.affectedRows ?? 0) > 0
+        },
+        releaseSyncLock: async (accountId: number) => {
+            await db
+                .update(schema.mailAccounts)
+                .set({ lastSyncStatus: SYNC_LOCK_INTERRUPTED_STATUS })
+                .where(and(eq(schema.mailAccounts.id, accountId), eq(schema.mailAccounts.lastSyncStatus, SYNC_LOCK_HELD_STATUS)))
+        },
+
         getActiveSession: async (accountId: number) => {
             const [session] = await db
                 .select()
@@ -393,7 +421,7 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
     let fulltextIndexReady: Promise<boolean> | null = null
     const isFulltextIndexReady = () => {
         if (!fulltextIndexReady) {
-            fulltextIndexReady = db
+            const probe: Promise<boolean> = db
                 .execute(
                     sql`SELECT 1 AS present FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mail_messages' AND INDEX_NAME = 'ft_mail_messages_subject_body' LIMIT 1`,
                 )
@@ -401,7 +429,12 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
                     const rows = Array.isArray(res) ? res[0] : undefined
                     return Array.isArray(rows) && rows.length > 0
                 })
-                .catch(() => false)
+                .catch((error) => {
+                    captureException(error)
+                    if (fulltextIndexReady === probe) fulltextIndexReady = null
+                    return false
+                })
+            fulltextIndexReady = probe
         }
         return fulltextIndexReady
     }
@@ -654,6 +687,15 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
             })
         },
         deleteMessages: async (messageIds: number[]) => {
+            if (messageIds.length === 0) return
+            const cachedAttachments = await db
+                .select({ r2Key: schema.mailAttachments.r2Key })
+                .from(schema.mailAttachments)
+                .where(and(inArray(schema.mailAttachments.messageId, messageIds), isNotNull(schema.mailAttachments.r2Key)))
+            for (const attachment of cachedAttachments) {
+                if (!attachment.r2Key) continue
+                await storageService.del(attachment.r2Key).catch(captureException)
+            }
             await db.delete(schema.mailMessages).where(inArray(schema.mailMessages.id, messageIds))
         },
         getByIds: async (ids: number[]) => {
@@ -882,7 +924,7 @@ export const composeMail = ({ db, env, storageService }: ComposeMailArgs) => {
         getFoldersByAccount: mailSyncDb.getFoldersByAccount,
     }
 
-    const mailRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20 })
+    const mailRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20 }, rateLimitStore)
     const mailCheckLimit = (key: string, path: string) => mailRateLimiter.checkLimit(`mail:${key}:${path}`)
 
     return {

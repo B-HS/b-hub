@@ -51,4 +51,16 @@ describe('POST /manage/mail/sync', () => {
         expect(userId).toBe('u1')
         expect(options.batchSize).toBe(50)
     })
+
+    test('batchSize 가 범위를 넘으면 DTO 범위로 클램프한다', async () => {
+        const syncHistorical = mock(() => Promise.resolve({ added: 0, updated: 0, deleted: 0, durationMs: 1 }))
+        const app = createApp({ syncHistorical: syncHistorical as never })
+
+        await app.request('/manage/mail/sync/historical', { method: 'POST', body: new URLSearchParams({ accountId: '3', batchSize: '9999' }) })
+        await app.request('/manage/mail/sync/historical', { method: 'POST', body: new URLSearchParams({ accountId: '3', batchSize: '1' }) })
+        await app.request('/manage/mail/sync/historical', { method: 'POST', body: new URLSearchParams({ accountId: '3' }) })
+
+        const batchSizes = syncHistorical.mock.calls.map((call) => (call as unknown as [number, string, { batchSize: number }])[2].batchSize)
+        expect(batchSizes).toEqual([500, 10, 100])
+    })
 })

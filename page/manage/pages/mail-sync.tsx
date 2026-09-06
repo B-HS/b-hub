@@ -10,6 +10,7 @@ import { requireSessionPage } from '../guard'
 import { emptyToUndefined, errorToFlashCode, parseId } from '../util'
 import type { MailSyncService } from '../../../service/domain/mail/mail-sync'
 import type { MailAccountService } from '../../../service/domain/mail/mail-account'
+import { MAIL_HISTORICAL_BATCH_SIZE_DEFAULT, MAIL_HISTORICAL_BATCH_SIZE_MAX, MAIL_HISTORICAL_BATCH_SIZE_MIN } from '../../../dto/mail/sync'
 
 type ManageMailSyncDeps = {
     getSession: ManageGetSession
@@ -21,7 +22,9 @@ type AccountRow = Awaited<ReturnType<MailAccountService['list']>>[number]
 type SyncStatus = Awaited<ReturnType<MailSyncService['getSyncStatus']>>
 
 const MAIL_SYNC_PATH = '/manage/mail/sync'
-const DEFAULT_BATCH_SIZE = 100
+
+const clampBatchSize = (value: number | null) =>
+    value === null ? MAIL_HISTORICAL_BATCH_SIZE_DEFAULT : Math.min(Math.max(value, MAIL_HISTORICAL_BATCH_SIZE_MIN), MAIL_HISTORICAL_BATCH_SIZE_MAX)
 
 const NotConfiguredPage: FC<{ user: AdminSessionUser }> = ({ user }) => (
     <ManageShell title='Mail Sync' subtitle='메일 동기화' user={user} currentPath={MAIL_SYNC_PATH}>
@@ -104,7 +107,15 @@ const SyncPage: FC<{ user: AdminSessionUser; accounts: AccountRow[]; accountId?:
                 </div>
                 <div class='field'>
                     <label for='hist-batch'>Batch size</label>
-                    <input id='hist-batch' class='input' type='number' name='batchSize' value={DEFAULT_BATCH_SIZE} min={10} max={500} />
+                    <input
+                        id='hist-batch'
+                        class='input'
+                        type='number'
+                        name='batchSize'
+                        value={MAIL_HISTORICAL_BATCH_SIZE_DEFAULT}
+                        min={MAIL_HISTORICAL_BATCH_SIZE_MIN}
+                        max={MAIL_HISTORICAL_BATCH_SIZE_MAX}
+                    />
                 </div>
                 <div class='field'>
                     <label for='hist-cursor'>Cursor (선택)</label>
@@ -161,8 +172,7 @@ export const createManageMailSyncRoute = (deps: ManageMailSyncDeps) => {
         const accountId = parseId(body.accountId)
         if (accountId === null) return c.redirect(flashPath(MAIL_SYNC_PATH, 'err', 'validation'), 303)
         const folderId = parseId(body.folderId) ?? undefined
-        const batchSizeRaw = parseId(body.batchSize)
-        const batchSize = batchSizeRaw ?? DEFAULT_BATCH_SIZE
+        const batchSize = clampBatchSize(parseId(body.batchSize))
         try {
             await deps.mailSyncService.syncHistorical(accountId, user.id, { folderId, batchSize, cursor: emptyToUndefined(body.cursor) })
             return c.redirect(flashPath(MAIL_SYNC_PATH, 'ok'), 303)

@@ -81,6 +81,8 @@ const createMockDb = () => ({
     createSyncLog: mock(() => Promise.resolve(mockSyncLog())),
     updateSyncLog: mock(() => Promise.resolve()),
     getLatestSyncLog: mock(() => Promise.resolve(mockSyncLog({ status: 'success', completedAt: new Date() }))),
+    tryAcquireSyncLock: mock(() => Promise.resolve(true)),
+    releaseSyncLock: mock(() => Promise.resolve()),
     getActiveSession: mock(() => Promise.resolve(null)),
     createSession: mock(() => Promise.resolve(mockSession())),
     updateSession: mock(() => Promise.resolve()),
@@ -395,6 +397,123 @@ describe('createMailSyncService', () => {
             await service.syncAccount(1, 'user-1')
 
             expect(accountService._provider.disconnect).toHaveBeenCalled()
+        })
+
+        test('같은 계정 동기화가 진행 중이면 0 결과로 즉시 성공 반환한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({ accountService, db: { tryAcquireSyncLock: mock(() => Promise.resolve(false)) } })
+            const service = createMailSyncService(deps)
+            const result = await service.syncAccount(1, 'user-1')
+
+            expect(result.added).toBe(0)
+            expect(result.updated).toBe(0)
+            expect(result.deleted).toBe(0)
+            expect(typeof result.durationMs).toBe('number')
+            expect(deps.db.createSyncLog).not.toHaveBeenCalled()
+            expect(accountService._provider.connect).not.toHaveBeenCalled()
+            expect(deps.db.releaseSyncLock).not.toHaveBeenCalled()
+        })
+
+        test('락은 계정 소유 확인 뒤에 시도한다', async () => {
+            const accountService = createMockAccountService()
+            accountService.getProvider = mock(() => Promise.reject({ code: 'MAIL_ACCOUNT_NOT_FOUND' })) as never
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+
+            await expect(service.syncAccount(1, 'user-2')).rejects.toMatchObject({ code: 'MAIL_ACCOUNT_NOT_FOUND' })
+            expect(deps.db.tryAcquireSyncLock).not.toHaveBeenCalled()
+        })
+
+        test('성공/실패와 무관하게 락을 해제한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+            expect(deps.db.releaseSyncLock).toHaveBeenCalledWith(1)
+
+            const failingAccountService = createMockAccountService()
+            failingAccountService._provider.connect = mock(() => Promise.reject(new Error('Connection failed')))
+            const failingDeps = createDeps({ accountService: failingAccountService })
+            const failingService = createMailSyncService(failingDeps)
+
+            await expect(failingService.syncAccount(1, 'user-1')).rejects.toMatchObject({ code: 'MAIL_PROVIDER_ERROR' })
+            expect(failingDeps.db.releaseSyncLock).toHaveBeenCalledWith(1)
+        })
+
+        test('증분 동기화에서 한 폴더가 실패해도 나머지 폴더를 끝까지 동기화한 뒤 MAIL_PROVIDER_ERROR 를 던진다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.fetchMessages = mock((params: { folderId: string }) =>
+                params.folderId === 'BROKEN'
+                    ? Promise.reject(new Error('folder failed'))
+                    : Promise.resolve({ messages: [mockMessage('ok-1')], deletedIds: [], newSyncCursor: 'cursor-ok' }),
+            ) as never
+            const deps = createDeps({
+                accountService,
+                db: {
+                    getFoldersByAccount: mock(() =>
+                        Promise.resolve([
+                            mockFolder({ id: 1, remoteFolderId: 'BROKEN', syncCursor: 'history-1' }),
+                            mockFolder({ id: 2, remoteFolderId: 'INBOX', syncCursor: 'history-2' }),
+                        ]),
+                    ),
+                },
+            })
+            const service = createMailSyncService(deps)
+
+            await expect(service.syncAccount(1, 'user-1')).rejects.toMatchObject({ code: 'MAIL_PROVIDER_ERROR' })
+            expect(accountService._provider.fetchMessages).toHaveBeenCalledTimes(2)
+            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ folderId: 2, remoteMessageId: 'ok-1' }))
+            expect(deps.db.updateSyncLog).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'error', errorMessage: 'folder failed' }))
+        })
+
+        test('헤더 유래 값을 컬럼 길이에 맞게 절단한다', async () => {
+            const accountService = createMockAccountService()
+            const longHeader = 'a'.repeat(600)
+            accountService._provider.fetchMessages = mock(() =>
+                Promise.resolve({
+                    messages: [
+                        {
+                            ...mockMessage('msg-long'),
+                            messageIdHeader: longHeader,
+                            inReplyTo: longHeader,
+                            attachments: [
+                                {
+                                    id: 'att-1',
+                                    filename: 'f'.repeat(300),
+                                    mimeType: 'm'.repeat(120),
+                                    sizeBytes: 10,
+                                    contentId: 'c'.repeat(300),
+                                    isInline: false,
+                                },
+                            ],
+                        },
+                    ],
+                    deletedIds: [],
+                    newSyncCursor: 'cursor',
+                }),
+            ) as never
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.upsertMessage).toHaveBeenCalledWith(
+                expect.objectContaining({ messageIdHeader: 'a'.repeat(500), inReplyTo: 'a'.repeat(500) }),
+            )
+            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(
+                expect.objectContaining({ filename: 'f'.repeat(255), mimeType: 'm'.repeat(100), contentId: 'c'.repeat(255) }),
+            )
+        })
+
+        test('원격 폴더 id 는 255자로 절단해 upsert 한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.fetchFolders = mock(() =>
+                Promise.resolve([{ id: 'F'.repeat(300), name: 'Long', type: 'custom' as const, messageCount: 0, unreadCount: 0 }]),
+            ) as never
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.upsertFolder).toHaveBeenCalledWith(expect.objectContaining({ remoteFolderId: 'F'.repeat(255) }))
         })
     })
 

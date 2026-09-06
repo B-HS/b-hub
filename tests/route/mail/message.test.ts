@@ -244,6 +244,67 @@ describe('POST /mail/messages/:messageId/reply', () => {
     })
 })
 
+describe('발송 rate limit', () => {
+    const createLimitedApp = (allowed: boolean) => {
+        const checkLimit = mock(() => ({ allowed, limit: 20, remaining: allowed ? 19 : 0, resetAt: 1_700_000_000_000 }))
+        const app = new Hono()
+        app.route('/mail/messages', createMailMessageRoute({ ...createMockDeps(), checkLimit }))
+        return { app, checkLimit }
+    }
+
+    test('reply 는 send 와 같은 한도 키로 X-RateLimit 헤더를 붙인다', async () => {
+        const { app, checkLimit } = createLimitedApp(true)
+        const res = await app.request('/mail/messages/1/reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bodyHtml: '<p>Reply</p>' }),
+        })
+        expect(res.status).toBe(200)
+        expect(res.headers.get('X-RateLimit-Limit')).toBe('20')
+        expect(res.headers.get('X-RateLimit-Remaining')).toBe('19')
+        expect(checkLimit).toHaveBeenCalledWith('user-1', 'mail:messages:send')
+    })
+
+    test('forward 는 send 와 같은 한도 키로 X-RateLimit 헤더를 붙인다', async () => {
+        const { app, checkLimit } = createLimitedApp(true)
+        const res = await app.request('/mail/messages/1/forward', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: [{ name: 'Fwd', address: 'fwd@test.com' }] }),
+        })
+        expect(res.status).toBe(200)
+        expect(checkLimit).toHaveBeenCalledWith('user-1', 'mail:messages:send')
+    })
+
+    test('send 도 같은 한도 키를 쓴다', async () => {
+        const { app, checkLimit } = createLimitedApp(true)
+        const res = await app.request('/mail/messages/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId: 1, to: [{ name: 'To', address: 'to@test.com' }], subject: 'Hello', bodyText: 'Hi' }),
+        })
+        expect(res.status).toBe(200)
+        expect(checkLimit).toHaveBeenCalledWith('user-1', 'mail:messages:send')
+    })
+
+    test('한도를 넘으면 reply 와 forward 는 429 를 반환한다', async () => {
+        const { app } = createLimitedApp(false)
+        const reply = await app.request('/mail/messages/1/reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bodyHtml: '<p>Reply</p>' }),
+        })
+        const forward = await app.request('/mail/messages/1/forward', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: [{ name: 'Fwd', address: 'fwd@test.com' }] }),
+        })
+        expect(reply.status).toBe(429)
+        expect(forward.status).toBe(429)
+        expect((await reply.json()).error.code).toBe('RATE_LIMIT_EXCEEDED')
+    })
+})
+
 describe('POST /mail/messages/:messageId/forward', () => {
     test('전달한다', async () => {
         const { app } = createApp()

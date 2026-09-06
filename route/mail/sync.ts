@@ -13,7 +13,7 @@ import type { AuthContext } from '../../lib/hono-types'
 type MailSyncRouteDeps = {
     mailSyncService: MailSyncService
     getSession: Parameters<typeof withAuth>[0]['getSession']
-    checkLimit?: (key: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number }
+    checkLimit?: Parameters<typeof withRateLimit>[0]['checkLimit']
 }
 
 export const createMailSyncRoute = (deps: MailSyncRouteDeps) => {

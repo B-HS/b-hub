@@ -246,6 +246,43 @@ describe('createMailMessageService', () => {
                 code: 'MAIL_MESSAGE_NOT_FOUND',
             })
         })
+
+        test('안읽은 메시지는 로컬 읽음 갱신을 await 하고 원격 반영은 기다리지 않는다', async () => {
+            const accountService = createMockAccountService()
+            let releaseProvider = () => {}
+            accountService._provider.connect = mock(
+                () =>
+                    new Promise<void>((resolve) => {
+                        releaseProvider = resolve
+                    }),
+            )
+            const deps = createDeps({ accountService: accountService as never })
+            const service = createMailMessageService(deps)
+
+            const result = await service.getById('user-1', 1)
+
+            expect(result.isRead).toBe(false)
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1], { isRead: true })
+            expect(deps.db.updateFolderCounts).toHaveBeenCalledWith(1, 10, 3)
+            expect(accountService._provider.markRead).not.toHaveBeenCalled()
+            releaseProvider()
+        })
+
+        test('이미 읽은 메시지는 읽음 갱신을 하지 않는다', async () => {
+            const deps = createDeps({ db: { getById: mock(() => Promise.resolve(mockMessage({ isRead: true }))) } as never })
+            const service = createMailMessageService(deps)
+            await service.getById('user-1', 1)
+
+            expect(deps.db.updateFlags).not.toHaveBeenCalled()
+        })
+
+        test('읽음 갱신이 실패해도 상세 조회는 성공한다', async () => {
+            const deps = createDeps({ db: { updateFlags: mock(() => Promise.reject(new Error('db down'))) } as never })
+            const service = createMailMessageService(deps)
+            const result = await service.getById('user-1', 1)
+
+            expect(result.id).toBe(1)
+        })
     })
 
     describe('markRead', () => {
