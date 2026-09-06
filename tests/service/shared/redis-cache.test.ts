@@ -1,16 +1,20 @@
-import { describe, expect, test, mock, beforeEach } from 'bun:test'
+import { describe, expect, test, mock, beforeEach, afterAll } from 'bun:test'
+import Redis from 'ioredis'
+import { redisCache } from '../../../service/shared/redis-cache'
+
+const originalRedisGet = Redis.prototype.get
+const originalRedisSet = Redis.prototype.set
 
 const mockRedisGet = mock(() => Promise.resolve(null))
 const mockRedisSet = mock(() => Promise.resolve('OK'))
 
-mock.module('ioredis', () => ({
-    default: class MockRedis {
-        get = mockRedisGet
-        set = mockRedisSet
-    },
-}))
+Redis.prototype.get = mockRedisGet as never
+Redis.prototype.set = mockRedisSet as never
 
-const { redisCache } = await import('../../../service/shared/redis-cache')
+afterAll(() => {
+    Redis.prototype.get = originalRedisGet
+    Redis.prototype.set = originalRedisSet
+})
 
 describe('redisCache', () => {
     beforeEach(() => {
@@ -35,7 +39,7 @@ describe('redisCache', () => {
 
         test('Redis에서 JSON을 파싱하여 반환한다', async () => {
             const data = { success: true, data: [1, 2, 3] }
-            mockRedisGet.mockImplementation(() => Promise.resolve(JSON.stringify(data)))
+            mockRedisGet.mockImplementation(() => Promise.resolve(JSON.stringify(data) as never))
 
             const result = await redisCache.get<typeof data>('json-key-unique-123')
             expect(result).toEqual(data)
