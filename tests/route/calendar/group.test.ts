@@ -131,6 +131,37 @@ describe('PATCH /groups/:id', () => {
         expect(res.status).toBe(404)
     })
 
+    test('갱신 후 조회 결과가 없으면 data: null 대신 404를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getGroupById = mock(() => Promise.resolve(null)) as never
+        const { app } = createApp(deps)
+        const res = await app.request('/groups/g1', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: '수정' }),
+        })
+        expect(res.status).toBe(404)
+        const body = await res.json()
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('CALENDAR_GROUP_NOT_FOUND')
+    })
+
+    test('갱신된 행을 그대로 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getGroupById = mock(() => Promise.resolve({ ...mockGroups[0], name: '수정된 이름' })) as never
+        const { app } = createApp(deps)
+        const res = await app.request('/groups/g1', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: '수정된 이름' }),
+        })
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.success).toBe(true)
+        expect(body.data.id).toBe('g1')
+        expect(body.data.name).toBe('수정된 이름')
+    })
+
     test('color만 수정할 수 있다', async () => {
         const { app } = createApp()
         const res = await app.request('/groups/g1', {

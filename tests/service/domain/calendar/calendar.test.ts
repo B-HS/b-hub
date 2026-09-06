@@ -54,6 +54,17 @@ const createEventRow = (overrides: Partial<CalendarEventRow> = {}): CalendarEven
     ...overrides,
 })
 
+const existingSubscription = {
+    id: 'sub-1',
+    userId: 'user-123',
+    token: 'existing-token',
+    icsToken: 'existing-ics-token',
+    name: 'My Calendar',
+    isActive: true,
+    ctag: '0',
+    lastAccessedAt: null,
+}
+
 let mockDb: CalendarServiceDb
 
 describe('CalendarService', () => {
@@ -536,6 +547,7 @@ describe('CalendarService', () => {
 
     describe('regenerateSubscriptionToken', () => {
         test('새 토큰을 반환한다', async () => {
+            ;(mockDb.getSubscription as ReturnType<typeof mock>).mockResolvedValue(existingSubscription)
             const service = createCalendarService({ db: mockDb })
 
             const token = await service.regenerateSubscriptionToken('user-123')
@@ -544,10 +556,21 @@ describe('CalendarService', () => {
             expect(token.length).toBeGreaterThan(0)
             expect(mockDb.updateSubscriptionToken).toHaveBeenCalledWith('user-123', token)
         })
+
+        test('구독이 없으면 CALENDAR_SUBSCRIPTION_NOT_FOUND 를 던지고 토큰을 갱신하지 않는다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await expect(service.regenerateSubscriptionToken('user-123')).rejects.toMatchObject({
+                code: 'CALENDAR_SUBSCRIPTION_NOT_FOUND',
+                statusCode: 404,
+            })
+            expect(mockDb.updateSubscriptionToken).not.toHaveBeenCalled()
+        })
     })
 
     describe('regenerateIcsToken', () => {
         test('새 ICS 토큰을 반환한다', async () => {
+            ;(mockDb.getSubscription as ReturnType<typeof mock>).mockResolvedValue(existingSubscription)
             const service = createCalendarService({ db: mockDb })
 
             const token = await service.regenerateIcsToken('user-123')
@@ -555,6 +578,16 @@ describe('CalendarService', () => {
             expect(typeof token).toBe('string')
             expect(token.length).toBeGreaterThan(0)
             expect(mockDb.updateSubscriptionIcsToken).toHaveBeenCalledWith('user-123', token)
+        })
+
+        test('구독이 없으면 CALENDAR_SUBSCRIPTION_NOT_FOUND 를 던지고 ICS 토큰을 갱신하지 않는다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            await expect(service.regenerateIcsToken('user-123')).rejects.toMatchObject({
+                code: 'CALENDAR_SUBSCRIPTION_NOT_FOUND',
+                statusCode: 404,
+            })
+            expect(mockDb.updateSubscriptionIcsToken).not.toHaveBeenCalled()
         })
     })
 

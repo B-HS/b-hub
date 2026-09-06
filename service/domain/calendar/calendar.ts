@@ -484,12 +484,18 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
     }
 
     const regenerateSubscriptionToken = async (userId: string): Promise<string> => {
+        const existing = await db.getSubscription(userId)
+        if (!existing) throw createAppError('CALENDAR_SUBSCRIPTION_NOT_FOUND')
+
         const newToken = generateSubscriptionToken()
         await db.updateSubscriptionToken(userId, newToken)
         return newToken
     }
 
     const regenerateIcsToken = async (userId: string): Promise<string> => {
+        const existing = await db.getSubscription(userId)
+        if (!existing) throw createAppError('CALENDAR_SUBSCRIPTION_NOT_FOUND')
+
         const newToken = generateSubscriptionToken()
         await db.updateSubscriptionIcsToken(userId, newToken)
         return newToken

@@ -95,6 +95,21 @@ describe('POST /subscription/regenerate', () => {
     })
 })
 
+describe('POST /subscription/regenerate 구독 미존재', () => {
+    test('구독이 없으면 404 CALENDAR_SUBSCRIPTION_NOT_FOUND 를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.regenerateSubscriptionToken = mock(() =>
+            Promise.reject({ code: 'CALENDAR_SUBSCRIPTION_NOT_FOUND', message: '구독을 찾을 수 없습니다', statusCode: 404 }),
+        ) as never
+        const { app } = createApp(deps)
+        const res = await app.request('/subscription/regenerate', { method: 'POST' })
+        expect(res.status).toBe(404)
+        const body = await res.json()
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('CALENDAR_SUBSCRIPTION_NOT_FOUND')
+    })
+})
+
 describe('POST /subscription/regenerate-ics', () => {
     test('ICS 토큰을 재생성한다', async () => {
         const { app } = createApp()
@@ -110,6 +125,21 @@ describe('POST /subscription/regenerate-ics', () => {
         const { app } = createApp(deps)
         const res = await app.request('/subscription/regenerate-ics', { method: 'POST' })
         expect(res.status).toBe(401)
+    })
+})
+
+describe('POST /subscription/regenerate-ics 구독 미존재', () => {
+    test('구독이 없으면 404 CALENDAR_SUBSCRIPTION_NOT_FOUND 를 반환한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.regenerateIcsToken = mock(() =>
+            Promise.reject({ code: 'CALENDAR_SUBSCRIPTION_NOT_FOUND', message: '구독을 찾을 수 없습니다', statusCode: 404 }),
+        ) as never
+        const { app } = createApp(deps)
+        const res = await app.request('/subscription/regenerate-ics', { method: 'POST' })
+        expect(res.status).toBe(404)
+        const body = await res.json()
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('CALENDAR_SUBSCRIPTION_NOT_FOUND')
     })
 })
 

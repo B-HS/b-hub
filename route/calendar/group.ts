@@ -52,6 +52,8 @@ export const createCalendarGroupRoute = (deps: CalendarGroupRouteDeps) => {
             await deps.calendarService.updateGroup(session.user.id, id, data)
 
             const updated = await deps.calendarService.getGroupById(session.user.id, id)
+            if (!updated) throw createAppError('CALENDAR_GROUP_NOT_FOUND')
+
             return c.json(successResponse(updated))
         }),
     )
