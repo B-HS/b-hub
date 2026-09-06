@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { describeRoute, resolver, validator } from 'hono-openapi'
 import { z } from 'zod'
 import { withErrorHandling } from '../../lib/with-error-handling'
@@ -17,6 +18,10 @@ import {
 import type { LogEventService } from '../../service/domain/logs/log-event'
 import type { DeviceKeyService } from '../../service/domain/logs/device-key'
 import type { AuthContext } from '../../lib/hono-types'
+
+const LOG_BATCH_MAX_EVENTS = 50
+
+const readDeviceId = (c: Context) => c.get('deviceKeyDeviceId' as never) as string
 
 type LogEventRouteDeps = {
     logEventService: LogEventService
@@ -44,8 +49,9 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
         validator('json', logEventIngestSchema),
         withErrorHandling(async (c) => {
             const body = c.req.valid('json' as never) as z.infer<typeof logEventIngestSchema>
+            const deviceId = readDeviceId(c)
             const ingestIp = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined
-            const { id } = await deps.logEventService.ingest(body, { ingestIp, source: 'device' })
+            const { id } = await deps.logEventService.ingest({ ...body, deviceId }, { ingestIp, source: 'device' })
             return c.json(successResponse({ id }))
         }),
     )
@@ -69,9 +75,11 @@ export const createLogEventRoute = (deps: LogEventRouteDeps) => {
         validator('json', logEventBatchSchema),
         withErrorHandling(async (c) => {
             const body = c.req.valid('json' as never) as z.infer<typeof logEventBatchSchema>
-            if (body.events.length > 50) throw createAppError('LOG_BATCH_TOO_LARGE')
+            if (body.events.length > LOG_BATCH_MAX_EVENTS) throw createAppError('LOG_BATCH_TOO_LARGE')
+            const deviceId = readDeviceId(c)
             const ingestIp = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? undefined
-            const count = await deps.logEventService.ingestBatch(body.events, { ingestIp, source: 'device' })
+            const events = body.events.map((event) => ({ ...event, deviceId }))
+            const count = await deps.logEventService.ingestBatch(events, { ingestIp, source: 'device' })
             return c.json(successResponse({ count }))
         }),
     )

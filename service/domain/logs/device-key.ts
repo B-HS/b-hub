@@ -4,9 +4,13 @@ import { generateToken, hashToken } from '../../../lib/token-utils'
 import { captureException } from '../../../lib/sentry'
 import type { Database } from '../../../db/index'
 
+const DEVICE_KEY_IDENTITY_PREFIX = 'key:'
+
 type DeviceKeyDeps = {
     db: Database
 }
+
+export const resolveDeviceIdentity = (key: { id: number; deviceId: string | null }) => key.deviceId ?? `${DEVICE_KEY_IDENTITY_PREFIX}${key.id}`
 
 export const createDeviceKeyService = (deps: DeviceKeyDeps) => {
     const create = async (deviceId?: string, label?: string) => {
@@ -36,8 +40,7 @@ export const createDeviceKeyService = (deps: DeviceKeyDeps) => {
         return record
     }
 
-    const checkRateLimit = async (deviceId: string | null, dailyLimit: number) => {
-        if (!deviceId) return true
+    const checkRateLimit = async (deviceId: string, dailyLimit: number) => {
         const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000)
         const [result] = await deps.db
             .select({ count: sql<number>`COUNT(*)` })

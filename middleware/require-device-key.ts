@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono'
 import { createAppError } from '../lib/error'
+import { resolveDeviceIdentity } from '../service/domain/logs/device-key'
 import type { DeviceKeyService } from '../service/domain/logs/device-key'
 
 type RequireDeviceKeyDeps = {
@@ -13,11 +14,12 @@ export const requireDeviceKey = (deps: RequireDeviceKeyDeps) => async (c: Contex
     const keyRecord = await deps.deviceKeyService.validate(token)
     if (!keyRecord) throw createAppError('LOG_DEVICE_KEY_INVALID')
 
-    const allowed = await deps.deviceKeyService.checkRateLimit(keyRecord.deviceId, keyRecord.dailyLimit)
+    const deviceIdentity = resolveDeviceIdentity(keyRecord)
+    const allowed = await deps.deviceKeyService.checkRateLimit(deviceIdentity, keyRecord.dailyLimit)
     if (!allowed) throw createAppError('LOG_DEVICE_KEY_RATE_LIMIT')
 
     c.set('deviceKeyId' as never, keyRecord.id as never)
-    c.set('deviceKeyDeviceId' as never, (keyRecord.deviceId ?? null) as never)
+    c.set('deviceKeyDeviceId' as never, deviceIdentity as never)
 
     await next()
 }
