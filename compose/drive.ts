@@ -1,4 +1,4 @@
-import { asc, desc, eq, like, sql, and, isNull } from 'drizzle-orm'
+import { asc, desc, eq, gte, like, lt, or, sql, and, isNull, isNotNull } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { createDriveAssetService } from '../service/domain/drive/drive-asset'
 import { createDriveFolderService } from '../service/domain/drive/drive-folder'
@@ -145,7 +145,15 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
             return row ?? null
         },
 
-        list: async (params: { userId: string; limit: number; offset: number; mimeType?: string; folderId?: string; sort: string; order: string }) => {
+        list: async (params: {
+            userId: string
+            limit: number
+            offset: number
+            mimeType?: string
+            folderId?: string
+            sort: string
+            order: string
+        }) => {
             const staleThreshold = new Date(Date.now() - 10 * 60 * 1000)
             const conditions = [
                 eq(schema.cloudAssets.userId, params.userId),
@@ -180,7 +188,10 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                 .limit(params.limit)
                 .offset(params.offset)
 
-            const [{ count }] = await db.select({ count: sql<number>`COUNT(*)` }).from(schema.cloudAssets).where(whereClause)
+            const [{ count }] = await db
+                .select({ count: sql<number>`COUNT(*)` })
+                .from(schema.cloudAssets)
+                .where(whereClause)
 
             return { data, total: count }
         },
@@ -253,13 +264,17 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                     .where(
                         and(
                             like(schema.cloudAssets.storageTiers, '%L1%'),
-                            sql`${schema.cloudAssets.lastViewedAt} < ${olderThan} OR ${schema.cloudAssets.lastViewedAt} IS NULL`,
+                            isNotNull(schema.cloudAssets.gdriveFileId),
+                            or(
+                                lt(schema.cloudAssets.lastViewedAt, olderThan),
+                                and(isNull(schema.cloudAssets.lastViewedAt), lt(schema.cloudAssets.createdAt, olderThan)),
+                            ),
                         ),
                     )
                     .limit(500)
                 return rows
             },
-            getPromotionCandidates: async (minAccessCount: number, maxSizeBytes: number) => {
+            getPromotionCandidates: async (minAccessCount: number, maxSizeBytes: number, viewedAfter: Date) => {
                 const rows = await db
                     .select({
                         id: schema.cloudAssets.id,
@@ -275,6 +290,7 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                             sql`${schema.cloudAssets.gdriveFileId} IS NOT NULL`,
                             sql`${schema.cloudAssets.accessCount} >= ${minAccessCount}`,
                             sql`${schema.cloudAssets.sizeBytes} <= ${maxSizeBytes}`,
+                            gte(schema.cloudAssets.lastViewedAt, viewedAfter),
                         ),
                     )
                     .limit(50)

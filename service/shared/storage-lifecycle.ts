@@ -1,6 +1,10 @@
 type StorageLifecycleDb = {
     getStaleL1Assets: (olderThan: Date) => Promise<{ id: number; s3Key: string; storageTiers: string }[]>
-    getPromotionCandidates: (minAccessCount: number, maxSizeBytes: number) => Promise<{ id: number; s3Key: string; gdriveFileId: string; storageTiers: string; mimeType: string }[]>
+    getPromotionCandidates: (
+        minAccessCount: number,
+        maxSizeBytes: number,
+        viewedAfter: Date,
+    ) => Promise<{ id: number; s3Key: string; gdriveFileId: string; storageTiers: string; mimeType: string }[]>
     updateStorageTiers: (id: number, storageTiers: string) => Promise<void>
     insertLifecycleLog: (data: { assetId: number; action: string; fromTier: string; toTier: string; reason: string }) => Promise<void>
 }
@@ -22,6 +26,8 @@ type StorageLifecycleDeps = {
     promotionThreshold: number
     l1MaxFileSize: number
 }
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000
 
 const removeTier = (tiers: string, tier: string): string =>
     tiers
@@ -49,14 +55,16 @@ const streamToBuffer = async (stream: ReadableStream): Promise<Buffer> => {
 
 export const createStorageLifecycleService = (deps: StorageLifecycleDeps) => ({
     evictR2Stale: async (): Promise<number> => {
-        const cutoff = new Date(Date.now() - deps.evictionDays * 24 * 60 * 60 * 1000)
+        const cutoff = new Date(Date.now() - deps.evictionDays * DAY_IN_MS)
         const staleAssets = await deps.db.getStaleL1Assets(cutoff)
 
         let evicted = 0
         for (const asset of staleAssets) {
+            const newTiers = removeTier(asset.storageTiers, 'L1')
+            if (!newTiers) continue
+
             try {
                 await deps.l1.del(asset.s3Key)
-                const newTiers = removeTier(asset.storageTiers, 'L1')
                 await deps.db.updateStorageTiers(asset.id, newTiers)
                 await deps.db.insertLifecycleLog({
                     assetId: asset.id,
@@ -80,7 +88,8 @@ export const createStorageLifecycleService = (deps: StorageLifecycleDeps) => ({
         const l3 = await deps.getL3()
         if (!l3) return 0
 
-        const candidates = await deps.db.getPromotionCandidates(deps.promotionThreshold, deps.l1MaxFileSize)
+        const viewedAfter = new Date(Date.now() - deps.evictionDays * DAY_IN_MS)
+        const candidates = await deps.db.getPromotionCandidates(deps.promotionThreshold, deps.l1MaxFileSize, viewedAfter)
 
         let promoted = 0
         for (const asset of candidates) {

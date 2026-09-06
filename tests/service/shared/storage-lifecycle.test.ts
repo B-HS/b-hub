@@ -4,8 +4,8 @@ import { createStorageLifecycleService } from '../../../service/shared/storage-l
 const createMockDeps = () => ({
     db: {
         getStaleL1Assets: mock(() => Promise.resolve([] as { id: number; s3Key: string; storageTiers: string }[])),
-        getPromotionCandidates: mock(
-            () => Promise.resolve([] as { id: number; s3Key: string; gdriveFileId: string; storageTiers: string; mimeType: string }[]),
+        getPromotionCandidates: mock(() =>
+            Promise.resolve([] as { id: number; s3Key: string; gdriveFileId: string; storageTiers: string; mimeType: string }[]),
         ),
         updateStorageTiers: mock(() => Promise.resolve()),
         insertLifecycleLog: mock(() => Promise.resolve()),
@@ -63,6 +63,35 @@ describe('createStorageLifecycleService', () => {
             expect(deps.l1.del).not.toHaveBeenCalled()
         })
 
+        test('L1 이 유일한 티어이면 삭제하지 않는다', async () => {
+            const deps = createMockDeps()
+            deps.db.getStaleL1Assets = mock(() =>
+                Promise.resolve([
+                    { id: 1, s3Key: 'users/u1/uuid/only-l1.jpg', storageTiers: 'L1' },
+                    { id: 2, s3Key: 'users/u1/uuid/backed-up.jpg', storageTiers: 'L1,L3' },
+                ]),
+            )
+
+            const service = createStorageLifecycleService(deps)
+            const result = await service.evictR2Stale()
+
+            expect(result).toBe(1)
+            expect(deps.l1.del).toHaveBeenCalledTimes(1)
+            expect(deps.l1.del).toHaveBeenCalledWith('users/u1/uuid/backed-up.jpg')
+            expect(deps.db.updateStorageTiers).toHaveBeenCalledTimes(1)
+            expect(deps.db.updateStorageTiers).toHaveBeenCalledWith(2, 'L3')
+        })
+
+        test('evictionDays 로 계산한 cutoff 로 stale 자산을 조회한다', async () => {
+            const deps = createMockDeps()
+            const service = createStorageLifecycleService(deps)
+            const before = Date.now()
+            await service.evictR2Stale()
+
+            const cutoff = deps.db.getStaleL1Assets.mock.calls[0][0] as unknown as Date
+            expect(cutoff.getTime()).toBeLessThanOrEqual(before - 30 * 24 * 60 * 60 * 1000)
+        })
+
         test('R2 삭제 실패 시 해당 파일은 건너뛴다', async () => {
             const deps = createMockDeps()
             deps.db.getStaleL1Assets = mock(() =>
@@ -97,7 +126,9 @@ describe('createStorageLifecycleService', () => {
         test('accessCount가 높은 L3 전용 파일을 L1으로 승격한다', async () => {
             const deps = createMockDeps()
             deps.db.getPromotionCandidates = mock(() =>
-                Promise.resolve([{ id: 1, s3Key: 'users/u1/uuid/popular.jpg', gdriveFileId: 'gdrive-123', storageTiers: 'L3', mimeType: 'image/jpeg' }]),
+                Promise.resolve([
+                    { id: 1, s3Key: 'users/u1/uuid/popular.jpg', gdriveFileId: 'gdrive-123', storageTiers: 'L3', mimeType: 'image/jpeg' },
+                ]),
             )
 
             const service = createStorageLifecycleService(deps)
@@ -108,6 +139,18 @@ describe('createStorageLifecycleService', () => {
             expect(deps.l1.upload).toHaveBeenCalledTimes(1)
             expect(deps.db.updateStorageTiers).toHaveBeenCalledWith(1, 'L1,L3')
             expect(deps.db.insertLifecycleLog).toHaveBeenCalledTimes(1)
+        })
+
+        test('최근 조회 기준(viewedAfter)을 승격 후보 조회에 넘긴다', async () => {
+            const deps = createMockDeps()
+            const service = createStorageLifecycleService(deps)
+            const before = Date.now()
+            await service.autoPromote()
+
+            const [minAccessCount, maxSizeBytes, viewedAfter] = deps.db.getPromotionCandidates.mock.calls[0] as unknown as [number, number, Date]
+            expect(minAccessCount).toBe(5)
+            expect(maxSizeBytes).toBe(100 * 1024 * 1024)
+            expect(viewedAfter.getTime()).toBeLessThanOrEqual(before - 30 * 24 * 60 * 60 * 1000)
         })
 
         test('L3가 null이면 0을 반환한다', async () => {

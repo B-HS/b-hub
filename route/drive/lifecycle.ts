@@ -9,10 +9,13 @@ type DriveLifecycleRouteDeps = {
     uploadServerSecret: string
 }
 
+const CRON_METHODS = ['GET', 'POST']
+
 export const createDriveLifecycleRoute = (deps: DriveLifecycleRouteDeps) => {
     const route = new Hono()
 
-    route.post(
+    route.on(
+        CRON_METHODS,
         '/evict-r2',
         withErrorHandling(async (c) => {
             verifyCronAuth(c, deps.uploadServerSecret)
@@ -21,7 +24,8 @@ export const createDriveLifecycleRoute = (deps: DriveLifecycleRouteDeps) => {
         }),
     )
 
-    route.post(
+    route.on(
+        CRON_METHODS,
         '/evict-local',
         withErrorHandling(async (c) => {
             verifyCronAuth(c, deps.uploadServerSecret)
@@ -30,7 +34,8 @@ export const createDriveLifecycleRoute = (deps: DriveLifecycleRouteDeps) => {
         }),
     )
 
-    route.post(
+    route.on(
+        CRON_METHODS,
         '/auto-promote',
         withErrorHandling(async (c) => {
             verifyCronAuth(c, deps.uploadServerSecret)
