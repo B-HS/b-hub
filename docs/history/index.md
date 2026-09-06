@@ -6,6 +6,7 @@
 
 | 파일 | 기간 | 요약 |
 |------|------|------|
+| [2026-09-07-audit-batch3.md](./2026-09-07-audit-batch3.md) | 2026-09-07 | 전수 감사 3차 수정 배치 — R-01~R-04·R-06·R-09~R-16·R-18~R-21·R-23~R-31 + S-16·S-17 + E-09. 서버리스 적합성(응답 전 await · rate limit 공유 스토어 · DB 풀 · Sentry 부트스트랩)과 공개 경로 rate limit. tsc 0 · 3198 pass. 브랜치 `fix/audit-batch3-serverless`. **`db:push` 대상 추가**(calendar_subscription user unique), 크론 4번째(`/api/logs/purge`) |
 | [2026-09-07-audit-batch2.md](./2026-09-07-audit-batch2.md) | 2026-09-07 | 전수 감사 2차 수정 배치 — E-01~E-08·E-10~E-12·E-14~E-21·E-23~E-25·E-28 + 승인 A-1~A-5 + C-01·C-04·C-10·C-11. 워크플로 27 에이전트 · 비겹침 10그룹. tsc 0 · 3010 pass. 브랜치 `fix/audit-batch2-immediate-errors`. 상태 코드 변경 3종(mail 409 · drive 409/413 · spotify 502/404) |
 | [2026-09-06-audit-batch1.md](./2026-09-06-audit-batch1.md) | 2026-09-06 | 전수 감사 1차 수정 배치 — D-01~D-22 · S-01~S-15 · C-15 + E-22/26/27/29/30 반영(계약 불변 범위). 워크플로 26+13 에이전트 + 회귀 리뷰 7. tsc 0 · 2864 pass. **`db:push` 필요**(mail_messages unique 3열) |
 | [2026-07-10-local-remote-harmonize.md](./2026-07-10-local-remote-harmonize.md) | 2026-07-10 | 로컬 17커밋 ↔ 원격 21커밋 조화 — 원격 base 채택, 보안 재적용(badge SSRF·로그 마스킹·drive gdrive-token 게이트·weather mock 게이트)·calendar rrule/overlap·admin UI·`/manage` 페이지 재적용, AI SSE 스트리밍·codex access token 단독 인증 추가. typecheck 0 |

@@ -1,6 +1,6 @@
 # 아키텍처 (Architecture)
 
-> 기준: 2026-07-09 (vercel 배포 계약 @ `09e13e1`) 코드 검증. 다루는 코드: `index.ts`, `compose/index.ts`·`compose/types.ts`·`compose/shared.ts`·`compose/mail.ts`·`compose/ai.ts`, `route/index.ts`, `middleware/*`, `lib/`(error-code·error-message·error·api-response·with-auth·with-error-handling·with-rate-limit·hono-types·env·log-service-name·sentry), `db/index.ts`, `page/index.ts`, `tsconfig.json`·`vercel.json`·`api/index.js`·`package.json`·`bunfig.toml`·`drizzle.config.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `compose/index.ts`·`compose/types.ts`·`compose/shared.ts`·`compose/mail.ts`·`compose/ai.ts`, `route/index.ts`, `middleware/*`, `lib/`(error-code·error-message·error·api-response·with-auth·with-error-handling·rate-limit·with-rate-limit·hono-types·env·log-service-name·sentry·cron-auth), `service/shared/redis-client.ts`·`rate-limit-store.ts`·`redis-cache.ts`, `db/index.ts`, `page/index.ts`·`page/admin/guard.ts`, `tsconfig.json`·`vercel.json`·`api/index.js`·`package.json`·`bunfig.toml`·`drizzle.config.ts`
 
 Bun + Hono 단일 서비스. 하나의 `Hono` 앱을 부트스트랩(`index.ts`)에서 조립하고, 모든 도메인 의존성을 `compose()`로 한 번에 주입한다. 계층 경계는 **Route(HTTP) → Service(도메인) → ServiceDb(compose 의 Drizzle 구현)** 로 고정하며, Drizzle 쿼리는 원칙적으로 `compose/` 에 둔다(소수 키/토큰 서비스 등 직접 접근 예외는 [reference/db-schema.md](./reference/db-schema.md) 가 전수 나열). 도메인별 엔드포인트·스키마·서비스 상세는 [domains/](./domains/) 와 [reference/](./reference/) 가 소유한다 — 이 문서는 전역 골격만 다룬다.
 
@@ -12,6 +12,7 @@ Bun + Hono 단일 서비스. 하나의 `Hono` 앱을 부트스트랩(`index.ts`)
 
 | 단계 | 코드 | 내용 |
 |------|------|------|
+| ⓪ 관측 초기화 | `initSentry(getEnv().SENTRY_DSN)` | 모듈 최상단. `SENTRY_DSN` 이 있으면 `captureException` 이 실제로 전송된다 (→ §9) |
 | ① 앱 생성 | `new Hono<AuthContext>()` | 컨텍스트 변수 계약(`AuthContext`, → §6) 적용 |
 | ② DI 조립 | `const composed = compose()` | 전 도메인 서비스 조립 (→ §3) |
 | ③ 라우터 조립 | `const { api, caldav } = createRouter(composed)` | `/api` 라우터 + CalDAV 라우터 분리 반환 |
@@ -75,7 +76,7 @@ db/index.ts (Drizzle + mysql2 pool) → MySQL
 | compose | `compose/` | Factory DI 조립 (→ §3) | X | O(주입 지점) |
 | lib | `lib/` | 에러 3파일·응답 헬퍼·HOF·env·컨텍스트 타입 | 부분 | X |
 | middleware | `middleware/` | 전역/경로 가드 | O | 일부 |
-| db | `db/index.ts` | Drizzle 싱글톤 (mysql2 pool, `connectionLimit: 20`, mode `'default'`) | X | O |
+| db | `db/index.ts` | Drizzle 싱글톤 (mysql2 pool — `connectionLimit: 20`·`maxIdle: 5`·`idleTimeout: 60초`·`enableKeepAlive`(초기 지연 10초)·`queueLimit: 0`, mode `'default'`). 접속 문자열은 `getEnv().DATABASE_URL`, 종료는 `closeDb()` | X | O |
 | page | `page/` | 홈·policy·well-known·어드민 SSR JSX | O | 조회만 |
 
 - "없음"은 Service 가 `null` 로 반환하고, `throw` 변환(`createAppError`)은 Route 가 담당한다.
@@ -103,6 +104,8 @@ return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume
 - **스프레드 병합**: `composed.postService`·`composed.mailSyncService`·`composed.logEventService` 처럼 도메인 접두 없이 평탄한 키로 노출된다. `createRouter(composed)` 와 `createPage` 가 이 평탄 객체에서 필요한 서비스를 꺼내 쓴다.
 - **`compose/types.ts`** 역할: 조립 인자 타입 정의. `Db = ReturnType<typeof getDb>`, `Env = ReturnType<typeof getEnv>`, `ComposeCoreArgs = { db, env }`, 그리고 도메인별 주입 요구를 표현하는 `ComposeBlogArgs`(+storage/imageProcessor), `ComposeMailArgs`(+storage), `ComposeDriveArgs`(+storage/imageProcessor/gdrive), `ComposeAiArgs`(+storage/logEventService) 등. 각 도메인이 core 외에 무엇을 더 받는지 이 파일이 계약한다.
 - **ServiceDb 인라인 구현**: 각 `compose/<domain>.ts` 가 도메인 ServiceDb 인터페이스를 Drizzle 로 구현해 `create*Service(...)` 에 주입한다. Service 는 순수 로직, 쿼리는 조립부에 격리. (도메인별 조립 상세는 [domains/](./domains/))
+- **rate limit 공유 스토어**: `compose()` 는 `env.REDIS_URL` 이 있을 때만 `createRedisRateLimitStore({ url })`(`service/shared/rate-limit-store.ts`) 를 **1개** 만들어 `composeMail`·`composeAi` 에 `rateLimitStore` 로 넘긴다(두 `Compose*Args` 의 선택 필드). 두 도메인의 `createRateLimiter(config, store)` 가 이를 받아 카운터를 인스턴스 간 공유하고, 스토어가 없거나 실패하면 프로세스 인메모리로 폴백한다 — 헤더·429 계약은 어느 쪽이든 동일하다(→ §7 인증·레이트리밋). 공개 경로(badge·spotify playing) 리미터는 `route/index.ts` 가 만드는 인메모리 전용이다.
+- **Redis 클라이언트는 지연 생성 싱글톤**: `service/shared/redis-client.ts` 의 `getRedisClient(url)` 이 프로세스당 URL 별로 1개를 만들고, `redis-cache.ts`(응답 캐시)와 `rate-limit-store.ts`(카운터)가 이를 공유한다. `lazyConnect` + `enableOfflineQueue: false` 조합에서 첫 명령이 즉시 거부되지 않도록 `ensureConnected()` 가 최초 연결 완료를 기다린다. 연결 이후 장애는 즉시 실패해 인메모리 폴백으로 넘어가고, ioredis 가 백그라운드에서 재연결하면 자동 복귀한다.
 
 ---
 
@@ -116,7 +119,7 @@ return { ...shared, ...blog, ...weather, ...logs, ...mail, ...spotify, ...resume
 |:---:|----------|--------|------|
 | 1 | `cors` | `/api/*` | origin 허용목록 검사(`gumyo.net`·`hyns.dev` 및 하위도메인, dev 는 `localhost`), `credentials: true` |
 | 2 | `securityHeaders` | `*` | `next()` 후 보안 헤더 주입. CSP 는 API(`API_CSP`) vs HTML(`HTML_CSP`, `htmlPaths`) 분기, `excludePaths`/`excludeExactPaths` 는 `X-Frame-Options`·CSP 생략 |
-| 3 | `logCapture` | `*` | `logEventService` 존재 시만 등록. `next()` 후 status ≥ 400 이면 `captureServerError` 로 자동 캡처(`/api/logs` 는 제외) |
+| 3 | `logCapture` | `*` | `logEventService` 존재 시만 등록. `next()` 후 status ≥ 400 이면 `captureServerError` 를 **응답 전 `await`** 해 자동 캡처(`/api/logs` 는 제외) |
 | 4 | `errorHandler` | `*` | `try { next() } catch` — 전역 안전망(→ §5) |
 
 - `cors` 는 `/api/*` 에만, 나머지 3개는 `*` 전역.
@@ -176,7 +179,7 @@ logCapture 미들웨어: status ≥ 400 이면 c.get('errorCode')/('errorDetail'
 
 - `withErrorHandling`(라우트 핸들러 래퍼)과 `errorHandler`(전역 미들웨어)는 거의 동일한 로직 — 전자는 감싼 핸들러의 에러를, 후자는 그 밖(미들웨어·비래핑 경로)의 에러를 잡는 이중 안전망. 둘 다 `errorCode`/`errorDetail` 컨텍스트 변수를 세팅해 `logCapture` 가 캡처할 수 있게 한다.
 - `logCapture` 의 서비스명/심각도/코드 산출은 `lib/log-service-name.ts`(`serviceNameFromPath`, `severityFromStatus`=500↑→40/그외 30, `errorCodeFromStatus`). `details` 에 `path`/`method`/`status`/`durationMs` 포함, `errorDescription` 은 2000자 컷.
-- `captureException` 은 `lib/sentry.ts` 소속. 전송은 `sentryInitialized` 가 true 일 때만 일어나는데, 이를 켜는 `initSentry(SENTRY_DSN)` 는 **현재 앱 부트스트랩 어디에서도 호출되지 않는다**(테스트에서만 호출) → `SENTRY_DSN` 설정 여부와 무관하게 `captureException` 은 사실상 항상 no-op(Sentry 비활성). 미매핑 에러의 개발 모드 스택 출력은 `withErrorHandling`/`errorHandler` 의 `console.error` 가 담당한다.
+- `captureException` 은 `lib/sentry.ts` 소속. 전송은 `sentryInitialized` 가 true 일 때만 일어나고, 이를 켜는 **`initSentry(getEnv().SENTRY_DSN)` 를 `index.ts` 가 부트스트랩 최상단에서 호출**한다(§1 ⓪). 따라서 `SENTRY_DSN` 이 설정된 배포에서는 실제로 이벤트가 전송되고 아웃바운드 fetch 에 `sentry-trace`/`baggage` 헤더가 붙으며, 미설정이면 종전처럼 no-op 이다. 미매핑 에러의 개발 모드 스택 출력은 `withErrorHandling`/`errorHandler` 의 `console.error` 가 담당한다.
 - 로깅 시스템 상세는 [logging.md](./logging.md), 펌웨어 계약은 [firmware-logging-contract.md](./firmware-logging-contract.md).
 
 ---
@@ -207,10 +210,11 @@ AuthUser      = { id; name; email; role: string | null; image: string | null }
 | API 토큰 | `X-API-Token` 헤더 | `withApiToken`(`lib/with-auth.ts`) / `require-api-token.ts` | 없음(미적용) | `withApiToken` HOF·`require-api-token.ts` 미들웨어 **모두** 정의·테스트만, 라우트 미와이어 |
 | 디바이스 키 | `X-Device-Key` 헤더 | `requireDeviceKey`(`middleware/require-device-key.ts`) | `POST /api/logs`·`POST /api/logs/batch` 수집 | `validate` + 일일 `checkRateLimit`(`deviceId` 키). `deviceKeyId` 만 세팅, `user` 미세팅 |
 | weather 키 | `X-Weather-Key` 헤더 | `requireWeatherKey`/`requireWeatherKeyNoLog`(`middleware/require-weather-key.ts`) | `/api/weather` 데이터 라우트 | rate limit + 요청 로깅(`logRequest`) |
-| spotify 위젯 토큰 | path `:token` | `spotifyWidgetTokenService.validate`(`route/spotify/playing.ts`) | `/api/spotify/playing/:token*` | 세션 없이 공개, `security` 헤더 제외 경로 |
-| rate limit | `user.id` | `withRateLimit`(`lib/with-rate-limit.ts`) | 메일 발송(`POST /api/mail/messages/send`)·증분 동기화(`POST /api/mail/sync`), AI 채팅(`POST /api/ai/sessions/:id/messages`)·completion(`POST /api/ai/completions`)·첨부 업로드(`POST /api/ai/attachments`) | `X-RateLimit-*` 헤더 응답. `compose/mail.ts` `mailRateLimiter`(60초/20회) / `compose/ai.ts` `aiRateLimiter`(60초/30회). 버킷 키 `{도메인}:{userId}:{경로}` 로 분리(AI 는 `pathKey` 고정: `ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload`) |
+| spotify 위젯 토큰 | path `:token` | `spotifyWidgetTokenService.validate`(`route/spotify/playing.ts`) | `/api/spotify/playing/:token*` | 세션 없이 공개, `security` 헤더 제외 경로. 토큰 검증 **전에** 공개 rate limit 판정 |
+| rate limit (사용자) | `user.id` | `withRateLimit`(`lib/with-rate-limit.ts`) | 메일 발송 3종(`POST /api/mail/messages/send`·`/:id/reply`·`/:id/forward`, 한 예산 공유)·증분 동기화(`POST /api/mail/sync`), AI 채팅(`POST /api/ai/sessions/:id/messages`(+`/stream`))·completion(`POST /api/ai/completions`(+`/stream`))·첨부 업로드(`POST /api/ai/attachments`) | `X-RateLimit-*` 헤더 응답. `compose/mail.ts` `mailRateLimiter`(60초/20회) / `compose/ai.ts` `aiRateLimiter`(60초/30회). 버킷 키 `{도메인}:{userId}:{경로}` 로 분리(고정 `pathKey`: `mail:messages:send`·`ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload`). `REDIS_URL` 이 있으면 카운터를 인스턴스 간 공유(§3) |
+| rate limit (공개 IP) | `x-forwarded-for` 첫 값 → `x-real-ip` → `unknown` | `createRateLimiter`(`lib/rate-limit.ts`) 직접, `route/index.ts` 가 `checkLimit` 주입 | `GET /api/badge/image`(키 `public:{IP}:badge:image`), `GET /api/spotify/playing/:token`·`/widget`·`/data`(키 `public:{token}:{IP}:spotify:playing`) | 60초/60회. `X-RateLimit-*` 헤더 + 초과 시 429. **인메모리 전용**(인스턴스별 독립 — IP 키라 한도가 느슨해질 뿐 소비자 영향 없음) |
 
-- `getSession` 어댑터: `auth.api.getSession({ headers })` 결과를 `{ user: { id, name, email, role, image } }` 로 정규화. Route/HOF 는 이 정규화된 형태만 의존한다.
+- `getSession` 어댑터: `auth.api.getSession({ headers })` 결과를 `{ user: { id, name, email, role, image } }` 로 정규화. Route/HOF 는 이 정규화된 형태만 의존한다. SSR(`/admin`·`/manage`)은 요청 컨텍스트에 결과를 캐시해 **요청당 1회**만 호출한다([admin-features.md](./admin-features.md) §14).
 - 미구성 서비스 방어: `createRouter` 가 각 의존성을 `stub()`(Proxy)/`stubFn()` 로 감싸, 미주입 서비스 호출 시 `SERVICE_NOT_CONFIGURED`(503) 를 던진다. 일부 서비스가 빠져도 나머지 라우트는 동작.
 
 ---

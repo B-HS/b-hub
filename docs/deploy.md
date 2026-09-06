@@ -1,6 +1,6 @@
 # 배포·운영(Deploy & Ops)
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `compose/blog.ts`, `compose/drive.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `lib/cron-auth.ts`, `db/index.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/logs/purge.ts`, `route/metrics/archive.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `service/shared/redis-client.ts`, `service/shared/rate-limit-store.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/index.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
 
 ## 개요
 
@@ -35,14 +35,18 @@
 
 ### 크론(`vercel.json` `crons`)
 
-| path | 스케줄 | 핸들러 | 동작 |
+크론은 **4개**다.
+
+| path | 스케줄(UTC) | 핸들러 | 동작 |
 |------|--------|--------|------|
 | `/api/drive/lifecycle/evict-r2` | `0 3 * * *` | `route/drive/lifecycle.ts` `evict-r2` | `storageLifecycleService.evictR2Stale()` |
+| `/api/metrics/archive` | `20 4 * * *` | `route/metrics/archive.ts` | `archiveOldLogs()` — 핫 7일 경과 로그를 R2 로(실행당 최대 3일·200초, [domains/metrics.md](./domains/metrics.md)) |
+| `/api/logs/purge` | `40 4 * * *` | `route/logs/purge.ts` | `purgeByPolicy()` + `purgeRetention()` — 로그 등급별 정리 + `weather_api_log`·`mail_sync_logs`·완료 `mail_sync_sessions` 보존 삭제([logging.md](./logging.md) §5) |
 | `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` `auto-promote` | `storageLifecycleService.autoPromote()` |
 
 - `route/drive/lifecycle.ts` 에는 엔드포인트가 3개(`evict-r2`·`evict-local`·`auto-promote`) 있으나, `vercel.json` 크론으로 등록된 것은 위 2개뿐이다. `evict-local` 은 스케줄 없이 수동 호출용으로만 존재(동일 인증).
-- 세 엔드포인트는 `route.on(['GET','POST'], ...)`(`route/drive/lifecycle.ts:12`)로 **GET·POST 를 모두 수신**한다(Vercel 크론은 GET 으로 호출).
-- 세 엔드포인트 모두 `verifyCronAuth` 로 보호된다: `Authorization: Bearer <secret>` 또는 `x-cron-secret: <secret>` 헤더가 `UPLOAD_SERVER_SECRET`(`compose/drive.ts` → `route/index.ts` 주입) 와 일치해야 하며, 아니면 `UNAUTHORIZED`. 비교는 `lib/cron-auth.ts` 의 `isSecretMatch`(sha256 + `timingSafeEqual`) 상수 시간 비교다.
+- lifecycle 3종·metrics archive 는 `route.on(['GET','POST'], ...)` 로 **GET·POST 를 모두 수신**한다. **`/api/logs/purge` 의 크론 라우트만 GET 전용**이다 — 같은 경로에 어드민 `POST /api/logs/purge`(세션 admin)가 이미 있어, 크론 라우트가 POST 도 받으면 `Authorization` 헤더를 실은 어드민 POST 가 크론 분기로 흡수되기 때문이다(Vercel 크론은 GET 으로 호출하므로 기능 손실 없음).
+- 네 경로 모두 `verifyCronAuth` 로 보호된다: `Authorization: Bearer <secret>` 또는 `x-cron-secret: <secret>` 헤더가 `UPLOAD_SERVER_SECRET` 와 일치해야 하며, 아니면 `UNAUTHORIZED`. drive·metrics 는 `compose` → `route/index.ts` 로 시크릿을 주입받고, logs purge 는 주입값이 없으면 `getEnv().UPLOAD_SERVER_SECRET` 으로 폴백한다. 비교는 `lib/cron-auth.ts` 의 `isSecretMatch`(sha256 + `timingSafeEqual`) 상수 시간 비교다.
 - Vercel 크론은 `Authorization: Bearer $CRON_SECRET` 를 붙여 호출하므로, **Vercel 의 `CRON_SECRET` 값을 `UPLOAD_SERVER_SECRET` 와 동일하게** 설정해야 크론 인증이 통과한다. (스토리지 계층 의미·`evictR2Stale`/`autoPromote` 로직은 [domains/drive.md](./domains/drive.md).)
 
 ### 진입점(`index.ts`) 노출
@@ -66,6 +70,12 @@
 ## 3. DB 반영
 
 - 스키마 반영은 마이그레이션 파일이 아니라 `bun run db:push`(`drizzle-kit push`)로 `db/schema.ts` 를 대상 DB 에 직접 반영한다.
+- **미반영 대기 중인 변경 2건**(전수 감사 배치에서 추가된 제약. 배포 전 `db:push` 필요):
+
+| 대상 | 제약 | 도입 | 주의 |
+|------|------|------|------|
+| `mail_messages` | unique `(account_id, folder_id, remote_message_id)`(제약명 `uq_mail_messages_account_remote` 유지) | 1차 배치(D-05) | push 전에는 폴더 스코프 upsert 가 기대대로 동작하지 않는다([domains/mail.md](./domains/mail.md)) |
+| `calendar_subscription` | unique `uq_calendar_subscription_user`(`user_id`) | 3차 배치(R-25) | push 전에 `user_id` 중복 행이 남아 있으면 제약 생성이 실패한다 — 먼저 정리할 것([domains/calendar.md](./domains/calendar.md)) |
 - **마이그레이션 파일 없음**: `drizzle.config.ts` 의 `out: './drizzle'` 은 `.gitignore` 에 포함되어 커밋되지 않는다. `db:generate` 는 `db:push` 전 DDL 미리보기·검증 용도([guidelines/db-schema-change.md](./guidelines/db-schema-change.md)), `db:studio` 는 브라우징 용도다.
 - `drizzle.config.ts`: `schema: './db/schema.ts'`, `dialect: 'mysql'`, `dbCredentials.url: DATABASE_URL`. `db:push` 실행 시 `DATABASE_URL` 필요.
 - 명령 표 상세는 [architecture.md](./architecture.md) §8.
@@ -113,7 +123,7 @@
 | 파일 | 대상 | 상태 |
 |------|------|------|
 | `r2-client.ts` | Cloudflare R2(S3 호환, `@aws-sdk/client-s3`) — `upload`/`uploadBuffer` | 사용 |
-| `gdrive-client.ts` | Google Drive(멀티파트 스트리밍 업로드, 폴더 캐시) | 사용 |
+| `gdrive-client.ts` | Google Drive(멀티파트 스트리밍 업로드, 폴더 캐시 — `createBoundedLruCache(500)` LRU) | 사용 |
 | `local-client.ts` | Mac Studio(L2) HTTP 스트리밍 | **미구현(항상 실패 반환)** |
 
 ### 핸들러 역할
@@ -169,12 +179,14 @@
 | AI | `AI_ENCRYPTION_KEY`(min 32) |
 | 드라이브/upload-server 연동 | `GDRIVE_ROOT_FOLDER_ID`, `UPLOAD_SERVER_URL`, `UPLOAD_SERVER_SECRET` |
 | 날씨 | `KMA_API_KEY` |
-| 캐시 | `REDIS_URL` |
+| 캐시·공유 카운터 | `REDIS_URL` |
 | 관측/알림 | `SENTRY_DSN`, `DISCORD_WEBHOOK_URL` |
 
 - `R2_CUSTOM_DOMAIN` 과 오탈자형 `R2_CUSTOME_DOMAIN` 이 스키마에 **둘 다** 선언돼 있다.
-- `UPLOAD_SERVER_SECRET` 은 크론 인증(§1)에도 재사용된다.
+- `UPLOAD_SERVER_SECRET` 은 크론 인증(§1)에도 재사용된다 — 네 크론 경로 전부 이 값으로 대조한다.
 - Vercel 크론 인증용 `CRON_SECRET` 은 `lib/env.ts` 스키마에 없다(Vercel 플랫폼이 헤더로 주입, 앱은 `UPLOAD_SERVER_SECRET` 로 대조 — §1).
+- **`REDIS_URL` 은 두 용도다.** ① 날씨 등 응답 캐시(`service/shared/redis-cache.ts`), ② **rate limit 공유 카운터**(`service/shared/rate-limit-store.ts` — mail·ai 리미터에만 주입). 미설정이면 두 기능 모두 프로세스 인메모리로 폴백하며 응답 계약은 동일하다. 접근은 `getEnv()` 경유이고, 클라이언트는 `service/shared/redis-client.ts` 가 프로세스당 1개를 지연 생성한다. 공개 경로(badge·spotify playing) 리미터는 Redis 를 쓰지 않는다.
+- **`SENTRY_DSN` 은 이번 배치부터 실제로 쓰인다.** `index.ts` 가 부트스트랩에서 `initSentry(getEnv().SENTRY_DSN)` 를 호출하므로, 값이 있으면 `captureException` 이 실제 전송되고 아웃바운드 fetch 에 `sentry-trace`/`baggage` 헤더가 붙는다. 없으면 종전처럼 no-op 이다.
 
 ### caldav-proxy — `deploy/caldav-proxy/`
 

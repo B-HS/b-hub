@@ -1,6 +1,6 @@
 # Admin Features — 어드민 페이지 기능 맵
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `page/admin/**`, `page/manage/**`(공통 `readPage` 소비), `page/index.ts`, `index.ts`(루트 배선), `db/schema.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `page/admin/**`, `page/manage/**`(공통 `readPage`·`resolveAdminSession`·`setRevealValue`/`takeRevealValue` 소비), `page/index.ts`, `index.ts`(루트 배선), `lib/sql-utils.ts`, `db/schema.ts`
 
 `db/schema.ts` 테이블 50개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 대체로 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다. **예외: Metrics Tokens(§5.5)** 는 `AdminDb` 가 아니라 주입된 `metricsTokenService` 를 통해 조회·발급·폐기한다(로그·디바이스가 MongoDB 라 Drizzle 어댑터 밖).
 
@@ -69,7 +69,7 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 시스템 모니터링(machboard) 수집·조회 토큰 발급/폐기. 데이터·흐름 정본은 [domains/metrics.md](./domains/metrics.md), 클라이언트 계약은 [metrics-client-contract.md](./metrics-client-contract.md). **`AdminDb` 가 아니라 주입된 `metricsTokenService`** 로 조회한다(`MONGODB_URI` 없으면 서비스 미주입 → 미구성 안내 렌더, 목록 빈 배열).
 
 - **List**(`metricsTokenService.listAll`): Alias / Scope(badge: `admin`=destructive · `client`=secondary) / Daily limit(`dailyLimit`) / Expires(`expiresAt`) / Last used(`lastUsedAt`) / Status(badge: revoked=muted / active=success) / Created + 폐기(활성 행만). **필터 없음**(다른 어드민 리스트와 달리 `FilterBar` 미사용).
-- **Create form**(configured 상태에서만 렌더): 별칭(`alias`, maxlength 100 required) · Scope select(`client`/`admin`) · 만료일(`expiresInDays`, number 1~3650, 빈값=무기한) · 일일 한도(`dailyLimit`, number, 빈값=기본 20000). `POST /admin/metrics/tokens` → 발급 후 **`RevealBanner`(manage/components) 로 평문 토큰 1회 렌더**(303 redirect 아님 — 발급 응답을 바로 HTML 로 렌더해 토큰 노출. manage tokens 패턴). 별칭 누락 시 `?flash=err`(validation), 미구성 시 `?flash=err`(not_configured) 303.
+- **Create form**(configured 상태에서만 렌더): 별칭(`alias`, maxlength 100 required) · Scope select(`client`/`admin`) · 만료일(`expiresInDays`, number 1~3650, 빈값=무기한) · 일일 한도(`dailyLimit`, number, 빈값=기본 20000). `POST /admin/metrics/tokens` → 발급 후 **PRG**: 평문 토큰을 일회성 쿠키에 담고 `303` 으로 목록으로 돌려보내며, 다음 `GET` 이 쿠키를 읽어 **`RevealBanner`(manage/components) 로 1회 렌더**하고 즉시 쿠키를 지운다(§14 "일회성 노출 쿠키"). 별칭 누락 시 `?flash=err`(validation), 미구성 시 `?flash=err`(not_configured) 303.
 - **Action**: `POST /admin/metrics/tokens/:id/revoke` — `revoke`(`revoked_at` 기록) 후 `?flash=ok` 303.
 - 사이드바 위치: **Observability** 그룹(Log Events 아래, `nav.ts`).
 
@@ -206,15 +206,17 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 
 ## 14. 인증 · 정적 라우트
 
-- **Guard**: `page/admin/guard.ts` `requireAdminPage(getSession)`. 각 도메인 라우트가 `app.use('*', requireAdminPage(...))` 로 게이팅. 미인증 → `/admin/login?next=...`(303), `role !== 'admin'` → 403 HTML(`renderForbidden`). `getSession` 은 compose 의 `composed.getSession`(better-auth 세션 정규화).
+- **Guard**: `page/admin/guard.ts` `requireAdminPage(getSession)`. 각 도메인 라우트가 `app.use('*', requireAdminPage(...))` 로 게이팅(대시보드·오버뷰 포함 — 와일드카드라 미매칭 경로도 404 가 아니라 로그인 유도·403 으로 처리된다). 미인증 → `/admin/login?next=...`(303), `role !== 'admin'` → 403 HTML(`renderForbidden`). `getSession` 은 compose 의 `composed.getSession`(better-auth 세션 정규화).
+- **세션 조회는 요청당 1회**다. `guard.ts` 의 `resolveAdminSession(c, getSession)` 이 결과를 요청 컨텍스트 변수 `adminSession` 에 캐시하고, 이후 가드·로그인 라우트는 캐시를 재사용한다. CSRF 가드가 파이프라인 앞에 있으므로 대개 그쪽이 먼저 채운다(`cacheAdminSession`). `null` 세션도 캐시되므로(값이 `undefined` 일 때만 조회) 미인증 요청도 1회로 끝난다.
 - **Login (`/admin/login`)** — `login.tsx`:
-    - `GET /admin/login` — 관리자면 `next` 로 303, 아니면 로그인 카드(Google/GitHub) 또는 비관리자 안내(로그아웃 링크).
+    - `GET /admin/login` — 관리자면 `next` 로 303, 아니면 로그인 카드(Google/GitHub) 또는 비관리자 안내(CSRF 토큰이 붙은 로그아웃 폼).
     - `GET /admin/login/social/:provider`(`google`|`github`) — better-auth `signInSocial`, set-cookie 포워딩 후 302.
-    - `GET /admin/login/logout` — `signOut`.
+    - `GET /admin/login/logout` · `POST /admin/login/logout` — **같은 핸들러**로 `signOut` 후 302. GET 은 기존 링크·북마크 호환을 위해 유지하고, 비관리자 안내 카드의 로그아웃은 CSRF 토큰이 붙은 POST 폼을 쓴다.
 - **Static**: `GET /admin/styles.css` — `ADMIN_DESIGN_TOKENS_CSS`(`styles.ts`) + 캐시 헤더. guard 밖.
 - **CSRF**: `app.use('*', createAdminCsrfGuard({ getSession, secret: csrfSecret }))`(`csrf.ts`) — 모든 폼 POST 를 CSRF 토큰으로 보호. `contextStorage()` 이후 배선. `csrfSecret` 은 `BETTER_AUTH_SECRET`.
     - **fail-closed**: `csrfSecret` 이 없으면 상태 변경 메서드(`POST`·`PUT`·`PATCH`·`DELETE`)를 **403 `CSRF secret not configured`** 로 거부한다(이전에는 시크릿이 없으면 가드를 통째로 통과시켰다). GET 등 조회는 그대로 진행한다.
     - 토큰 형식 검사: `^[0-9a-f]{64}$`(HMAC-SHA256 hex) 을 만족해야 하고, 그다음 바이트 길이 비교 → `timingSafeEqual` 로 상수 시간 비교한다.
+- **일회성 노출 쿠키(`hub_reveal`)**: 토큰·키 발급 POST 는 값을 담은 HTML 을 직접 렌더하지 않고 **PRG(POST → 303 → GET)** 로 돈다. `page/admin/guard.ts` 의 `setRevealValue(c, path, value)` 가 `hub_reveal` 쿠키를 세우고(`Path` = 그 발급 경로, `maxAge` 60초, `httpOnly`, `SameSite=Lax`, 프로덕션에서 `Secure`), 다음 GET 에서 `takeRevealValue(c, path)` 가 값을 읽고 **즉시 쿠키를 삭제**한다. 새로고침으로 POST 가 재실행돼 토큰이 중복 발급되던 문제가 사라지고, 값이 브라우저에 남는 창도 60초로 제한된다. 적용 대상 5곳 — 어드민 Metrics Tokens(§5.5)와 `/manage` 의 API 토큰·Weather 키·Spotify API 키·Spotify 위젯 토큰([manage-features.md](./manage-features.md)).
 - **테마(다크모드)**: `GET /admin/theme?to=...&returnTo=...` — `ADMIN_THEME_COOKIE`(`theme.ts` `sanitizeTheme`) 설정 후 303. guard 밖. 라이트/다크 토큰은 `styles.ts`.
 - **스토리지 삭제**: `createAdminDb(db, storage)` 의 두 번째 인자 `AdminStorage`(`{ deleteObject, deleteGdriveObject? }`)로 어드민 삭제가 실물까지 지운다. 대상 3종 — `deleteImageAsset`(R2 `r2Key`), `deleteMailUpload`(R2 `r2Key`), `deleteDriveAsset`(`storage_tiers` 에 `L1` 이 있으면 R2 `s3Key`, `L3` 가 있으면 Google Drive `gdriveFileId`). 실물 삭제 실패는 `captureException` 후 삼키고 DB 행 삭제는 그대로 진행한다(고아 오브젝트보다 DB 정합성 우선). `storage` 미주입이면 종전처럼 DB 행만 지운다.
 - **컬러 렌더**: 캘린더 그룹 목록의 색상 점은 `^#[0-9a-f]{3,8}$`(대소문자 무관)을 통과한 값만 인라인 `style` 로 그린다(`pages/calendar.tsx`). 불합격 값은 점 없이 문자열만 표시해, 저장된 색상 값이 style 속성으로 새는 것을 막는다.
@@ -228,7 +230,8 @@ b-hub 통합 에러·이벤트 로그(서버 4xx·5xx 자동 캡처 + 디바이�
 GET  /admin/styles.css                     → 디자인 토큰 CSS (guard 밖)
 GET  /admin/login                          → 로그인/비관리자 안내
 GET  /admin/login/social/:provider         → google|github OAuth 시작
-GET  /admin/login/logout                   → 로그아웃
+GET  /admin/login/logout                   → 로그아웃 (링크·북마크 호환)
+POST /admin/login/logout                   → 로그아웃 (CSRF 폼)
 GET  /admin                                → dashboard
      /admin/users                          → list
        /:id                                → detail
@@ -286,6 +289,7 @@ GET  /admin                                → dashboard
 ## 16. 데이터 액세스 정책
 
 - 어드민 전용 어댑터 `page/admin/db.ts`(`AdminDb = ReturnType<typeof createAdminDb>`). `getDb()` Drizzle 인스턴스로 `select`/`update`/`delete` 직접 실행, **사용자 범위 필터 없음**(전 사용자 데이터 조회). 계층상 `service/`·`route/` 를 우회하는 유일한 예외.
+- **검색어 `q` 는 LIKE 이스케이프를 거친다.** `page/admin/db.ts` 의 `likeContains(term) = '%' + escapeLikePattern(term) + '%'`(`lib/sql-utils.ts`)를 22곳의 `q` 조건이 모두 사용한다. `%`·`_` 를 그대로 넣던 이전 방식에서는 `%` 한 글자로 전체 스캔을 유발하거나 의도와 다른 행이 매칭됐다. 파라미터 바인딩은 종전과 같아 SQL injection 위험은 없었다.
 - 인가는 미들웨어가 아니라 페이지 그룹별 `requireAdminPage` 게이트(`guard.ts`). `middleware/require-admin.ts` 의 `requireAdmin` 은 JSON 에러(`createAppError`)를 던지는 API용 어드민 게이트로 어드민 페이지 게이트와는 별개다(현재 라우터엔 미배선 — 정의·테스트만 존재. `route/blog/*` admin 엔드포인트는 각자 인라인 `requireAdmin` 헬퍼를 씀).
 - 어드민 응답은 HTML 이라 JSON `errorHandler` 대신 `renderForbidden`(403 HTML) 로 권한 거부를 처리한다.
 
@@ -311,20 +315,20 @@ GET  /admin                                → dashboard
 |---|---|
 | `index.ts` | `createAdminRoute` — `styles.css`·`login`·각 도메인 라우트 마운트. `adminDb`(없으면 `db` 로 `createAdminDb`) 조립, `triggerMailSync` 주입. `metricsTokenService?`(optional)를 받아 `/metrics/tokens` 마운트(루트 `index.ts` 가 `composed.metricsTokenService` 주입). |
 | `nav.ts` | 사이드바 `NAV`(10개 그룹) + `isActivePath`. Observability 그룹에 Log Events·Metrics Tokens. |
-| `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`. |
+| `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminSession`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`, 요청당 세션 캐시(`resolveAdminSession`·`cacheAdminSession`), 일회성 노출 쿠키(`REVEAL_COOKIE_NAME`·`setRevealValue`·`takeRevealValue`). `/manage` 도 공유. |
 | `csrf.ts` | `createAdminCsrfGuard` — 폼 POST CSRF 토큰 검증(가드, 시크릿 미설정 시 상태 변경 403 fail-closed). `/manage` 도 공유. |
 | `theme.ts` | `ADMIN_THEME_COOKIE`·`THEME_COOKIE_MAX_AGE`·`sanitizeTheme` — 라이트/다크 테마 쿠키. |
-| `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수). |
+| `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수) + `likeContains`(검색어 LIKE 이스케이프). |
 | `components.tsx` | 공통 JSX 컴포넌트(§17). |
 | `dashboard.tsx` | `createDashboardRoute` — Stat 14 + 최근 4 테이블. |
 | `styles.ts` | `ADMIN_DESIGN_TOKENS_CSS` + `ADMIN_DESIGN_TOKENS_CACHE_HEADERS`. |
 | `format.ts` | `formatDate`·`formatDateShort`·`formatBytes`·`maskToken`·`truncate`·`ynLabel`·`parseIntOr`·`readPage`(목록 `page` 정규화, 최소 1)·`parseDateStart`·`parseDateEnd`·`clampPage`. |
-| `login.tsx` | `createLoginRoute` — social 로그인/로그아웃, set-cookie 포워딩. |
+| `login.tsx` | `createLoginRoute` — social 로그인, 로그아웃(GET·POST 공용 핸들러), set-cookie 포워딩. |
 | `pages/users.tsx` | Users list/detail + role·ban(밴 시 세션 전량 회수)·quota·session revoke(all). |
 | `pages/sessions.tsx` | 전 사용자 세션 list + revoke / revoke-all. |
 | `pages/api.tsx` | `createApiTokensRoute`(tokens list + revoke) · `createApiLogsRoute`(request logs). |
 | `pages/logs.tsx` | Log Events list + resolve(severity 라벨/badge 헬퍼). |
-| `pages/metrics.tsx` | `createMetricsTokensRoute` — Metrics Tokens list + create(RevealBanner 평문 1회)·revoke. `metricsTokenService?` 주입(미구성 시 안내). |
+| `pages/metrics.tsx` | `createMetricsTokensRoute` — Metrics Tokens list + create(303 PRG + `hub_reveal` 쿠키로 평문 1회 노출)·revoke. `metricsTokenService?` 주입(미구성 시 안내). |
 | `pages/blog.tsx` | Posts·Comments·Categories·Tags·Images 전체. |
 | `pages/messages.tsx` | Messages list/detail + delete/restore, Follows list. |
 | `pages/weather.tsx` | Keys·Logs·Cache(+drop). |

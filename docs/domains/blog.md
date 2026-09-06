@@ -1,6 +1,6 @@
 # blog 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
 
 ## 개요
 
@@ -78,7 +78,7 @@
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/blog/comments?postId=` | 없음 | 게시글별 댓글 목록(`isHide` 댓글은 본문 빈 문자열로) |
-| POST | `/api/blog/comments` | 로그인 | 댓글 작성(role 무관, 로그인만) |
+| POST | `/api/blog/comments` | 로그인 | 댓글 작성(role 무관, 로그인만). 게시글이 없으면 404 `BLOG_POST_NOT_FOUND`, `posts.isComment=false` 면 403 `FORBIDDEN` |
 | PATCH | `/api/blog/comments/:id` | 로그인 + 작성자 | 댓글 수정(소유자 아니면 `BLOG_COMMENT_NOT_FOUND`) |
 | DELETE | `/api/blog/comments/:id` | 로그인 + 작성자 | 댓글 삭제 |
 
@@ -134,6 +134,9 @@
 ### 게시글 생성/수정/삭제
 - `create`/`update` 는 admin 게이팅. `insertPost`/`updatePost` 는 `db.transaction` 안에서 `posts` upsert + `post_tags` 재설정(`tagIds` 전달 시 기존 삭제 후 재삽입).
 - `deletePost`(`compose/blog.ts:157-165`)도 `db.transaction` 이다. `comments` 를 `postId` 로 먼저 지운 뒤 `posts` 를 지운다. `comments.postId` 가 `posts.postId` 를 FK 로 참조(cascade 없음)하므로, 댓글이 달린 글을 지울 때 FK 제약 위반으로 500 이 나던 경로가 제거됐다. `post_tags` 는 `ON DELETE CASCADE` 라 별도 삭제가 없다.
+
+### 댓글 작성 게이트
+- `commentService.create` 는 insert 전에 `getPostCommentFlag(postId)`(`compose/blog.ts` — `posts.is_comment` 1열만 조회)로 대상 글을 확인한다. 행이 없으면 `{ success: false, reason: 'post_not_found' }`, `isComment=false` 면 `{ success: false, reason: 'comment_disabled' }` 를 돌려주고, 라우트가 각각 `BLOG_POST_NOT_FOUND`(404)·`FORBIDDEN`(403)으로 변환한다(`route/blog/comment.ts`). 성공 시 응답은 종전과 같은 `{ commentId }` 다. 이전에는 존재하지 않는 글이나 댓글 비허용 글에도 댓글이 그대로 저장됐다.
 
 ### 댓글 소유권
 - `commentService.update`/`delete` 는 `getCommentById` 로 존재 확인 후 `existing.userId !== userId` 면 `{ success: false, reason: 'not_owner' }` 반환 → 라우트가 `BLOG_COMMENT_NOT_FOUND` 로 변환. admin 라우트의 `adminDelete`/`adminUpdateHide` 는 소유권 무시.

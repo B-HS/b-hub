@@ -1,6 +1,6 @@
 # calendar 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
 
 ## 개요
 
@@ -48,11 +48,11 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | `calendar_group` | `id`(PK), `user_id`, `name`, `color`, `sort_order`(기본 0), `is_visible`(기본 true) | `idx_calendar_group_user(user_id)`. `user_id` → `user.id` (cascade) |
 | `calendar_event` | `id`(PK), `user_id`, `uid`(unique), `summary`, `description`, `location`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json), `exdate`(json), `status`(enum, 기본 `CONFIRMED`), `transp`(enum, 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `color`, `group_id`, `sequence`(기본 0), `dtstamp` | `idx_calendar_event_user`, `idx_calendar_event_user_dtstart(user_id,dtstart)`, `idx_calendar_event_uid`, `idx_calendar_event_group`. `group_id` → `calendar_group.id` (set null), `user_id` → `user.id` (cascade) |
 | `deleted_calendar_event` | `id`(PK), `user_id`, `uid`, `deleted_at`, `sync_token` | `idx_deleted_event_user_sync(user_id,sync_token)`. CalDAV sync-collection 의 삭제 tombstone |
-| `calendar_subscription` | `id`(PK), `user_id`, `token`(unique), `ics_token`(unique), `name`, `is_active`(기본 true), `ctag`(기본 `'0'`), `last_accessed_at` | `idx_subscription_token`, `idx_subscription_ics_token`, `idx_subscription_user`. `user_id` → `user.id` (cascade) |
+| `calendar_subscription` | `id`(PK), `user_id`, `token`(unique), `ics_token`(unique), `name`, `is_active`(기본 true), `ctag`(기본 `'0'`), `last_accessed_at` | `idx_subscription_token`, `idx_subscription_ics_token`, `idx_subscription_user`, **`unique(user_id)` = `uq_calendar_subscription_user`**(`db:push` 필요). `user_id` → `user.id` (cascade) |
 | `user.timezone` | `varchar(64)`, 기본 `Asia/Seoul` | 이벤트/CalDAV ICS 의 TZID 근거 |
 
 - `rrule` 은 `RRuleType`(`freq`/`interval`/`count`/`until`(string)/`byDay`/`byMonth`/`byMonthDay`) JSON. DB 저장 시 `until` 은 ISO 문자열, 도메인 타입에서는 `Date` 로 변환된다.
-- 구독은 사용자당 1개다(`user_id` 기준, `createSubscription`/`insertSubscription` 이 기존 존재 시 재사용). `token`(CalDAV)·`ics_token`(ICS 피드)은 별개 토큰이다. `name` 미지정 시 저장 기본값은 `'Schedule'`(`createSubscription`, 커밋 `15a29a6` 에서 `'My Calendar'`→`'Schedule'`). `name` 이 null 일 때의 표시 폴백은 ICS 피드가 `'My Calendar'`, CalDAV `displayname` 이 `'B-Calendar'` 로 서로 다르다.
+- **구독은 사용자당 1개이며 DB 제약으로 보장한다.** `calendar_subscription.user_id` 에 unique(`uq_calendar_subscription_user`)가 걸리고, `insertSubscription`(`compose/calendar.ts`)은 select-then-insert 트랜잭션 대신 `insert ... onDuplicateKeyUpdate` upsert 다. 동시 요청이 두 행을 만들던 경합이 사라진다. `createSubscription` 은 insert 직후 실제 행을 다시 읽어 반환하므로, 이미 있던 구독의 기존 토큰이 그대로 응답된다(새 토큰이 생성돼 응답에만 담기고 저장은 안 되던 불일치 제거). **이 unique 는 `bun run db:push` 전까지 DB 에 반영되지 않는다** — push 전에 `user_id` 중복 행이 남아 있으면 제약 생성이 실패하므로 먼저 정리한다. `token`(CalDAV)·`ics_token`(ICS 피드)은 별개 토큰이다. `name` 미지정 시 저장 기본값은 `'Schedule'`(`createSubscription`, 커밋 `15a29a6` 에서 `'My Calendar'`→`'Schedule'`). `name` 이 null 일 때의 표시 폴백은 ICS 피드가 `'My Calendar'`, CalDAV `displayname` 이 `'B-Calendar'` 로 서로 다르다.
 
 ## API 엔드포인트
 
@@ -65,10 +65,10 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | GET | `/api/calendar/events` | 세션 | 월 조회(`year`, `month` 0–11). 반복 이벤트는 범위 내 각 발생 인스턴스로 전개 반환 |
 | GET | `/api/calendar/events/range` | 세션 | 기간 조회(`startDate`,`endDate`,`groupId?`). 최대 366일. 반복 이벤트는 발생 인스턴스로 전개 |
 | GET | `/api/calendar/events/detail/:uid` | 세션 | 단건 상세 |
-| POST | `/api/calendar/events` | 세션 | 생성(`createEventSchema` — `dtstart`/`dtend` datetime). 201 |
-| POST | `/api/calendar/events/create` | 세션 | 생성(`createEventBodySchema` — `startDate`/`startTime` 분리형, `toEventInput` 매핑). 201 |
-| PUT | `/api/calendar/events/:uid` | 세션 | 전체 수정(`updateEventSchema`) |
-| PATCH | `/api/calendar/events/:uid` | 세션 | 부분 수정(`patchEventBodySchema`, `toEventPatch` 병합) |
+| POST | `/api/calendar/events` | 세션 | 생성(`createEventSchema` — `dtstart`/`dtend` datetime). 201. `dtend < dtstart` 면 400, 남의(또는 없는) `groupId` 면 404 |
+| POST | `/api/calendar/events/create` | 세션 | 생성(`createEventBodySchema` — `startDate`/`startTime` 분리형, `toEventInput` 매핑). 201. 같은 400/404 검사 |
+| PUT | `/api/calendar/events/:uid` | 세션 | 전체 수정(`updateEventSchema`). `dtend < dtstart` 면 400, 남의 `groupId` 면 404 |
+| PATCH | `/api/calendar/events/:uid` | 세션 | 부분 수정(`patchEventBodySchema`, `toEventPatch` 병합). 날짜를 둘 다 보낸 경우 역전이면 400, 남의 `groupId` 면 404 |
 | DELETE | `/api/calendar/events/:uid` | 세션 | 삭제. 204 |
 | GET | `/api/calendar/groups` | 세션 | 그룹 목록(`sort_order` 정렬) |
 | POST | `/api/calendar/groups` | 세션 | 그룹 생성. 201 |
@@ -168,7 +168,8 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | `CALENDAR_ICS_TOO_LARGE` | 413 | ICS 데이터가 크기 제한을 초과했습니다 | 1MB 초과 |
 | `CALENDAR_GROUP_NOT_FOUND` | 404 | 캘린더 그룹을 찾을 수 없습니다 | |
 | `CALENDAR_GROUP_HAS_EVENTS` | 409 | 이벤트가 있는 그룹은 삭제할 수 없습니다 | |
-| `CALENDAR_INVALID_DATE_RANGE` | 400 | 유효하지 않은 날짜 범위입니다 | start>end 또는 366일 초과 |
+| `CALENDAR_INVALID_DATE_RANGE` | 400 | 유효하지 않은 날짜 범위입니다 | 조회 범위 start>end 또는 366일 초과 |
+| `VALIDATION_ERROR` | 400 | (공통) | 이벤트 `dtend < dtstart` — DTO refine 또는 라우트 `assertDateRange` |
 
 ## 테스트
 
@@ -196,6 +197,8 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 - **free-busy 는 `OPAQUE` 이벤트만 집계.** compose `getFreeBusyEvents` 가 `transp = 'OPAQUE'` + 기간 겹침(`dtend >= start AND dtstart <= end`)으로 필터한다 → `TRANSPARENT` 이벤트는 바쁨에 안 잡힌다. `status = TENTATIVE` 는 `BUSY-TENTATIVE`, 그 외는 `BUSY` 로 표기(`getFreeBusy`).
 - **토큰 재발급은 구독 존재를 먼저 확인한다.** `regenerateSubscriptionToken`·`regenerateIcsToken`(`service/domain/calendar/calendar.ts:486-501`)이 `db.getSubscription(userId)` 로 행을 읽고 없으면 `CALENDAR_SUBSCRIPTION_NOT_FOUND` 를 던진다. 이전에는 UPDATE 가 0행에 적용되고도 새 토큰 문자열을 200 으로 돌려줘, 클라이언트가 아무 데도 연결되지 않는 CalDAV/ICS URL 을 저장했다.
 - **그룹 PATCH 는 갱신 행을 반드시 돌려준다.** `route/calendar/group.ts:55` 가 재조회 결과가 `null` 이면 404 를 던진다. 응답 봉투의 `data` 가 `null` 로 나가 소비자 파싱이 깨지던 경로(C-10)를 막는다.
+- **이벤트의 `groupId` 는 소유권을 검증한다.** `route/calendar/event.ts` 의 `assertGroupOwned` 가 `groupId` 가 있을 때 `calendarService.getGroupById(userId, groupId)` 로 확인하고 없으면 `CALENDAR_GROUP_NOT_FOUND`(404). 목록 조회(`/range`)뿐 아니라 **생성 2종·PUT·PATCH 전부**에 적용되므로, 남의 그룹 id 를 실어 이벤트를 그 그룹에 넣는 경로가 막힌다.
+- **날짜 역전은 400 이다.** `dto/calendar-event.ts` 의 `createEventSchema`·`updateEventSchema` 가 `dtend >= dtstart` 를 `refine`(경로 `dtend`)하고, 분리형 바디 경로(`/create`·PATCH)는 라우트의 `assertDateRange` 가 병합 결과를 검사해 `VALIDATION_ERROR`(400)를 던진다. PATCH 는 `startDate`·`endDate` 를 **둘 다 보낸 경우에만** 검사한다(한쪽만 바꾸는 부분 수정은 기존 값과의 역전을 막지 않는다).
 - **CalDAV 는 세션 미들웨어 밖.** 토큰이 곧 자격증명이므로 토큰 유출 = 캘린더 노출. `/caldav/`·`/.well-known/caldav` 는 `securityExcludePaths` 로 제외된다.
 
 ## 관련 문서

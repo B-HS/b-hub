@@ -1,6 +1,6 @@
 # lib/ 유틸리티 전수 인벤토리
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/cron-auth.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
 `lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 29개.
 
@@ -33,13 +33,13 @@
 | `lib/error.ts` | `createAppError`, `isAppError`, `getStatusCode`, `AppError` | 코드→상태 매핑 + 에러 팩토리·가드 | 광범위: `route/*`, `service/domain/*`, `service/shared/*`, `middleware/*` | `error.test.ts` |
 | `lib/with-error-handling.ts` | `withErrorHandling` | 핸들러 try/catch → AppError/500 변환 HOF | 사실상 모든 `route/*` 핸들러 | `with-error-handling.test.ts` |
 | `lib/with-auth.ts` | `withAuth`, `withAdmin`, `withApiToken` | 세션/관리자/API토큰 인증 HOF | `route/{ai,auth,logs,mail,spotify,weather}/*` | `with-auth.test.ts` |
-| `lib/with-rate-limit.ts` | `withRateLimit` | 사용자 id 기준 레이트리밋 HOF (auth 뒤에 합성, `pathKey?` 로 버킷 고정) | `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts` | `with-rate-limit.test.ts` |
+| `lib/with-rate-limit.ts` | `withRateLimit` | 사용자 id 기준 레이트리밋 HOF (auth 뒤에 합성, `pathKey?` 로 버킷 고정, 동기·비동기 `checkLimit` 모두 수용) | `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts` | `with-rate-limit.test.ts` |
 | `lib/with-spotify-auth.ts` | `withSpotifyAuth` | Spotify 위젯키 or 세션+accountId 인증 HOF | `route/spotify/data.ts` | `with-spotify-auth.test.ts` |
-| `lib/cron-auth.ts` | `isSecretMatch`, `verifyCronAuth` | 시크릿 상수 시간 비교(sha256 다이제스트 + `timingSafeEqual`, 빈 값·길이 불일치는 즉시 false) + `Authorization: Bearer`/`x-cron-secret` 검증(실패 시 `UNAUTHORIZED`) | `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/metrics/archive.ts`, `service/domain/drive/drive-asset.ts` | `cron-auth.test.ts` |
+| `lib/cron-auth.ts` | `isSecretMatch`, `verifyCronAuth` | 시크릿 상수 시간 비교(sha256 다이제스트 + `timingSafeEqual`, 빈 값·길이 불일치는 즉시 false) + `Authorization: Bearer`/`x-cron-secret` 검증(실패 시 `UNAUTHORIZED`) | `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/metrics/archive.ts`, **`route/logs/purge.ts`**(주입 시크릿 없으면 `getEnv().UPLOAD_SERVER_SECRET` 폴백), `service/domain/drive/drive-asset.ts` | `cron-auth.test.ts` |
 | `lib/hono-types.ts` | `HonoVariables`, `AuthContext` | Hono `c.set/get` 변수 계약(user·errorCode·errorDetail) | `index.ts`, `middleware/index.ts`, 다수 `route/*` | (타입 전용) |
 | `lib/env.ts` | `getEnv`, `resetEnvCache`, `Env` | Zod `safeParse` 캐시 env 접근자 | `compose/index.ts`, `compose/types.ts` | `env.test.ts` |
 | `lib/sentry.ts` | `initSentry`, `captureException` | `@sentry/bun` 지연 초기화·예외 캡처(가드) | `middleware/*`, `compose/{logs,ai}.ts`, 도메인 키 서비스 | `sentry.test.ts` |
-| `lib/discord.ts` | `sendDiscordAlert` | 에러 알림 Discord 웹훅 POST | `compose/logs.ts` | (없음) |
+| `lib/discord.ts` | `sendDiscordAlert`, `resetDiscordAlertBudget` | 에러 알림 Discord 웹훅 POST(분당 20건 전역 예산·3초 timeout·`allowed_mentions` 차단·비2xx throw) | `compose/logs.ts` | `discord.test.ts` |
 | `lib/log-service-name.ts` | `serviceNameFromPath`, `severityFromStatus`, `errorCodeFromStatus` | 요청 경로/상태 → 로그 서비스명·심각도·코드 | `middleware/log-capture.ts` | `log-service-name.test.ts` |
 | `lib/mask-sensitive-path.ts` | `maskSensitivePath` | 로그 캡처용 URL 토큰 세그먼트 마스킹(`/caldav/`·`/api/spotify/playing/`·`/api/calendar/` 토큰 경로 → `[REDACTED]`, calendar 비-토큰 세그먼트 events/groups/subscription 은 보존) | `middleware/log-capture.ts` | `mask-sensitive-path.test.ts` |
 | `lib/hmac-state.ts` | `createOAuthState`, `verifyOAuthState`, `parseStatePayload`, `hmacSign/Verify`, `base64url*` | HMAC 서명 OAuth state + base64url | `service/domain/{mail,spotify}/*-oauth-connect.ts` | `hmac-state.test.ts` |
@@ -47,8 +47,8 @@
 | `lib/credential-crypto.ts` | `createCredentialCrypto` | AES-256-GCM(v2 scrypt) 자격증명 암복호화(공용) | `service/domain/mail/mail-crypto.ts`(위임), `compose/ai.ts` | `credential-crypto.test.ts` |
 | `lib/jwt-decode.ts` | `decodeJwtPayloadUnverified`, `getJwtExpiryMs` | **서명 미검증** JWT payload 디코드 + exp 추출(codex 토큰 만료·account_id 판단) | `service/domain/ai/ai-provider-factory.ts` | `jwt-decode.test.ts` |
 | `lib/url-validator.ts` | `isPrivateAddress`, `isPublicUrl`, `isPublicUrlResolved`, `isAllowedRedirect`, `AddressLookup` | SSRF 가드(https·사설/예약 IP 차단 + DNS 해석 검증) + 오픈리다이렉트 가드 | `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts` | `url-validator.test.ts` |
-| `lib/rate-limit.ts` | `createRateLimiter` | 인메모리 Map 고정 윈도우 리미터 | `compose/{ai,mail}.ts` | `rate-limit.test.ts` |
-| `lib/sql-utils.ts` | `escapeLikePattern` | `LIKE` 와일드카드(`% _ \`) 이스케이프 | `compose/blog.ts`, `compose/mail.ts` | `sql-utils.test.ts` |
+| `lib/rate-limit.ts` | `createRateLimiter`, `RateLimitStore`(타입) | 고정 윈도우 리미터. 인메모리 Map 기본 + 선택적 공유 스토어 주입, cleanup 타이머 `unref` | `compose/{ai,mail}.ts`, `route/index.ts`(공개 경로) | `rate-limit.test.ts` |
+| `lib/sql-utils.ts` | `escapeLikePattern` | `LIKE` 와일드카드(`% _ \`) 이스케이프 | `compose/blog.ts`, `compose/mail.ts`, `page/admin/db.ts`(`likeContains`, 22곳) | `sql-utils.test.ts` |
 | `lib/mail-utils.ts` | `deriveThreadId`, `extractMessageIdTokens`, `encodeMimeWord`, `formatMailAddress`, `isBlockedHost`, `isLocalMailFolder`, `maskProviderError`, `sanitizeFilename`, `escapeHtml`, `sanitizeHeaderValue`, `sanitizeEmailName` | 메일 헤더/주소/파일명 sanitize·MIME 인코딩·SSRF 호스트 차단 | `dto/mail/account.ts`, `route/mail/message.ts`, `service/domain/{mail,ai}/*`, `service/domain/drive/drive-asset.ts` | `mail-utils.test.ts` |
 | `lib/mail-thread.ts` | `computeThreadIds` | union-find 로 메시지 배치→threadId 그룹핑 | `scripts/backfill-thread-id.ts` | `mail-thread.test.ts` |
 | `lib/ics-parser.ts` | `parseICS`, `parseICSDateTime`, `extractUidFromICS`, `ParsedICS` | 인바운드 ICS(VEVENT) 파싱 — 대상 타임존 인자, VALARM 무시, `RECURRENCE-ID` 컴포넌트 스킵 | `route/calendar/caldav.ts` | `ics-parser.test.ts` |
@@ -120,7 +120,10 @@
 - 사용처: `route/{ai,auth,logs,mail,spotify,weather}/*`. 테스트: `with-auth.test.ts`.
 
 **`lib/with-rate-limit.ts`**
-- `withRateLimit`: `(c, user)` 를 받는 핸들러를 감싸 `checkLimit(user.id, pathKey ?? c.req.path)` → `X-RateLimit-Limit/Remaining/Reset` 헤더 부착, 초과 시 `RATE_LIMIT_EXCEEDED`. **user 를 받으므로 auth HOF 뒤에 합성**해야 한다. `deps.pathKey` 로 버킷 키를 경로 대신 고정(AI 라우트가 `ai:attachment:upload` 등 액션별 버킷 지정에 사용). 사용처: `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts`. 테스트: `with-rate-limit.test.ts`.
+- `withRateLimit`: `(c, user)` 를 받는 핸들러를 감싸 `await checkLimit(user.id, pathKey ?? c.req.path)` → `X-RateLimit-Limit/Remaining/Reset` 헤더 부착, 초과 시 `RATE_LIMIT_EXCEEDED`. **user 를 받으므로 auth HOF 뒤에 합성**해야 한다.
+- `CheckLimitFn` 은 `RateLimitResult | Promise<RateLimitResult>` 를 모두 받는다 — 공유 스토어가 주입된 리미터의 비동기 `checkLimit` 도 그대로 넘길 수 있다. 라우트의 `deps.checkLimit` 타입은 손으로 적지 않고 `Parameters<typeof withRateLimit>[0]['checkLimit']` 로 유도한다(`route/mail/{message,sync}.ts`).
+- `deps.pathKey` 로 버킷 키를 경로 대신 고정한다: mail 발송 3종은 `mail:messages:send` 하나를 공유하고, AI 는 `ai:chat:send`·`ai:chat:completion`·`ai:attachment:upload` 를 쓴다. 사용처: `route/mail/{message,sync}.ts`, `route/ai/{chat,attachment}.ts`. 테스트: `with-rate-limit.test.ts`.
+- 공개 경로(badge·spotify playing)는 이 HOF 를 쓰지 않는다 — 인증된 `user` 가 없어 라우트가 IP 키로 `checkLimit` 을 직접 호출하고 같은 3개 헤더를 손으로 붙인다.
 
 **`lib/with-spotify-auth.ts`**
 - `withSpotifyAuth`: `X-Spotify-Key` 헤더가 있으면 위젯키 검증, 없으면 세션 + `accountId` 쿼리 검증(양수 정수) 후 `spotifyAccountService.getById` 로 소유권 확인. `SpotifyAuthResult{spotifyAccountId,userId}` 주입.
@@ -145,7 +148,11 @@
 - 사용처: `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts`. 테스트: `url-validator.test.ts`.
 
 **`lib/rate-limit.ts`**
-- `createRateLimiter({windowMs,maxRequests})` → `{checkLimit(key), reset(key)}`. **인메모리 `Map`** + `setInterval` 만료 청소. 서버리스/멀티인스턴스에서는 인스턴스별 독립(공유 안 됨). 사용처: `compose/mail.ts`(60초/20회, 키 `mail:{userId}:{path}`)·`compose/ai.ts`(60초/30회, 키 `ai:{userId}:{path}`) — 둘 다 `checkLimit` 어댑터로 `withRateLimit` 에 주입. 테스트: `rate-limit.test.ts`.
+- `createRateLimiter({windowMs,maxRequests}, store?)` → `{checkLimit(key), reset(key)}`.
+- **`store` 없음**(기본): 인메모리 `Map` + `setInterval` 만료 청소. 타이머는 **`unref()`** 되어 프로세스 종료를 막지 않는다(서버리스 인스턴스 정리 방해 제거). `checkLimit`/`reset` 은 **동기** 반환.
+- **`store` 주입**: `RateLimitStore = { increment(key, windowMs) => Promise<{count, resetAt}>; reset?(key) => Promise<void> }`. 이때 `checkLimit`/`reset` 은 **Promise** 를 반환하며(반환 타입은 제네릭 `TStore` 로 유도), 스토어 호출이 실패하면 `captureException` 후 **인메모리 판정으로 폴백**한다. 결과 형태(`allowed`·`limit`·`remaining`·`resetAt`)와 429 계약은 두 모드가 동일하다.
+- 사용처: `compose/mail.ts`(60초/20회, 키 `mail:{userId}:{path}`)·`compose/ai.ts`(60초/30회, 키 `ai:{userId}:{path}`) — 둘 다 `REDIS_URL` 이 있으면 `compose/index.ts` 가 만든 공유 스토어를 주입받고, `checkLimit` 어댑터로 `withRateLimit` 에 넘긴다. `route/index.ts` 는 공개 경로용(60초/60회, 키 `public:{...}`) 리미터를 **스토어 없이** 만들어 badge·spotify playing 라우트에 주입한다. 스토어 구현은 [shared-services.md](./shared-services.md) 의 `rate-limit-store.ts`.
+- 테스트: `rate-limit.test.ts`.
 
 **`lib/sensitive-filter.ts`**
 - `isSensitiveKey(key)`(password/token/secret/authorization 등 부분일치), `filterSensitiveData(obj)` → 값 `[REDACTED]`. **현재 비-test 미사용**. 테스트: `sensitive-filter.test.ts`.
@@ -183,10 +190,12 @@
 - 주의: 스키마에 `R2_CUSTOM_DOMAIN` 과 오타형 `R2_CUSTOME_DOMAIN` 이 **둘 다** 정의돼 있다. 변수 전수 목록·의미는 [env.md](./env.md) 소유. 테스트: `env.test.ts`.
 
 **`lib/sentry.ts`**
-- `initSentry(dsn)`(모듈 플래그로 1회, `@sentry/bun` 지연 `require`, `tracesSampleRate: 0.1`), `captureException(error)`. 둘 다 try/catch 로 감싸 Sentry 미설치/미초기화여도 무해. 사용처: `middleware/{error-handler,log-capture,request-logger}.ts`, `compose/{logs,ai}.ts`, 도메인 키 서비스. 테스트: `sentry.test.ts`.
+- `initSentry(dsn)`(모듈 플래그로 1회, `@sentry/bun` 지연 `require`, `tracesSampleRate: 0.1`), `captureException(error)`. 둘 다 try/catch 로 감싸 Sentry 미설치/미초기화여도 무해. **`initSentry` 는 `index.ts` 부트스트랩 최상단에서 `getEnv().SENTRY_DSN` 으로 1회 호출**된다(이전에는 호출 지점이 없어 `captureException` 이 항상 no-op 이었다). 사용처: `middleware/{error-handler,log-capture,request-logger}.ts`, `compose/{logs,ai,drive,mail}.ts`, `service/shared/{storage,font-loader,redis-cache,redis-client}.ts`, 도메인 키·삭제 경로. 테스트: `sentry.test.ts`.
 
 **`lib/discord.ts`**
-- `sendDiscordAlert(webhookUrl, payload)`: 서비스·에러코드·severity(·device·설명)를 조합해 웹훅 POST(`content` 1900자 slice). 사용처: `compose/logs.ts`. 상세 → [../logging.md](../logging.md). 테스트: 없음.
+- `sendDiscordAlert(webhookUrl, payload)`: 서비스·에러코드·severity(·device·설명)를 조합해 웹훅 POST(`content` 1900자 slice). 반환값은 전송 여부(`boolean`).
+- **분당 20건 전역 예산**(모듈 스코프 윈도 카운터)을 소비하고, 소진되면 요청을 보내지 않고 `false` 를 반환한다. 본문에 `allowed_mentions: { parse: [] }`(로그 내용의 멘션 방지), `AbortSignal.timeout(3000)`, 응답이 비2xx 면 `EXTERNAL_API_ERROR`(`details.status`) throw — 호출부(`compose/logs.ts` → `service/domain/logs/log-event.ts` 의 `maybeAlert`)가 `captureException` 으로 흡수한다.
+- `resetDiscordAlertBudget()` 은 테스트용 예산 초기화. 사용처: `compose/logs.ts`. 상세 → [../logging.md](../logging.md). 테스트: `discord.test.ts`.
 
 **`lib/log-service-name.ts`**
 - `serviceNameFromPath(path)`(경로→`b-hub-{도메인}`, `/api/ai` 포함 12분기 + `/api` 폴백 `b-hub-api`), `severityFromStatus(status)`(≥500→40, else 30), `errorCodeFromStatus(status)`(상태→라벨, 미매핑 5xx→`INTERNAL_ERROR`, 그 외→`HTTP_{status}`). 사용처: `middleware/log-capture.ts`. 상세 → [../logging.md](../logging.md). 테스트: `log-service-name.test.ts`.
@@ -198,7 +207,7 @@
 - `HonoVariables`(`user`·`errorCode`·`errorDetail`), `AuthContext = { Variables: HonoVariables }`. `new Hono<AuthContext>()` 및 `c.get/set` 타입 계약. 내부 `AuthUser` = `{id,name,email,role,image}`. 사용처: `index.ts`, `middleware/index.ts`, 다수 `route/*`. 테스트: 타입 전용(없음).
 
 **`lib/sql-utils.ts`**
-- `escapeLikePattern(term)`: `\` `%` `_` 이스케이프 → `LIKE` 검색 인젝션/와일드카드 오작동 방지. 사용처: `compose/blog.ts`, `compose/mail.ts`. 테스트: `sql-utils.test.ts`.
+- `escapeLikePattern(term)`: `\` `%` `_` 이스케이프 → `LIKE` 검색 인젝션/와일드카드 오작동 방지. 사용처: `compose/blog.ts`, `compose/mail.ts`, `page/admin/db.ts`(`likeContains(term) = '%'+escapeLikePattern(term)+'%'` 로 감싸 어드민 검색어 `q` 22곳에 적용). 테스트: `sql-utils.test.ts`, `tests/page/admin/db-search.test.ts`.
 
 **`lib/db-helper.ts`**
 - `isDuplicateKeyError(error)`: MySQL unique 키 위반(`ER_DUP_ENTRY`) 판별. 드라이버 오류 객체의 `code` 를 보고, **drizzle 이 `DrizzleQueryError` 로 감싸 원본을 `cause` 에 넣는 경우까지** 확인한다(`lib/db-helper.ts:26-28`). `unknown` 을 받아 좁히므로 `catch (error)` 에서 바로 쓸 수 있다.

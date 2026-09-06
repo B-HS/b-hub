@@ -1,6 +1,6 @@
 # 펌웨어 로깅 클라이언트 계약 (ESP32 등)
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/logs/log-event.ts`(`logEventIngestSchema`·`SEVERITY`), `route/logs/log-event.ts`, `route/logs/device-key.ts`, `middleware/require-device-key.ts`, `service/domain/logs/device-key.ts`(레이트리밋), `lib/error-code.ts`·`lib/error.ts`. 저장 스키마·서버 자동 캡처는 [logging.md](./logging.md).
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/logs/log-event.ts`(`logEventIngestSchema`·`SEVERITY`), `route/logs/log-event.ts`, `route/logs/device-key.ts`, `middleware/require-device-key.ts`, `service/domain/logs/device-key.ts`(레이트리밋), `lib/error-code.ts`·`lib/error.ts`. 저장 스키마·서버 자동 캡처는 [logging.md](./logging.md).
 
 > ESP32 weather 펌웨어는 **별도 레포**에 있으므로, b-hub 서버가 기대하는 **수집 계약**을 여기에 명세한다.
 > 이 문서를 기준으로 펌웨어 레포에서 `LOG_ERR` 매크로 + 링버퍼 + WiFi 복구 flush 를 구현한다.
@@ -16,7 +16,8 @@
 
 - 성공 시 `200` + `{ "success": true, "data": { "id": <n> } }`(단건) / `{ "success": true, "data": { "count": <n> } }`(배치).
 - 배치는 스키마상 **1~50건**(빈 배열 → `400`). 50건 초과 시 서버는 **`413 LOG_BATCH_TOO_LARGE`** → 클라이언트는 배치를 분할(권장: 절반)해 재전송.
-- 인증 실패 `401 LOG_DEVICE_KEY_INVALID`, 디바이스 24h 한도 초과 `429 LOG_DEVICE_KEY_RATE_LIMIT`. **검사 순서: 디바이스 키(401·429) → 바디 검증(400) → 배치 크기(413).**
+- **요청 본문 크기 제한**(2026-09-07 3차 배치 신설): `POST /api/logs`·`/api/logs/batch` 모두 본문이 **1MB** 를 넘으면 DTO 파싱 전에 `413 LOG_BATCH_TOO_LARGE` 로 끊긴다(`errorResponse` 봉투). 50건 배치라도 이벤트당 평균 20KB 이하면 여유가 있다 — 대응은 기존 413 과 같이 **배치 절반 분할**이다.
+- 인증 실패 `401 LOG_DEVICE_KEY_INVALID`, 디바이스 24h 한도 초과 `429 LOG_DEVICE_KEY_RATE_LIMIT`. **검사 순서: 디바이스 키(401·429) → 요청 본문 크기(413) → 바디 검증(400) → 배치 크기(413).**
 - 한도는 **키의 디바이스 식별자당 rolling 24h 이벤트 수 < `dailyLimit`(기본 2000)**. 식별자는 `resolveDeviceIdentity`(`service/domain/logs/device-key.ts:12`) = 키의 `device_id`, **없으면 `key:<키 id>`** 다. 카운트는 저장된 `log_events.device_id` 기준이며, 저장 값도 이 식별자로 강제되므로 `deviceId` 없이 발급된 키도 한도가 적용된다.
 - 스키마/필드 길이 위반은 **`400`**(standard-validator). **`400` 은 재시도해도 같은 실패이므로 재인큐하지 말고 drop + 로컬 카운터**(로그 스톰 방지). 도메인 에러(401/413/429)는 봉투 `{ "success": false, "error": { "code", "message" } }` 형식이지만, **`400` 은 `error` 가 issue 배열**(`{ "success": false, "error": [ … ], "data": {…} }`) 로 형식이 다르다 — zod 4·hono-openapi 1 전환 결과, 전체 대조는 [quality-assurance/fe-deps-impact-check.md](./quality-assurance/fe-deps-impact-check.md).
 - 디바이스 키는 어드민이 `POST /api/logs/device-keys` 로 발급(평문 1회 표시).

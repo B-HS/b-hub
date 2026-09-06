@@ -18,8 +18,17 @@
 - [x] e3-2. 1차 문서 갱신(에이전트, 문서 20 수정 + history 신규) — domains/{drive,mail,calendar,logs,resume}.md·reference/shared-services.md·consumer-contracts §1.5·findings 상태. **주의: `db:push` 필요(mail_messages unique 가 (accountId, folderId, remoteMessageId) 로 변경). e2 완료 전 실행 금지**
 - [x] e3-3. 2차 문서 갱신 완료 — domains/{blog,badge,resume,weather,spotify,mail,ai,drive,calendar,metrics}.md · admin-features · deploy · metrics-client-contract · reference/{api-endpoints,lib-utilities,shared-services,consumer-contracts} · findings 상태 표기 + history/2026-09-07-audit-batch2.md 신규
 - [x] f. 2차 수정 완료(독립 회귀 리뷰 6 리뷰어 → 미승인 차이 4건 HEAD 의미로 원복, 재검증 tsc 0·3011 pass·prettier 통과) — 브랜치 `fix/audit-batch2-immediate-errors`, 워크플로 27 에이전트 · 파일 비겹침 10그룹. E-01~E-08·E-10~E-12·E-14~E-21·E-23~E-25·E-28 + 승인 A-1~A-5 + C-01·C-04·C-10·C-11 반영. 검증 tsc 0 · 3010 pass / 0 fail. E-13 은 보류(`posts` 에 작성자 컬럼 없음), E-09 는 4차 이월. 요약: [history/2026-09-07-audit-batch2.md](./history/2026-09-07-audit-batch2.md)
-- [ ] g. 3차 수정 — 서버리스 적합성(fire-and-forget, DB 풀, Redis 지연 생성, rate limiter)
-- [ ] h. 4차 수정 — PERF(Promise.all, 인덱스, 지연 import, CDN 캐시 헤더)
+- [ ] g. 3차 수정(진행 중, 브랜치 fix/audit-batch3-serverless, Workflow 8그룹) — R-01~R-04·R-06·R-09~R-16·R-18~R-21·R-23~R-31 + S-16·S-17 + E-09. 착수 결정은 acknowledge 참조
+  - [x] g1. 워크플로 구현 + 최종 검증 완료(tsc 0 · 3184 pass)
+  - [x] g2. 조정자 후속 — Discord 알림 await 를 HEAD 와 같은 fire-and-forget 으로 원복(검증자 지적: 응답 지연), Redis 공유 rate limit 스토어 배선(`compose/index.ts` → mail·ai), `service/shared/redis-client.ts` 공용화(lazyConnect + enableOfflineQueue:false 조합에서 첫 명령이 연결 전에 거부되던 결함 수정: 첫 명령은 연결 완료를 기다림). 재검증 tsc 0 · 3198 pass · prettier·린트 통과
+  - [x] g3. 독립 회귀 리뷰(워크플로 7 리뷰어 중 6 완료, mail-calendar-ai 는 조정자 직접 검토) → 미승인 차이 3건 원복(admin GET 로그아웃 signOut 복원, purge 크론 GET 전용, 대시보드·오버뷰 use('*') 가드 복원). 재검증 tsc 0 · 3198 pass · prettier 통과. 결과: acknowledge 문서
+  - [x] g4-1. 코드 커밋 — 도메인별 13개 Conventional Commit(`22d357c` core … `aa3bd28` deps), AI 트레일러 없음
+  - [x] g4-2. 문서 갱신 완료 — [history/2026-09-07-audit-batch3.md](./history/2026-09-07-audit-batch3.md) 신규 + domains 10·reference 6·logging·admin/manage-features·deploy·architecture·findings·index 갱신, docs 커밋 후 `fix/audit-batch3-serverless` 푸시
+  - [ ] g4-3. `fix/audit-batch4-performance` 분기(4차 착수 시)
+- [ ] h. 4차 수정 — PERF. 착수 결정·그룹 구성은 acknowledge "4차 배치 착수 결정" 참조. 대상: P-01·P-02·P-05~P-09·P-12·P-13·P-15·P-17~P-23 중 응답 바이트 불변 부분만. 보류: P-03(지연 import, preview 배포 실검증 필요)·P-04(A-9)·P-10·P-11(프로바이더 프로토콜 변경)·P-14 의 description 제외·LIMIT·P-16 이미지 축소·캐시·P-17 Redis INCR·P-18 timeRange·P-21 countDocuments 캐시·P-22 LIMIT
+  - [ ] h1. 워크플로 구현(파일 비겹침 10그룹: blog·drive·ai·logs-metrics·admin·shared·mail·spotify-weather-badge·calendar·schema-index) + 그룹별 검증 + 최종 tsc·test·prettier
+  - [ ] h2. 독립 회귀 리뷰 → 미승인 차이 원복
+  - [ ] h3. 문서 갱신 → 커밋·푸시. **P-02 인덱스는 db:push 대상 추가**
 - [ ] i. 검증 — 단계마다 `bunx tsc --noEmit` · `bun test` · 계약 문서 대조, 소비자별 실동작 확인 체크리스트
 - 부수: `.claude/settings.json`(gitignored)에 읽기 전용 허용 목록 추가(사용자 요청 "자잘한 조회는 권한 안 묻기")
 - 부수: `tests/route/index.test.ts` 가 `DATABASE_URL` 없는 환경에서 실패(`route/index.ts:101` 의 `getEnv()` 의존). 수정 대상에 포함

@@ -6,10 +6,12 @@
 
 ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=조건부 위험, P=성능. 각 항목의 `계약` 열은 d 단계(계약 대조)에서 채운다: 불변 / 코드변경 승인 / 소비자 동시 수정.
 
-> **진행 표기**: `계약` 열의 **완료(1차)** 는 1차 수정 배치(+후속·회귀 리뷰 반영), **완료(2차)** 는 2차 수정 배치(브랜치 `fix/audit-batch2-immediate-errors`)에서 코드에 반영된 항목이다. 승인 표(A-*)는 `번호` 열에 같은 표기를 단다. **부분(1차)** 은 수정 방향의 일부만 반영된 항목이며 남은 범위를 괄호에 적었다. 표기 없는 행은 미착수(3차 이후)다.
-> 배치 요약·검증 결과: 1차 [../history/2026-09-06-audit-batch1.md](../history/2026-09-06-audit-batch1.md), 2차 [../history/2026-09-07-audit-batch2.md](../history/2026-09-07-audit-batch2.md).
-> **`mail_messages` unique 변경(D-05)은 `bun run db:push` 전까지 DB 에 반영되지 않는다.**
-> 2차의 예외 2건: **E-13** 은 `posts` 테이블에 작성자 컬럼이 없어 사용자별 게시글 수를 셀 수 없으므로 보류(응답 계약 유지를 위해 `postsCount: 0` 리터럴 유지), **E-09** 는 raw `sql` 의 `Date` 파라미터를 drizzle 연산자로 바꾸는 작업이라 4차(PERF·쿼리 정리) 배치로 미뤘다.
+> **진행 표기**: `계약` 열의 **완료(1차)** 는 1차 수정 배치(+후속·회귀 리뷰 반영), **완료(2차)** 는 2차 배치(브랜치 `fix/audit-batch2-immediate-errors`), **완료(3차)** 는 3차 배치(브랜치 `fix/audit-batch3-serverless`)에서 코드에 반영된 항목이다. 승인 표(A-*)는 `번호` 열에 같은 표기를 단다. **부분(N차)** 은 수정 방향의 일부만 반영된 항목이며 남은 범위를 괄호에 적었고, **보류** 는 이번 감사 범위에서 적용하지 않기로 한 항목이다. 표기 없는 행은 미착수(4차 이후)다.
+> 배치 요약·검증 결과: 1차 [../history/2026-09-06-audit-batch1.md](../history/2026-09-06-audit-batch1.md), 2차 [../history/2026-09-07-audit-batch2.md](../history/2026-09-07-audit-batch2.md), 3차 [../history/2026-09-07-audit-batch3.md](../history/2026-09-07-audit-batch3.md).
+> **`db:push` 대기 2건**: `mail_messages` unique 3열(D-05, 1차) · `calendar_subscription.user_id` unique(R-25, 3차). 둘 다 push 전까지 DB 에 반영되지 않는다.
+> 2차의 예외 2건: **E-13** 은 `posts` 테이블에 작성자 컬럼이 없어 사용자별 게시글 수를 셀 수 없으므로 계속 보류(응답 계약 유지를 위해 `postsCount: 0` 리터럴 유지), **E-09** 는 4차로 미뤘다가 **3차에서 완료**했다(drive stale 필터를 drizzle 연산자로 교체).
+> 3차의 회귀 리뷰 원복 3건(각 행에도 표기): **R-14** 어드민 GET 로그아웃 유지, **R-12** 크론 라우트 GET 전용, **R-15** `/admin/*`·`/manage/*` 의 `use('*')` 가드 복원. 근거는 [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md) "2026-09-07 3차 배치 독립 회귀 리뷰 결과와 조치".
+> 3차의 보류 6건: **R-05**(env 확인 사항) · **R-07**(업로드 4.5MB 우회) · **R-08**(maxDuration) · **R-22**(request-logger 장착) · **R-32 의 멀티파트 스트리밍** · **A-6~A-10**. 남은 **P 계열 전체는 4차(성능)** 로 이월한다.
 
 ## D. 데이터 손실·손상
 
@@ -57,8 +59,8 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 | S-13 | lib/url-validator.ts:1-29 | IPv4-mapped IPv6·DNS rebinding 미방어, `/\evil.com` 오픈 리다이렉트 | resolve 후 검사, `/\` 거부 | 완료(1차) |
 | S-14 | icon-loader.ts:138-143,102,146-153 | timeout 이 본문 전 해제, 크기 상한 없음, MIME 허용목록 없음, parseICO 미주입 | 본문 후 clear, 상한, 허용목록 | 완료(1차) |
 | S-15 | page/admin/pages/calendar.tsx:36 | color 인라인 style CSS injection | hex 패턴일 때만 렌더 | 완료(1차) |
-| S-16 | route/spotify/playing.ts, route/badge.ts | 공개 경로 rate limit 없음, badge 4096×4096 + 임의 폰트 fetch | IP rate limit + 크기 상한 | |
-| S-17 | route/mail/message.ts:265-301 | reply/forward 가 발송 rate limit 우회 | withRateLimit | |
+| S-16 | route/spotify/playing.ts, route/badge.ts | 공개 경로 rate limit 없음, badge 4096×4096 + 임의 폰트 fetch | IP rate limit + 크기 상한 | 완료(3차) — badge IP 분당 60회 + `width*height ≤ 2,000,000`(400), spotify playing 토큰+IP 분당 60회. 인메모리 리미터 |
+| S-17 | route/mail/message.ts:265-301 | reply/forward 가 발송 rate limit 우회 | withRateLimit | 완료(3차) — `pathKey: 'mail:messages:send'` 로 send 와 예산 공유(분당 20회), `X-RateLimit-*` 헤더 추가 |
 
 ## E. 즉시 500 또는 잘못된 값
 
@@ -72,7 +74,7 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 | E-06 | badge.ts:140 | generate 미래핑 → satori 예외 500 | IMAGE_GENERATE_FAILED | 완료(2차) |
 | E-07 | route/blog/thumbnail.ts:44 | OG 요청마다 views +1 | 조회수 없는 읽기 메서드 | 완료(2차) |
 | E-08 | route/weather/weather.ts:87-89, mock.ts:85-87 | 로컬 getHours → Vercel UTC 9시간 어긋남 | kma-api getBaseDateTime 사용 | 완료(2차) |
-| E-09 | db/index.ts, compose/drive.ts:152,256 | raw `sql` 파라미터에 JS Date 를 넣는 두 곳이 프로세스 TZ 에 따라 다른 리터럴을 만든다. `timezone` 옵션은 근본 해법이 아님(A-8 검토) | raw sql Date 비교를 drizzle 연산자(`lt`·`gte`)로 교체. MySQL `@@session.time_zone` 측정은 별도 운영 확인 | 불변 — 4차 예정 |
+| E-09 | db/index.ts, compose/drive.ts:152,256 | raw `sql` 파라미터에 JS Date 를 넣는 두 곳이 프로세스 TZ 에 따라 다른 리터럴을 만든다. `timezone` 옵션은 근본 해법이 아님(A-8 검토) | raw sql Date 비교를 drizzle 연산자(`lt`·`gte`)로 교체. MySQL `@@session.time_zone` 측정은 별도 운영 확인 | 완료(3차) — stale 업로드 필터를 `or(notInArray(...), gte(...))` 로 교체(D-02 가 :256 을 이미 치환). `@@session.time_zone` 측정은 여전히 운영 확인 항목 |
 | E-10 | compose/spotify.ts:133,158-161 | new Error → 500 | createAppError | 완료(2차) |
 | E-11 | with-spotify-auth.ts:27-41, spotify-widget-token.ts:39-45 | isActive 미집행 | provider 생성 시 검사 | 완료(2차) |
 | E-12 | compose/mail.ts:79-82 | 중복 계정 500, 409 코드 미사용 | ER_DUP_ENTRY → 409 | 완료(2차) |
@@ -99,38 +101,38 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 
 | ID | 위치 | 문제 | 수정 방향 | 계약 |
 |----|------|------|-----------|------|
-| R-01 | log-capture.ts:34-45, require-weather-key.ts:35, device-key.ts:30-34, weather-api-key.ts:33-37, spotify-api-key.ts:44, compose/ai.ts:263-277, compose/logs.ts:58, mail-message.ts:137 | 응답 후 fire-and-forget write 유실 (waitUntil 0건) | await 또는 `@vercel/functions` waitUntil | |
-| R-02 | lib/rate-limit.ts:19,30, compose/mail.ts:811, compose/ai.ts:281 | 인스턴스별 Map, setInterval unref 없음 | Redis 카운터 또는 unref + 문서화 | |
-| R-03 | service/shared/redis-cache.ts:3-37 | import 시 Redis 생성, REDIS_URL 없으면 무한 재접속, memoryStore 무제한, 실패 무음 | 지연 생성, enableOfflineQueue false, createCache | |
-| R-04 | db/index.ts:13-18 | connectionLimit 20 × 인스턴스, maxIdle/idleTimeout 없음 | 5/2/30s/keepAlive | |
-| R-05 | vercel.json, lib/cron-auth.ts | 크론 Bearer 가 CRON_SECRET 인데 UPLOAD_SERVER_SECRET 과 비교. env 불일치 시 401 | env 확인 후 결정 | |
-| R-06 | mail-sync.ts:183-186,232-234,112-149 | 상호배제 없음, Promise.all 부분 커밋, 헤더 길이 미절단 | 세션 락, allSettled, slice | |
-| R-07 | route/mail/upload.ts:31, ai-attachment.ts:38, mail-message.ts:354-416 | Vercel 4.5MB 본문 한도 vs 전량 버퍼 | presigned/스트림 (계약 영향 검토) | |
-| R-08 | vercel.json | maxDuration 미설정 | functions.maxDuration | |
-| R-09 | compose/metrics.ts:118-134 | archive 하루치 toArray + gzipSync 동기 | 스트리밍 gzip + 멀티파트 | |
-| R-10 | kma-api.ts:156-220 | timeout 없음, 4xx 재시도, NO_DATA 미캐시 | AbortSignal.timeout, 4xx 즉시 실패, negative cache | |
-| R-11 | compose/logs.ts:51-60, lib/discord.ts:9-17 | throttle 키 우회, allowed_mentions 없음, Map 무한 | 전역 예산 + Map 상한 | |
-| R-12 | log-capture.ts, compose/logs.ts:45-48 | 모든 4xx 기록, purge 크론 없음, weather_api_log·mail_sync_logs 삭제 경로 없음 | purge 크론 + LIMIT 반복 | |
-| R-13 | font-loader.ts:30,55-93 | fontCache 무제한, timeout 없음, fs 오류 무음, @fontsource devDependencies | 상한·timeout·negative cache·dependencies 이동 | 부분(1차) — 캐시 상한·timeout 만 |
-| R-14 | page/admin 토큰 발급 5곳, login.tsx 로그아웃 GET | PRG 이탈로 중복 발급, 로그아웃 CSRF | 일회성 쿠키 + 303, POST 폼 | |
-| R-15 | page/admin/index.ts:60,65, manage/index.ts:86-95 | 요청당 getSession 3회 | 세션 컨텍스트 재사용 | |
-| R-16 | comment.ts:32-39 | 게시글 존재·isComment 미확인 | 조회 후 404/403 | |
-| R-17 | route/blog/post.ts:27-58 | 공개 가시성 기본값 없음(docs 인지) | 비admin 은 isPublished=true 강제 | |
-| R-18 | compose/ai.ts:200-208 | createdAt 단독 정렬 순서 뒤집힘 | id 2차 정렬 | |
-| R-19 | ai-provider-factory.ts:81-85 | 일시 장애도 영구 reauth_required | invalid_grant 만 reauth | |
-| R-20 | compose/mail.ts:582, compose/ai.ts:179, drive-asset.ts:508, storage.ts | 삭제 시 R2 고아, 실패 무음 | 스토리지 삭제 선행 + captureException | |
-| R-21 | lib/sentry.ts | initSentry 미호출 → captureException no-op (문서화됨) | 부트스트랩에서 호출 | |
-| R-22 | middleware/request-logger.ts | 미장착 → 대시보드 요청 수치 0 (문서화됨) | 장착(waitUntil) 또는 제거 | |
-| R-23 | dto/logs/log-event.ts:23, route/metrics/ingest.ts:50,81, route/ai/attachment.ts:22 | 바디 크기 상한 없음 | bodyLimit / refine | |
-| R-24 | drive-asset.ts:425,462 | accessCount 읽고-쓰기 유실 | `sql\`access_count + 1\`` | |
-| R-25 | compose/calendar.ts:134-141 | 구독 user_id unique 없음 | unique + upsert | |
-| R-26 | route/calendar/event.ts:114-201 | groupId 소유 미확인, dtend<dtstart 미검증 | getGroupById, refine | |
-| R-27 | page/manage/pages/mail-sync.tsx:164-165 | batchSize 서버 미클램프 | DTO 재사용 | |
-| R-28 | page/admin/db.ts params.q 22곳 | escapeLikePattern 미적용 | 적용 | |
-| R-29 | compose/mail.ts:365-379 | FULLTEXT 프로브 실패 시 false 고정 | null 로 되돌려 재시도 | |
-| R-30 | spotify-provider.ts:59-64 | 429 시 요청 안 최대 180초 sleep | 상한 2-3초 후 실패 | |
-| R-31 | compose/spotify.ts:162-170 | 새 refresh_token 무시 | 있으면 저장 | |
-| R-32 | deploy/upload-server/index.ts:112,86, gdrive-client.ts:6-40 | formData 전량 메모리, folderCache 무한 | 스트리밍, LRU | |
+| R-01 | log-capture.ts:34-45, require-weather-key.ts:35, device-key.ts:30-34, weather-api-key.ts:33-37, spotify-api-key.ts:44, compose/ai.ts:263-277, compose/logs.ts:58, mail-message.ts:137 | 응답 후 fire-and-forget write 유실 (waitUntil 0건) | await 또는 `@vercel/functions` waitUntil | 완료(3차) — 오류 로그·키 lastUsedAt·weather 요청 로그·AI 사용 로그를 응답 전 await. mail 상세 조회는 로컬 DB 만 await(원격 IMAP 은 비동기). **Discord 알림은 fire-and-forget 유지**(조정자 판단, acknowledge 참조) |
+| R-02 | lib/rate-limit.ts:19,30, compose/mail.ts:811, compose/ai.ts:281 | 인스턴스별 Map, setInterval unref 없음 | Redis 카운터 또는 unref + 문서화 | 완료(3차) — cleanup 타이머 `unref()` + 선택적 공유 스토어 주입(`service/shared/rate-limit-store.ts`, `REDIS_URL` 있을 때만 mail·ai 에 배선). 헤더·429 계약 불변 |
+| R-03 | service/shared/redis-cache.ts:3-37 | import 시 Redis 생성, REDIS_URL 없으면 무한 재접속, memoryStore 무제한, 실패 무음 | 지연 생성, enableOfflineQueue false, createCache | 완료(3차) — `getEnv()` 기반 지연 생성(`redis-client.ts` 공용), 로컬 캐시 `createCache`(500·30초), 실패 `captureException` |
+| R-04 | db/index.ts:13-18 | connectionLimit 20 × 인스턴스, maxIdle/idleTimeout 없음 | 5/2/30s/keepAlive | 완료(3차) — `maxIdle 5`·`idleTimeout 60초`·`enableKeepAlive`(10초) 추가 + `getEnv()` 경유. `connectionLimit` 은 처리량 변화를 피해 **20 유지**(착수 결정) |
+| R-05 | vercel.json, lib/cron-auth.ts | 크론 Bearer 가 CRON_SECRET 인데 UPLOAD_SERVER_SECRET 과 비교. env 불일치 시 401 | env 확인 후 결정 | 보류 — 코드 변경 없음, **배포 env 확인 사항**(Vercel `CRON_SECRET` = `UPLOAD_SERVER_SECRET`) |
+| R-06 | mail-sync.ts:183-186,232-234,112-149 | 상호배제 없음, Promise.all 부분 커밋, 헤더 길이 미절단 | 세션 락, allSettled, slice | 완료(3차) — 계정 락(`lastSyncStatus='running'`, 5분 stale, **실패 시 409 아니라 0 결과 성공 응답**), `Promise.allSettled` 후 첫 실패 재던짐, 헤더·첨부 값 컬럼 길이 절단 |
+| R-07 | route/mail/upload.ts:31, ai-attachment.ts:38, mail-message.ts:354-416 | Vercel 4.5MB 본문 한도 vs 전량 버퍼 | presigned/스트림 (계약 영향 검토) | 보류 — 업로드 계약 변경이라 미적용 |
+| R-08 | vercel.json | maxDuration 미설정 | functions.maxDuration | 보류 — 비용·타임아웃 정책 결정 필요 |
+| R-09 | compose/metrics.ts:118-134 | archive 하루치 toArray + gzipSync 동기 | 스트리밍 gzip + 멀티파트 | 완료(3차, 축소 범위) — 스트리밍 대신 **실행당 최대 3일 · 200초 시간 예산**으로 제한. 밀린 일자는 다음 실행에서 처리 |
+| R-10 | kma-api.ts:156-220 | timeout 없음, 4xx 재시도, NO_DATA 미캐시 | AbortSignal.timeout, 4xx 즉시 실패, negative cache | 완료(3차) — 8초 timeout, 4xx 즉시 502, `resultCode='03'` 30초 negative cache + 같은 키 single-flight |
+| R-11 | compose/logs.ts:51-60, lib/discord.ts:9-17 | throttle 키 우회, allowed_mentions 없음, Map 무한 | 전역 예산 + Map 상한 | 완료(3차) — 분당 20건 전역 예산, throttle 키 상한 500 + 만료 prune, `allowed_mentions: { parse: [] }`, 3초 timeout, 비2xx throw(호출부 `captureException`) |
+| R-12 | log-capture.ts, compose/logs.ts:45-48 | 모든 4xx 기록, purge 크론 없음, weather_api_log·mail_sync_logs 삭제 경로 없음 | purge 크론 + LIMIT 반복 | 완료(3차) — 신규 **`GET /api/logs/purge`**(cron, `40 4 * * *`) + `LIMIT 1000` × 50회 반복 + 보존 삭제(weather_api_log 90일·mail_sync_logs 90일·완료 mail_sync_sessions 30일). **회귀 리뷰로 크론 라우트를 GET 전용으로 좁힘**(어드민 POST 흡수 방지). 4xx 전량 기록은 사용자 결정대로 유지 |
+| R-13 | font-loader.ts:30,55-93 | fontCache 무제한, timeout 없음, fs 오류 무음, @fontsource devDependencies | 상한·timeout·negative cache·dependencies 이동 | 완료(3차) — 1차의 캐시 상한·timeout 에 더해 fs 오류 `captureException` + `@fontsource` 2종 dependencies 이동. negative cache 는 1차 회귀 리뷰 결정대로 **미도입**(HEAD 처럼 매 요청 재시도) |
+| R-14 | page/admin 토큰 발급 5곳, login.tsx 로그아웃 GET | PRG 이탈로 중복 발급, 로그아웃 CSRF | 일회성 쿠키 + 303, POST 폼 | 완료(3차, 부분) — 발급 5곳 전부 303 + `hub_reveal` 일회성 쿠키(60초). 로그아웃은 **회귀 리뷰로 GET 유지**(기존 링크·북마크 호환) + CSRF POST 병행. `/manage` 로그아웃은 미변경 |
+| R-15 | page/admin/index.ts:60,65, manage/index.ts:86-95 | 요청당 getSession 3회 | 세션 컨텍스트 재사용 | 완료(3차) — `resolveAdminSession` 컨텍스트 캐시로 요청당 1회. **회귀 리뷰로 대시보드·오버뷰의 `use('*')` 가드 복원**(인라인 가드로 바꾸자 미매칭 경로가 404 가 됨) |
+| R-16 | comment.ts:32-39 | 게시글 존재·isComment 미확인 | 조회 후 404/403 | 완료(3차) — `getPostCommentFlag` 선조회 후 404 `BLOG_POST_NOT_FOUND` / 403 `FORBIDDEN` |
+| R-17 | route/blog/post.ts:27-58 | 공개 가시성 기본값 없음(docs 인지) | 비admin 은 isPublished=true 강제 | 완료(2차) — 승인 항목 A-5 로 반영 |
+| R-18 | compose/ai.ts:200-208 | createdAt 단독 정렬 순서 뒤집힘 | id 2차 정렬 | 완료(3차) — 목록·`listRecentMessages` 둘 다 `id` 2차 키 |
+| R-19 | ai-provider-factory.ts:81-85 | 일시 장애도 영구 reauth_required | invalid_grant 만 reauth | 완료(3차) — OAuth `error` 가 `invalid_grant` 또는 `refresh_token*` 일 때만 reauth, 그 외는 `AI_TOKEN_REFRESH_FAILED`(502) |
+| R-20 | compose/mail.ts:582, compose/ai.ts:179, drive-asset.ts:508, storage.ts | 삭제 시 R2 고아, 실패 무음 | 스토리지 삭제 선행 + captureException | 완료(3차) — mail 삭제는 첨부 R2 선삭제, drive 는 실물 정리 → 행 삭제, ai 첨부는 insert 실패 시 정리·삭제는 DB→스토리지 순, storage/font-loader/drive 의 빈 catch 를 `captureException` 으로 |
+| R-21 | lib/sentry.ts | initSentry 미호출 → captureException no-op (문서화됨) | 부트스트랩에서 호출 | 완료(3차) — `index.ts` 최상단 `initSentry(getEnv().SENTRY_DSN)` |
+| R-22 | middleware/request-logger.ts | 미장착 → 대시보드 요청 수치 0 (문서화됨) | 장착(waitUntil) 또는 제거 | 보류 — 전 요청에 쓰기가 붙어 비용·지연 영향이 큼 |
+| R-23 | dto/logs/log-event.ts:23, route/metrics/ingest.ts:50,81, route/ai/attachment.ts:22 | 바디 크기 상한 없음 | bodyLimit / refine | 완료(3차) — logs 1MB(`LOG_BATCH_TOO_LARGE`), metrics 단건 128KB·배치 4MB(`METRICS_*_TOO_LARGE`), ai 첨부 21MB(`AI_ATTACHMENT_TOO_LARGE`). 전부 `errorResponse` 봉투 413 |
+| R-24 | drive-asset.ts:425,462 | accessCount 읽고-쓰기 유실 | `sql\`access_count + 1\`` | 완료(3차) — `touchAccess` 로 원자 증가(`DriveAssetServiceDb.update` 에서 `accessCount` 제거) |
+| R-25 | compose/calendar.ts:134-141 | 구독 user_id unique 없음 | unique + upsert | 완료(3차) — `uq_calendar_subscription_user` + `onDuplicateKeyUpdate` upsert + 생성 후 실제 행 재조회. **`db:push` 필요** |
+| R-26 | route/calendar/event.ts:114-201 | groupId 소유 미확인, dtend<dtstart 미검증 | getGroupById, refine | 완료(3차) — 생성 2종·PUT·PATCH 에 `assertGroupOwned`(404) + DTO refine·`assertDateRange`(400) |
+| R-27 | page/manage/pages/mail-sync.tsx:164-165 | batchSize 서버 미클램프 | DTO 재사용 | 완료(3차) — `dto/mail/sync.ts` 상수(10..500, 기본 100)로 서버 클램프 |
+| R-28 | page/admin/db.ts params.q 22곳 | escapeLikePattern 미적용 | 적용 | 완료(3차) — `likeContains` 헬퍼로 22곳 전부 적용 |
+| R-29 | compose/mail.ts:365-379 | FULLTEXT 프로브 실패 시 false 고정 | null 로 되돌려 재시도 | 완료(3차) — 프로브 실패 시 메모이즈 되돌리고 `captureException`, 다음 요청에서 재시도 |
+| R-30 | spotify-provider.ts:59-64 | 429 시 요청 안 최대 180초 sleep | 상한 2-3초 후 실패 | 완료(3차) — 대기 총합 3초 캡, 초과 시 `SPOTIFY_API_ERROR`(502) |
+| R-31 | compose/spotify.ts:162-170 | 새 refresh_token 무시 | 있으면 저장 | 완료(3차) — 응답에 `refresh_token` 이 있으면 저장 |
+| R-32 | deploy/upload-server/index.ts:112,86, gdrive-client.ts:6-40 | formData 전량 메모리, folderCache 무한 | 스트리밍, LRU | 부분(3차) — `folderCache` LRU 500(`createBoundedLruCache`)만. **멀티파트 스트리밍은 보류**(계약·메모리 프로파일 영향) |
 
 ## P. 성능·최적화
 

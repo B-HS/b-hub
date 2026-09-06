@@ -1,6 +1,6 @@
 # 드라이브(Drive) 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
 
 ## 개요
 
@@ -133,8 +133,9 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 
 ### 3. 상세/다운로드 (티어 cascade)
 
-- `getDetail`(`GET /assets/:assetId`): 소유자 검증 후 `lastViewedAt`/`accessCount` 갱신. **L1 보유 시**: 공개면 CDN URL(`getUrl`), 비공개면 **presigned URL(만료 300초)**. **L1 미보유 시**: `url = /api/drive/assets/{assetId}/download`(프록시 경로) 반환.
-- `download`(`GET /assets/:assetId/download`): `lastViewedAt`/`accessCount` 갱신 후 티어 순서대로 시도한다 — ① `L3` + `gdriveFileId` 이고 gdrive 서비스가 구성돼 있으면 Google Drive 스트림, ② 그렇지 않고 `L1` 이면 `storage.getObjectStream(s3Key)`(R2, 오브젝트 없음·오류면 `null`). 둘 다 못 얻으면 `DRIVE_ALL_TIERS_FAILED`(`service/domain/drive/drive-asset.ts:517-534`). L1 전용 자산이 이 엔드포인트에서 항상 500 이던 문제가 해소됐다. L2(Mac Studio) 서빙은 여전히 미구현이다.
+- **조회수 갱신은 원자적이다**: 상세·다운로드 모두 `db.touchAccess(assetId, now)` 를 호출하고, 구현은 `UPDATE cloud_assets SET last_viewed_at = ?, access_count = access_count + 1`(`compose/drive.ts`) 이다. 이전에는 조회한 행의 `accessCount + 1` 을 다시 써 동시 조회에서 증가분이 유실됐다(그래서 `DriveAssetServiceDb.update` 의 필드 목록에서 `accessCount` 가 빠졌다).
+- `getDetail`(`GET /assets/:assetId`): 소유자 검증 후 `touchAccess` 로 `lastViewedAt`/`accessCount` 갱신. **L1 보유 시**: 공개면 CDN URL(`getUrl`), 비공개면 **presigned URL(만료 300초)**. **L1 미보유 시**: `url = /api/drive/assets/{assetId}/download`(프록시 경로) 반환.
+- `download`(`GET /assets/:assetId/download`): `touchAccess` 후 티어 순서대로 시도한다 — ① `L3` + `gdriveFileId` 이고 gdrive 서비스가 구성돼 있으면 Google Drive 스트림, ② 그렇지 않고 `L1` 이면 `storage.getObjectStream(s3Key)`(R2, 오브젝트 없음·오류면 `null`). 둘 다 못 얻으면 `DRIVE_ALL_TIERS_FAILED`(`service/domain/drive/drive-asset.ts:517-534`). L1 전용 자산이 이 엔드포인트에서 항상 500 이던 문제가 해소됐다. L2(Mac Studio) 서빙은 여전히 미구현이다.
 
 ### 4. 폴더 (`createDriveFolderService`)
 
@@ -217,7 +218,8 @@ lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `
 - **cron 스케줄**(`vercel.json`): `evict-r2`=`0 3 * * *`, `auto-promote`=`0 5 * * *`(UTC 매일 03:00·05:00). `evict-local`은 라우트만 있고 cron 미등록. lifecycle 라우트 3개는 `route.on(['GET','POST'], ...)`(`route/drive/lifecycle.ts:12`)로 **GET·POST 모두 수신**한다(Vercel cron 은 GET 으로 호출). 세 메서드 모두 `verifyCronAuth`로 `UPLOAD_SERVER_SECRET`을 상수 시간 검증한다.
 - **자산 ID는 숫자, 폴더 ID는 UUID 문자열**: `driveAssetParamSchema`는 `z.coerce.number().int().positive()`, `driveFolderParamSchema`는 `z.string()`. 스키마상 `cloud_assets.id`는 `int` autoincrement, `drive_folders.id`는 varchar36.
 - **폴더 참조 무결성은 앱 로직**: `cloud_assets.folder_id`·`drive_folders.parent_id`에는 DB FK가 없다. 순환참조 가드·재귀 삭제·소유자 검증 등은 서비스 코드에서만 강제된다(깊이 상한 50).
-- **stale 임시행 숨김**: 목록 쿼리(`compose/drive.ts`)는 `preparing`/`failed` 상태이면서 생성 10분 초과인 행을 결과에서 제외한다. `folderId=root`는 `folder_id IS NULL`로 해석, `mimeType` 필터는 접두 `LIKE`.
+- **stale 임시행 숨김**: 목록 쿼리(`compose/drive.ts`)는 `preparing`/`failed` 상태이면서 생성 10분 초과인 행을 결과에서 제외한다. 조건은 raw `sql` 대신 drizzle 연산자 조합(`or(notInArray(uploadStatus, ['preparing','failed']), gte(createdAt, staleThreshold))`)이다 — raw `sql` 템플릿에 JS `Date` 를 넣으면 프로세스 타임존에 따라 다른 리터럴이 만들어지던 문제(E-09)를 없앴다. `folderId=root`는 `folder_id IS NULL`로 해석, `mimeType` 필터는 접두 `LIKE`.
+- **실물 삭제 실패는 더 이상 무음이 아니다**: 자산 삭제(`removeAsset`)·폴더 재귀 삭제·티어 정리(`cleanupUploadedTiers`)의 스토리지 예외를 `captureException` 으로 보고한다(행 삭제는 그대로 진행). 자산 삭제 순서는 **실물 정리 → DB 행 삭제**라, 행 삭제가 실패하는 드문 경우 실물만 사라진 행이 남을 수 있다.
 - **중복 제거는 사용자 단위**: `uq_cloud_assets_user_hash`(user_id, file_hash) unique. 같은 파일이라도 다른 사용자면 별도 저장.
 - **쿼터 기본값 이원화**: 실제 쿼터는 `getUserQuotaBytes`(=`user.storage_quota_bytes`, 조회 실패 시 10MB fallback)로만 계산된다. 서비스 deps의 `defaultQuotaBytes`·`uploadServerSecret`은 `drive-asset` 서비스 본문에서 사용되지 않는다(쿼터/토큰 검증은 각각 DB 컬럼·행 `upload_token`으로 처리).
 - **삭제/eviction은 best-effort**: R2/gdrive 실물 삭제 및 티어 이동 루프는 `try/catch`로 실패를 삼킨다(DB 정합성 우선). 삭제 시 DB 행을 먼저 지우고 실물을 지운다.

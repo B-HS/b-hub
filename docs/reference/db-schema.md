@@ -1,6 +1,6 @@
 # DB 스키마 전수 레퍼런스
 
-> 기준: 2026-09-06 (dev @ `6e6fed2` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
 
 ## 개요
 
@@ -38,6 +38,15 @@
 - `drizzle.config.ts`: `schema: './db/schema.ts'`, `out: './drizzle'`, `dialect: 'mysql'`, `dbCredentials.url: DATABASE_URL`.
 - `out` 디렉터리 `drizzle/` 와 `drizzle-kit generate` 산출물은 `.gitignore` 됨(로컬 DDL 확인용). `db:studio`(`drizzle-kit studio`)로 브라우징 가능.
 - 절차 상세: [../guidelines/db-schema-change.md](../guidelines/db-schema-change.md). db:push 규칙은 [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md), 명령 표는 [../architecture.md](../architecture.md).
+
+### 미반영 대기 중인 제약 2건
+
+전수 감사 수정 배치에서 `db/schema.ts` 에 추가됐으나 **아직 `db:push` 되지 않은** 것들이다. 배포 전에 반영해야 한다.
+
+| 테이블 | 제약 | 도입 배치 | 주의 |
+|--------|------|-----------|------|
+| `mail_messages` | unique(`account_id`, `folder_id`, `remote_message_id`) — 제약명 `uq_mail_messages_account_remote` 유지 | 1차(D-05) | 실제 DB 는 아직 2열 unique. push 전에는 폴더 스코프 upsert 가 기대대로 동작하지 않는다 |
+| `calendar_subscription` | unique(`user_id`) — `uq_calendar_subscription_user` | 3차(R-25) | push 전에 `user_id` 중복 행이 남아 있으면 제약 생성이 실패한다 — 먼저 정리할 것 |
 
 ## 도메인별 그룹
 
@@ -135,7 +144,7 @@
 | `calendar_group` | `calendarGroup` | `id`(PK varchar36), `user_id`, `name`, `color`, `sort_order`(기본 0), `is_visible`(기본 true) (8) | `idx_calendar_group_user` | `user_id → user.id` (cascade) | `compose/calendar.ts` |
 | `calendar_event` | `calendarEvent` | `id`(PK varchar36), `user_id`, `uid`, `summary`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json `RRuleType`), `exdate`(json), `status`(enum 기본 `CONFIRMED`), `transp`(enum 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `group_id`, `sequence`, `dtstamp` (21) | `uid` unique; 인덱스 4개(`user`, `user_dtstart`, `uid`, `group`) | `user_id → user.id` (cascade), `group_id → calendar_group.id` (set null) | `compose/calendar.ts` |
 | `deleted_calendar_event` | `deletedCalendarEvent` | `id`(PK), `user_id`, `uid`, `deleted_at`, `sync_token` (5) | `idx_deleted_event_user_sync`(user_id,sync_token) | `user_id → user.id` (cascade) | `compose/calendar.ts` (CalDAV sync-collection tombstone) |
-| `calendar_subscription` | `calendarSubscription` | `id`(PK), `user_id`, `token`(64), `ics_token`(64), `name`, `is_active`, `ctag`(기본 `'0'`), `last_accessed_at` (10) | `token`·`ics_token` unique; 인덱스 3개(`token`, `ics_token`, `user`) | `user_id → user.id` (cascade) | `compose/calendar.ts` |
+| `calendar_subscription` | `calendarSubscription` | `id`(PK), `user_id`, `token`(64), `ics_token`(64), `name`, `is_active`, `ctag`(기본 `'0'`), `last_accessed_at` (10) | `token`·`ics_token` unique; **`user_id` unique(`uq_calendar_subscription_user`) — `db:push` 필요**; 인덱스 3개(`token`, `ics_token`, `user`) | `user_id → user.id` (cascade) | `compose/calendar.ts` |
 
 ## drive (3)
 

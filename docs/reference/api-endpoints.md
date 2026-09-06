@@ -1,6 +1,6 @@
 # API 엔드포인트 전수 인벤토리
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/with-rate-limit.ts`, `vercel.json`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/rate-limit.ts`, `lib/with-rate-limit.ts`, `lib/cron-auth.ts`, `vercel.json`
 
 ## 범위
 
@@ -23,7 +23,8 @@
 | `widget-token` | URL 경로 토큰 | `spotifyWidgetTokenService.validate(token)` |
 | `구독토큰` | URL 경로 구독/ICS 토큰 | `getSubscriptionByToken`/`getSubscriptionByIcsToken` |
 | `업로드토큰` | 본문 HMAC `uploadToken` | 서비스가 서명 검증(실패 시 `UNAUTHORIZED`) |
-| `cron-secret` | `Authorization: Bearer`/`x-cron-secret` == `uploadServerSecret`(상수 시간 비교 `isSecretMatch`) | `route/drive/lifecycle.ts` `verifyCronAuth` |
+| `cron-secret` | `Authorization: Bearer`/`x-cron-secret` == `UPLOAD_SERVER_SECRET`(상수 시간 비교 `isSecretMatch`) | `lib/cron-auth.ts` `verifyCronAuth` — drive lifecycle·metrics archive 는 주입, `route/logs/purge.ts` 는 주입값 없으면 `getEnv()` 폴백 |
+| `IP rate limit`(추가 게이트) | `x-forwarded-for` 첫 값 → `x-real-ip` → `unknown` | `lib/rate-limit.ts` `createRateLimiter`(60초/60회, `route/index.ts` 에서 생성·주입). `GET /api/badge/image`·`GET /api/spotify/playing/:token*` 에만 적용. `X-RateLimit-*` 헤더 + 초과 시 429 |
 
 > `X-API-Token`(`withApiToken`/`requireApiToken`)은 정의·테스트만 있고 **어떤 라우트에도 연결돼 있지 않다**(발급·관리는 세션으로). 상세: [../domains/auth.md](../domains/auth.md).
 
@@ -58,7 +59,7 @@
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
-| GET | `/api/badge/image` | 없음 | 동적 뱃지 PNG 생성(쿼리 파라미터 기반) | `route/badge.ts` |
+| GET | `/api/badge/image` | 없음 + IP rate limit | 동적 뱃지 PNG 생성(쿼리 파라미터 기반). IP 분당 60회 초과 시 429, `width*height > 2,000,000` 이면 400. `X-RateLimit-*` 헤더 포함 | `route/badge.ts` |
 | GET | `/api/badge/fonts` | 없음 | 사용 가능한 폰트 목록 | `route/badge.ts` |
 
 파일 카운트: `route/badge.ts` = 2. 상세: [../domains/badge.md](../domains/badge.md).
@@ -103,7 +104,7 @@
 | PUT | `/api/blog/posts/:id` | 어드민 | 게시글 수정 | `route/blog/post.ts` |
 | GET | `/api/blog/posts/:id/thumbnail` | 없음 | 게시글 OG 썸네일 PNG 생성(조회수 미증가, 공개 필터 없음) | `route/blog/thumbnail.ts` |
 | GET | `/api/blog/comments` | 없음 | 댓글 목록(postId 쿼리) | `route/blog/comment.ts` |
-| POST | `/api/blog/comments` | 세션 | 댓글 작성 | `route/blog/comment.ts` |
+| POST | `/api/blog/comments` | 세션 | 댓글 작성. 게시글 없으면 404 `BLOG_POST_NOT_FOUND`, `is_comment=false` 면 403 `FORBIDDEN` | `route/blog/comment.ts` |
 | PATCH | `/api/blog/comments/:id` | 세션 | 댓글 수정(작성자 본인) | `route/blog/comment.ts` |
 | DELETE | `/api/blog/comments/:id` | 세션 | 댓글 삭제(작성자 본인) | `route/blog/comment.ts` |
 | GET | `/api/blog/categories` | 없음 | 카테고리 목록 | `route/blog/category.ts` |
@@ -159,8 +160,8 @@
 | POST | `/api/mail/messages/move` | 세션 | 폴더 이동 | `route/mail/message.ts` |
 | POST | `/api/mail/messages/delete` | 세션 | 삭제 | `route/mail/message.ts` |
 | POST | `/api/mail/messages/send` | 세션 | 메일 발송(rate-limit) | `route/mail/message.ts` |
-| POST | `/api/mail/messages/:messageId/reply` | 세션 | 답장 | `route/mail/message.ts` |
-| POST | `/api/mail/messages/:messageId/forward` | 세션 | 전달 | `route/mail/message.ts` |
+| POST | `/api/mail/messages/:messageId/reply` | 세션 + rate limit | 답장. send 와 같은 예산(`mail:messages:send`, 60초/20회). `X-RateLimit-*` 헤더, 초과 시 429 | `route/mail/message.ts` |
+| POST | `/api/mail/messages/:messageId/forward` | 세션 + rate limit | 전달. 위와 같은 예산·헤더·429 | `route/mail/message.ts` |
 | GET | `/api/mail/messages/:messageId/attachments/:attachmentId` | 세션 | 첨부파일 다운로드 | `route/mail/message.ts` |
 | POST | `/api/mail/drafts` | 세션 | 임시보관 메일 생성(로컬 전용, `isDraft=true`, 계정 drafts 폴더에 저장) | `route/mail/draft.ts` |
 | PUT | `/api/mail/drafts/:id` | 세션 | 임시보관 메일 수정(부분 업데이트) | `route/mail/draft.ts` |
@@ -192,9 +193,9 @@
 | DELETE | `/api/spotify/keys/:id` | 세션 | Spotify API 키 삭제 | `route/spotify/key.ts` |
 | GET | `/api/spotify/now-playing` | spotify-key\|세션 | 현재 재생 트랙 | `route/spotify/data.ts` |
 | GET | `/api/spotify/playlists` | spotify-key\|세션 | 플레이리스트 목록 | `route/spotify/data.ts` |
-| GET | `/api/spotify/playing/:token` | widget-token | 위젯 SVG(now-playing 렌더) | `route/spotify/playing.ts` |
-| GET | `/api/spotify/playing/:token/widget` | widget-token | 위젯 HTML | `route/spotify/playing.ts` |
-| GET | `/api/spotify/playing/:token/data` | widget-token | 위젯 데이터 JSON(CORS `*`) | `route/spotify/playing.ts` |
+| GET | `/api/spotify/playing/:token` | widget-token + IP rate limit | 위젯 SVG(now-playing 렌더). 토큰+IP 분당 60회 초과 시 429, `X-RateLimit-*` 헤더 | `route/spotify/playing.ts` |
+| GET | `/api/spotify/playing/:token/widget` | widget-token + IP rate limit | 위젯 HTML. 위와 동일 한도 | `route/spotify/playing.ts` |
+| GET | `/api/spotify/playing/:token/data` | widget-token + IP rate limit | 위젯 데이터 JSON(CORS `*`). 위와 동일 한도 | `route/spotify/playing.ts` |
 | GET | `/api/spotify/widget-tokens` | 세션 | 위젯 토큰 목록 | `route/spotify/widget-token.ts` |
 | POST | `/api/spotify/widget-tokens` | 세션 | 위젯 토큰 발급 | `route/spotify/widget-token.ts` |
 | DELETE | `/api/spotify/widget-tokens/:id` | 세션 | 위젯 토큰 삭제 | `route/spotify/widget-token.ts` |
@@ -233,10 +234,10 @@
 | GET | `/api/calendar/events` | 세션 | 월별 이벤트 조회 | `route/calendar/event.ts` |
 | GET | `/api/calendar/events/range` | 세션 | 기간 범위 이벤트 조회 | `route/calendar/event.ts` |
 | GET | `/api/calendar/events/detail/:uid` | 세션 | 이벤트 상세 | `route/calendar/event.ts` |
-| POST | `/api/calendar/events` | 세션 | 이벤트 생성(201) | `route/calendar/event.ts` |
-| POST | `/api/calendar/events/create` | 세션 | 이벤트 생성(매퍼 바디, 201) | `route/calendar/event.ts` |
-| PUT | `/api/calendar/events/:uid` | 세션 | 이벤트 전체 수정 | `route/calendar/event.ts` |
-| PATCH | `/api/calendar/events/:uid` | 세션 | 이벤트 부분 수정 | `route/calendar/event.ts` |
+| POST | `/api/calendar/events` | 세션 | 이벤트 생성(201). `dtend < dtstart` 400, 남의/없는 `groupId` 404 `CALENDAR_GROUP_NOT_FOUND` | `route/calendar/event.ts` |
+| POST | `/api/calendar/events/create` | 세션 | 이벤트 생성(매퍼 바디, 201). 같은 400/404 검사 | `route/calendar/event.ts` |
+| PUT | `/api/calendar/events/:uid` | 세션 | 이벤트 전체 수정. 같은 400/404 검사 | `route/calendar/event.ts` |
+| PATCH | `/api/calendar/events/:uid` | 세션 | 이벤트 부분 수정. 날짜를 둘 다 보낸 경우 역전이면 400, 남의 `groupId` 404 | `route/calendar/event.ts` |
 | DELETE | `/api/calendar/events/:uid` | 세션 | 이벤트 삭제(204) | `route/calendar/event.ts` |
 | GET | `/api/calendar/groups` | 세션 | 캘린더 그룹 목록 | `route/calendar/group.ts` |
 | POST | `/api/calendar/groups` | 세션 | 그룹 생성(201) | `route/calendar/group.ts` |
@@ -310,10 +311,11 @@
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
-| POST | `/api/logs` | device-key | 로그 이벤트 수집(디바이스) | `route/logs/log-event.ts` |
-| POST | `/api/logs/batch` | device-key | 로그 배치 수집(최대 50건) | `route/logs/log-event.ts` |
+| POST | `/api/logs` | device-key | 로그 이벤트 수집(디바이스). 본문 1MB 초과 413 `LOG_BATCH_TOO_LARGE` | `route/logs/log-event.ts` |
+| POST | `/api/logs/batch` | device-key | 로그 배치 수집(최대 50건). 본문 1MB 초과 413 `LOG_BATCH_TOO_LARGE` | `route/logs/log-event.ts` |
 | GET | `/api/logs` | 어드민 | 로그 이벤트 목록 조회 | `route/logs/log-event.ts` |
-| POST | `/api/logs/purge` | 어드민 | 보관기간 경과 로그 정리 | `route/logs/log-event.ts` |
+| GET | `/api/logs/purge` | cron-secret | **Vercel Cron**(`40 4 * * *`) — 정책 삭제 + 보존 삭제(`weather_api_log`·`mail_sync_logs`·완료 `mail_sync_sessions`) | `route/logs/purge.ts` |
+| POST | `/api/logs/purge` | 어드민 | 보관기간 경과 로그 정리(수동, 정책 삭제만) | `route/logs/log-event.ts` |
 | PATCH | `/api/logs/:id/resolve` | 어드민 | 로그 이벤트 해소 처리 | `route/logs/log-event.ts` |
 | GET | `/api/logs/device-keys` | 어드민 | 디바이스 키 목록 | `route/logs/device-key.ts` |
 | POST | `/api/logs/device-keys` | 어드민 | 디바이스 키 발급 | `route/logs/device-key.ts` |
@@ -348,7 +350,7 @@
 | POST | `/api/ai/sessions/:sessionId/messages/stream` | 세션 + rate limit | 메시지 전송·SSE 스트리밍 응답(delta/done/error) | `route/ai/chat.ts` |
 | POST | `/api/ai/completions` | 세션 + rate limit | 세션 없는 단발 completion(도메인 융합) | `route/ai/chat.ts` |
 | POST | `/api/ai/completions/stream` | 세션 + rate limit | 단발 completion SSE 스트리밍(delta/done/error) | `route/ai/chat.ts` |
-| POST | `/api/ai/attachments` | 세션 + rate limit | 이미지 업로드(vision, R2) | `route/ai/attachment.ts` |
+| POST | `/api/ai/attachments` | 세션 + rate limit | 이미지 업로드(vision, R2). 본문 21MB(20MB + 멀티파트 여유) 초과 시 413 `AI_ATTACHMENT_TOO_LARGE` | `route/ai/attachment.ts` |
 | DELETE | `/api/ai/attachments/:attachmentId` | 세션 | 이미지 삭제 | `route/ai/attachment.ts` |
 
 파일 카운트: `connection.ts` = 4, `model.ts` = 2, `prompt.ts` = 4, `session.ts` = 5, `chat.ts` = 4, `attachment.ts` = 2. 상세: [../domains/ai.md](../domains/ai.md).
@@ -361,8 +363,8 @@
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
-| POST | `/api/metrics/ingest` | metrics-token(client)+rate limit | 단건 수집(payload 직렬화 64KB 초과 413). 응답 `{count}` | `route/metrics/ingest.ts` |
-| POST | `/api/metrics/ingest/batch` | metrics-token(client)+rate limit | 배치 수집(1~50건, 초과 413). 응답 `{count}` | `route/metrics/ingest.ts` |
+| POST | `/api/metrics/ingest` | metrics-token(client)+rate limit | 단건 수집(본문 128KB 또는 payload 직렬화 64KB 초과 시 413 `METRICS_PAYLOAD_TOO_LARGE`). 응답 `{count}` | `route/metrics/ingest.ts` |
+| POST | `/api/metrics/ingest/batch` | metrics-token(client)+rate limit | 배치 수집(1~50건, 초과 시 413 `METRICS_BATCH_TOO_LARGE`. 본문 4MB 상한도 같은 코드). 응답 `{count}` | `route/metrics/ingest.ts` |
 | GET | `/api/metrics/tokens` | metrics-token(admin) | metrics 토큰 목록 | `route/metrics/token.ts` |
 | POST | `/api/metrics/tokens` | metrics-token(admin) | 토큰 발급(평문 `{id,token}` 1회) | `route/metrics/token.ts` |
 | DELETE | `/api/metrics/tokens/:id` | metrics-token(admin) | 토큰 폐기(없으면 404) | `route/metrics/token.ts` |
@@ -414,6 +416,7 @@
 | `/api/drive/lifecycle/evict-r2` | `0 3 * * *` | `route/drive/lifecycle.ts` (GET·POST `/evict-r2`) |
 | `/api/drive/lifecycle/auto-promote` | `0 5 * * *` | `route/drive/lifecycle.ts` (GET·POST `/auto-promote`) |
 | `/api/metrics/archive` | `20 4 * * *` | `route/metrics/archive.ts` (GET·POST `/archive`) |
+| `/api/logs/purge` | `40 4 * * *` | `route/logs/purge.ts` (**GET 전용** — 같은 경로의 어드민 POST 를 흡수하지 않도록) |
 
 ---
 
@@ -445,5 +448,6 @@
 | `route/ai/attachment.ts` | 2 | `route/mail/draft.ts` | 3 |
 | `route/metrics/ingest.ts` | 2 | `route/metrics/token.ts` | 3 |
 | `route/metrics/query.ts` | 3 | `route/metrics/archive.ts` | 1 |
+| `route/logs/purge.ts` | 1 | | |
 
-- API(`/api/*`) 라우트 등록 합계 = **181**(기존 172 + metrics 9 — heartbeat-check 는 2026-07-22 사용자 결정으로 제거, archive 는 같은 날 추가). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **182**(2026-09-07 3차 배치에서 `route/logs/purge.ts` 의 크론 GET 1개 추가. 그 이전 181 = 기존 172 + metrics 9 — heartbeat-check 는 2026-07-22 사용자 결정으로 제거, archive 는 같은 날 추가). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

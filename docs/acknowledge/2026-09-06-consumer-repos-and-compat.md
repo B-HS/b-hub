@@ -92,3 +92,58 @@
 - `POST /api/drive/assets/prepare` 는 validator 가 앞에 붙어 "미인증 + 무효 바디" 가 401 대신 400 이다(Storage 는 `success` 만 확인).
 - caldav-proxy 가 `content-length` 를 제거하므로 CalDAV 응답 프레이밍이 청크 기반으로 바뀐다. Apple 캘린더 실기기 확인 권장.
 - Spotify `isActive` 토글이 이제 즉시 집행되어 비활성 계정의 위젯 임베드는 깨진 이미지가 된다(A-4 승인 의도).
+
+## 2026-09-07 3차 배치 착수 결정 (조정자 판단, 이견 시 되돌림)
+
+- R-01 fire-and-forget: `@vercel/functions` 의존성을 새로 들이지 않고 **응답 전에 `await`** 한다(오류 로그·키 사용 시각·weather 요청 로그·AI 사용 로그). mail 상세 조회의 원격 읽음 반영만은 IMAP 왕복이 커서 로컬 DB 갱신만 await 하고 원격 호출은 비동기로 둔다.
+- R-02 rate limiter: 계약(헤더·429)은 그대로 두고 `setInterval` 을 `unref`, 공유 카운터 스토어(Redis, `REDIS_URL` 있을 때만)를 주입 가능하게 만든다. 배선은 그룹 완료 후 조정자가 한다.
+- R-04 DB 풀: `connectionLimit` 은 처리량 변화를 피하기 위해 20 유지, `maxIdle`·`idleTimeout`·`enableKeepAlive` 만 추가. `timezone` 은 A-8 결정대로 건드리지 않는다.
+- R-06 mail 동기화 상호배제: 같은 계정 동기화가 진행 중이면 409 를 내지 않고 `{ added:0, updated:0, deleted:0, durationMs }` 로 즉시 성공 응답(mail 클라이언트가 자동 동기화와 수동 동기화를 겹쳐 호출하므로 toast 를 유발하지 않기 위함). 락은 5분 후 자동 해제.
+- R-07(업로드 4.5MB 우회)·R-08(maxDuration)·R-22(request-logger 장착)·R-32 의 멀티파트 스트리밍은 계약·비용 영향으로 보류. R-05 는 env 확인 사항으로 남긴다.
+- R-25 는 `calendar_subscription.user_id` unique 추가로 **db:push 대상이 하나 더 늘어난다**.
+- S-16: badge 는 IP 기준 분당 60회 + `width*height` 2,000,000 px 상한(400), spotify playing 은 토큰+IP 기준 분당 60회. S-17: reply/forward 에 send 와 같은 발송 한도 적용(X-RateLimit 헤더 추가).
+
+## 2026-09-07 3차 배치 조정자 후속 조치 (워크플로 최종 검증 지적 + 배선)
+
+1. Discord 알림은 **HEAD 와 같이 fire-and-forget** 으로 되돌렸다. 워크플로가 R-01 의 "응답 전 await" 원칙을 알림에도 적용해 `ingest`·`ingestBatch`·`captureServerError` 가 웹훅 완료를 기다렸는데, 최종 검증자가 로그 수집 응답(ESP32·mail 클라이언트가 호출)에 Discord 왕복(최대 3초 timeout)이 얹히는 지연을 지적했다. 알림 실패는 `service/domain/logs/log-event.ts` 의 `maybeAlert` 가 `captureException` 으로 삼킨다. R-11 의 예산·throttle 상한·`allowed_mentions`·timeout 은 유지. 서버리스에서 응답 후 웹훅이 끊길 수 있는 성질은 HEAD 와 동일하며, 필요해지면 `@vercel/functions` 의 `waitUntil` 도입을 별도 결정한다.
+2. Redis 공유 rate limit 스토어 배선 — `compose/index.ts` 가 `REDIS_URL` 이 있을 때만 `createRedisRateLimitStore` 1개를 만들어 `composeMail`·`composeAi` 에 주입한다(`ComposeMailArgs`·`ComposeAiArgs` 의 선택 필드 `rateLimitStore`). `route/mail/message.ts`·`sync.ts` 의 `checkLimit` 타입은 `withRateLimit` 에서 유도해 동기·비동기 판정을 모두 받는다. 공개 경로(badge·spotify playing) 리미터는 인메모리 그대로다(IP 키라 인스턴스 분산 시 한도가 느슨해질 뿐 소비자 영향 없음).
+3. `service/shared/redis-client.ts` 신설 — 3차의 `redis-cache.ts`(R-03)와 `rate-limit-store.ts`(R-02)가 각자 `lazyConnect: true` + `enableOfflineQueue: false` 로 클라이언트를 만들었는데, ioredis 는 이 조합에서 **첫 명령을 연결이 준비되기 전에 즉시 거부**한다(`Redis.sendCommand` 의 offline queue 분기 — 공식 문서·`node_modules/ioredis/built/Redis.js` 확인). 콜드 스타트마다 첫 캐시 조회·첫 rate limit 판정이 실패하고 Sentry 에 기록되는 결함이라, 공용 클라이언트가 첫 명령 전에 `connect()` 완료를 기다리도록 했다(`ensureConnected`). 연결 이후 장애는 offline queue 없이 즉시 실패해 인메모리 폴백으로 넘어가고, ioredis 가 백그라운드에서 재연결하면 `ready` 상태에서 자동 복귀한다. 두 모듈이 프로세스당 연결 1개를 공유한다.
+4. 린트 훅 지적 중 유지한 것: `tests/service/shared/redis-cache.test.ts` 의 `process.env` 조작은 `getEnv()` 를 테스트하기 위한 기존 패턴(`tests/lib/env.test.ts` 와 동일)이라 그대로 둔다. 테스트의 `throw new Error` 는 `createAppError` 로 바꿨다.
+
+## 2026-09-07 3차 배치 독립 회귀 리뷰 결과와 조치
+
+리뷰어 7(bblog-resume·mail-calendar-ai·storage-upload·weather-spotify-metrics·admin-manage·core-runtime·cross-cutting) 중 6이 완료됐고, mail-calendar-ai 는 권한 프롬프트 폭주(전역 `blockReadsOutsideWorkingDirectories`) 때문에 워크플로를 중단해 조정자가 diff 를 직접 검토했다. 승인 목록 밖의 차이 3건을 HEAD 의미로 되돌렸다.
+
+1. `GET /admin/login/logout` — R-14 구현이 GET 을 세션 종료 없는 303 안내로 바꿔 기존 링크·북마크로는 로그아웃이 되지 않았다. HEAD 의 `signOut` + 302 를 GET 에 복원하고, CSRF 폼용 `POST /admin/login/logout` 은 같은 핸들러로 병행 유지한다.
+2. `/api/logs/purge` — R-12 크론 서브라우트가 GET·POST 를 모두 받으면서 기존 admin POST 앞에 마운트돼, `Authorization` 헤더를 실은 POST 가 크론 분기로 흡수됐다. Vercel 크론은 GET 으로 호출하므로 크론 라우트를 GET 전용으로 좁혀 POST 는 HEAD 대로 admin 핸들러만 처리한다.
+3. `/admin/*`·`/manage/*` 미매칭 경로 — R-15 가 대시보드·오버뷰의 `app.use('*', guard)` 를 인라인 가드로 바꿔 미매칭 경로가 303(로그인 유도)/403 대신 404 가 됐다. `use('*')` 를 복원했다. 세션은 요청 컨텍스트에 캐시되므로 `getSession` 은 여전히 요청당 1회다.
+
+리뷰가 승인으로 분류했으나 운영상 인지할 사항:
+- `POST /api/logs/purge` 의 등급별 삭제 건수가 LIMIT 1000 × 50회 = 50,000 에서 캡된다(그 이상이면 다음 실행에서 이어서 지움).
+- 동기화 진행 중에는 `mail_accounts.lastSyncStatus` 가 `'running'` 으로 조회된다(GET /api/mail/accounts). mail 클라이언트는 `'error'`·`'success'` 만 구분하므로 그 사이엔 중립 배지로 보인다.
+- drive 자산 삭제가 실물 삭제 → 행 삭제 순서라, 행 삭제가 실패하는 드문 경우 실물만 사라진 행이 남을 수 있다(R-20 승인 방향).
+- REDIS_URL 이 설정된 배포에서 프로세스의 첫 Redis 연결이 실패하면 ioredis 가 `end` 상태가 되어 그 프로세스는 계속 인메모리로 동작한다(응답 불변, Sentry 에 기록).
+- `@fontsource` 가 dependencies 로 이동해 프로덕션 badge·썸네일이 실제 폰트로 렌더된다(HEAD 프로덕션은 폰트 로드 실패 폴백이었을 수 있음).
+- `initSentry` 가 처음으로 실제 호출되어 SENTRY_DSN 이 있으면 아웃바운드 fetch 에 `sentry-trace`/`baggage` 헤더가 붙는다.
+- badge·spotify playing 의 새 429 는 계약 문서상 런타임 소비자가 없어 실영향이 확인되지 않았다.
+
+## 2026-09-07 4차 배치 착수 결정 (조정자 판단, 이견 시 되돌림)
+
+전제는 그대로다: 성공 응답은 바이트 단위로 동일해야 하고, 상태 코드·헤더 추가는 계약 대조 결과에서 "호환" 으로 분류된 것(P-15·P-17 헤더 추가, P-18 ICS ETag/304)만 허용한다. 브랜치는 `fix/audit-batch3-serverless` 에서 딴 `fix/audit-batch4-performance`.
+
+| 그룹 | 파일 | 반영 | 제외(이유) |
+|------|------|------|------|
+| blog | compose/blog.ts, service/domain/blog/post.ts | P-01 count/select 병렬, P-14 tagsSubquery 상관 서브쿼리·message_images IN·재select 제거·존재 확인 경량 쿼리 | description 제외(A-10 미적용), getAll* LIMIT(응답 변화) |
+| drive | compose/drive.ts, service/domain/drive/drive-folder.ts | P-01, P-19 getById 의 mediumblob 컬럼 분리·폴더 N+1 배치 | `LIKE '%L1%'` → `'L1%'`(의미 변화) |
+| ai | compose/ai.ts, service/domain/ai/{ai-chat,ai-attachment,ai-connection,ai-session}.ts | P-01, P-20 직렬 await 병렬화·R2 병렬·UPDATE 병합·resolveClient 재사용 | — |
+| logs-metrics | compose/logs.ts, compose/metrics.ts, service/domain/metrics/log.ts, middleware/require-metrics-token.ts | P-01, P-21 device upsert bulkWrite | countDocuments 캐시(일일 한도 정확성) |
+| admin | page/admin/db.ts | P-01 32쌍 + counts() 병렬, P-22 토글 단일문 | getMessageLikes LIMIT(렌더 변화) |
+| shared | lib/credential-crypto.ts, service/shared/api-token.ts, service/domain/metrics/token.ts, service/shared/cache.ts, lib/external-api.ts, compose/shared.ts | P-06 scrypt 키 캐시, P-07 lastUsedAt 5분 경과 시만 UPDATE, P-08 LRU Map 순서, P-23 dead code 삭제, P-05 gdrive access token 만료까지 캐시 | — |
+| mail | compose/mail.ts, service/domain/mail/{mail-sync,mail-message}.ts, service/domain/mail/providers/gmail-provider.ts | P-05 토큰 만료 시각 기반 선제 갱신, P-09 배치 upsert + inArray, P-12 GROUP BY·단일 UPDATE·SUM, P-13 그룹당 provider 재사용 | P-10·P-11 IMAP/Gmail 프로토콜 변경(1차 데이터 손실 수정 직후라 사용자 결정 필요), P-13 의 SMTP 전 IMAP 로그인 생략(자격 검증 경로 변화) |
+| spotify-weather-badge | compose/spotify.ts, service/domain/spotify/{spotify-data,spotify-widget}.ts, service/domain/weather/{weather-api-key,kma-api}.ts, route/weather/location.ts, route/badge.ts, route/blog/thumbnail.ts, service/domain/badge/badge.ts | P-05 spotify 만료 기반 선제 갱신, P-16 2쿼리 JOIN, P-17 요청당 DB 왕복 축소·base time/TTL 경계 일치·/locations ETag·Cache-Control, P-15 badge CDN-Cache-Control·썸네일 렌더 캐시·그리드 상수화·Promise.all | P-16 이미지 축소·3~5초 캐시(SVG 바이트·now-playing 지연), P-17 Redis INCR(한도 의미 변화) |
+| calendar | route/calendar/{ics,caldav}.ts, service/domain/calendar/calendar.ts, compose/calendar.ts | P-18 ICS ETag/304·multiget inArray·uid 조회 or(), P-07 구독 lastAccessedAt 5분 경과 시만 | P-18 timeRange 적용(REPORT 결과 변화) |
+| schema-index | db/schema.ts | P-02 인덱스 8종 추가 + 중복 인덱스(calendar_event.uid, subscription token/icsToken) 제거 → **db:push 대상 3번째** | — |
+
+- P-03(sharp/satori/resvg 지연 import)은 `bun build` 단일 번들 + Vercel 런타임에서만 검증 가능하므로 preview 배포로 확인한 뒤 별도 진행한다. P-04 는 A-9 결정대로 미적용.
+- 병렬 작업(구현·회귀 리뷰·문서 갱신)은 사용자 지시(2026-09-07 "이후로 병렬 등은 workflow + opus 로")대로 단일 Agent 호출이 아니라 Workflow + opus 로 실행한다.
+- 워크플로 에이전트의 도구 규칙: 파일 읽기는 Read·검색은 Grep·Glob, Bash 는 `bun test <경로>`·`bunx prettier --write <파일>`·`bunx tsc --noEmit`·`git diff HEAD -- <경로>`·`git status --short` 만(권한 프롬프트 방지, 2026-09-07 확정 원인은 전역 `blockReadsOutsideWorkingDirectories`).

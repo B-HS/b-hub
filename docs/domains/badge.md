@@ -1,6 +1,6 @@
 # 배지(badge) 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `compose/shared.ts`, `route/index.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `lib/rate-limit.ts`, `compose/shared.ts`, `route/index.ts`, `package.json`
 
 ## 개요
 
@@ -36,17 +36,18 @@
 
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/badge/image` | 없음(공개) | 쿼리 파라미터로 PNG 배지 생성. `Content-Type: image/png` 반환 |
+| GET | `/api/badge/image` | 없음(공개) + rate limit | 쿼리 파라미터로 PNG 배지 생성. `Content-Type: image/png` 반환 |
 | GET | `/api/badge/fonts` | 없음(공개) | 사용 가능한 로컬 폰트 목록 + Google Fonts 지원 여부(JSON) |
 
 - 두 엔드포인트 모두 라우트 의존성에 `getSession` 이 없고, `middleware/index.ts` 에도 `/api/badge` 를 막는 인증 게이트가 없다(전역 미들웨어는 `/api/*` CORS·`*` 보안 헤더·로그 캡처·에러 핸들러로 인증 게이트가 아니다). → 공개.
+- **`GET /api/badge/image` 에는 IP 기준 rate limit 이 걸린다**: `route/index.ts` 가 만든 공용 인메모리 리미터(분당 60회)를 `checkLimit` 으로 주입하고, 키는 `public:{IP}:badge:image` 다(IP 는 `x-forwarded-for` 첫 값 → `x-real-ip` → `unknown`). 판정은 쿼리 검증 이후, 이미지 생성 **이전**에 이뤄진다. `X-RateLimit-Limit`/`-Remaining`/`-Reset` 헤더는 200 PNG 응답에도 함께 실리고, 초과 시 429 `RATE_LIMIT_EXCEEDED`(OpenAPI 응답 선언에도 추가됨). 리미터는 인스턴스별 인메모리라 다중 인스턴스에서는 한도가 느슨해질 수 있다.
 
 ### `GET /api/badge/image` 쿼리 파라미터 (`badgeImageQuerySchema`)
 
 | 파라미터 | 타입/제약 | 기본값 | 설명 |
 |----------|-----------|--------|------|
-| `width` | int, 1–4096 | `800` | 이미지 폭(px) |
-| `height` | int, 1–4096 | `250` | 이미지 높이(px) |
+| `width` | int, 1–4096 | `800` | 이미지 폭(px). **`width * height <= 2,000,000`** (스키마 refine, 초과 시 400) |
+| `height` | int, 1–4096 | `250` | 이미지 높이(px). 위 픽셀 총량 제약을 공유 |
 | `text` | string, ≤1000 | `'Badge'` | 배지 텍스트 |
 | `font` | string | `'Inter'` | 폰트명 |
 | `fontSize` | int, `0`(auto) 또는 8–500, optional | `0`·미지정 시 `round(height*0.5)` | 글자 크기 |
@@ -91,8 +92,9 @@
 ### 폰트 로드 (`font-loader.ts`)
 
 - 로컬 폰트: `LOCAL_FONTS` = Inter(400,700)·Noto Sans KR(400,700). 파일 경로는 `@fontsource/{inter|noto-sans-kr}/files/*.woff`. `basePath` 는 `VERCEL` 이면 `/var/task`, 아니면 `process.cwd()`.
+- **`@fontsource/inter`·`@fontsource/noto-sans-kr` 는 `dependencies`** 다(`package.json`). devDependencies 였을 때는 프로덕션 번들에 폰트 파일이 없어 로컬 로드가 실패하고 Google Fonts·null 폴백으로 렌더되었을 수 있다.
 - 요청 weight 는 해당 폰트의 가용 weight 중 **가장 가까운 값**으로 스냅(`closestWeight`).
-- `load` fallback 순서: ① 로컬 → ② 없으면 Google Fonts(`fonts.googleapis.com/css2` CSS 파싱 후 woff URL fetch) → ③ 그래도 없으면 로컬 Inter → ④ 실패 시 `null`. 로드 결과는 인메모리 `fontCache` Map 에 캐시.
+- `load` fallback 순서: ① 로컬 → ② 없으면 Google Fonts(`fonts.googleapis.com/css2` CSS 파싱 후 woff URL fetch) → ③ 그래도 없으면 로컬 Inter → ④ 실패 시 `null`. 로드 결과는 인메모리 `fontCache` Map 에 캐시. **로컬 파일 읽기 실패는 `captureException` 으로 보고**한다(이전에는 빈 catch 로 무음이었다). 실패 자체는 캐시하지 않으므로 다음 요청에서 다시 시도한다.
 
 ### 아이콘 로드 (`icon-loader.ts`)
 
@@ -109,6 +111,8 @@
 | 코드 | 상태 | 발생 |
 |------|------|------|
 | `IMAGE_GENERATE_FAILED` | 500 | `badgeService.generate` 의 `imageGenerator.generate` 실패(satori/resvg 예외). `GET /image` 의 OpenAPI 응답에도 선언 |
+| `RATE_LIMIT_EXCEEDED` | 429 | `GET /image` IP 분당 60회 초과. `GET /image` 의 OpenAPI 응답에도 선언 |
+| `VALIDATION_ERROR` | 400 | 쿼리 스키마 위반 — 개별 범위(1–4096 등) 또는 **`width * height > 2,000,000`** |
 | `SERVICE_NOT_CONFIGURED` | 503 | `badgeService` 미구성 시 `route/index.ts` 의 stub `Proxy` 가 호출 시 throw |
 
 - 정의는 `lib/error-code.ts`·`error-message.ts`·`error.ts` 3파일.

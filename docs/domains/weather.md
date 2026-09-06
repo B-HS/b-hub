@@ -1,6 +1,6 @@
 # weather 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/weather/*`, `route/weather/*`, `service/domain/weather/*`, `compose/weather.ts`, `middleware/require-weather-key.ts`, `masterdata/locations.json`, `db/schema.ts`(weather_*), `service/shared/redis-cache.ts`, `service/shared/redis-client.ts`
 
 ## 개요
 
@@ -85,11 +85,12 @@
 2. `route/weather/weather.ts` `resolveCoordinates` 로 격자(`gridX`,`gridY`) 확정. `location` 만 온 경우 `locationService.search` 첫 결과 사용.
 3. `kmaApi.getUltraSrtNcst(nx, ny)` 호출:
    - `getKmaBaseDateTime('ncst')` 로 KST(`nowMs + KST_OFFSET_MS`, UTC getter) 기준 base date/time 산출.
-   - `redisCache.get(cacheKey)` 히트 시 즉시 반환, 미스 시 KMA 호출(`fetchWithRetry`, 최대 3회, 지연 `1000ms×시도`).
+   - `redisCache.get(cacheKey)` 히트 시 즉시 반환, 미스 시 KMA 호출(`fetchWithRetry`, 최대 3회, 지연 `1000ms×시도`). **각 시도에 8초 `AbortSignal.timeout`** 이 붙고, 응답이 **4xx 면 재시도하지 않고 즉시** `WEATHER_KMA_API_ERROR`(502)로 끝낸다(키 오류·잘못된 파라미터를 3회 반복하지 않는다). 5xx·네트워크 오류·구조 이상만 재시도 대상이다.
    - `header.resultCode !== '00'` 이면 `mapKmaErrorCode`(`'03'`→`WEATHER_DATA_NOT_FOUND`, 그 외→`WEATHER_KMA_API_ERROR`).
-   - 성공 시 다음 base 경계까지 TTL 로 `redisCache.set`.
+   - 성공 시 다음 base 경계까지 TTL 로 `redisCache.set`. **`resultCode='03'`(NO_DATA)은 30초 negative cache** 로 저장해, 데이터가 아직 없는 시각에 같은 격자로 폭주하는 재조회를 막는다. 그 외 실패는 캐시하지 않는다.
+   - **동시 요청은 single-flight** 로 합류한다: 같은 캐시 키의 진행 중 호출이 있으면 새 KMA 요청을 만들지 않고 그 Promise 를 기다린다(`inFlight` Map, 완료 후 제거).
 4. `parseCurrentWeather`(`weather-data.ts`)로 카테고리 배열을 필드로 변환(코드→텍스트 포함) → `successResponse`.
-5. `next()` 반환 후 `requireWeatherKey` 가 `logRequest`(endpoint·status·duration·error_code) 를 `weather_api_log` 에 비동기 insert. **insert 전에 컬럼 길이에 맞춰 값을 자른다**(`service/domain/weather/weather-api-key.ts`): `endpoint` 50자, `ip` 45자(+ `X-Forwarded-For` 처럼 콤마로 이어진 값은 첫 항목만, 공백 제거 후 빈 값이면 `null`), `user_agent` 512자, `error_code` 50자. 값이 길어 insert 가 통째로 실패해 한도 산정 소스가 비는 일을 막는다.
+5. `next()` 반환 후 `requireWeatherKey` 가 `logRequest`(endpoint·status·duration·error_code) 를 `weather_api_log` 에 **응답 전 `await`** 로 insert 한다(서버리스에서 응답 후 실행이 끊겨 한도 산정 소스가 비던 경로 차단). **insert 전에 컬럼 길이에 맞춰 값을 자른다**(`service/domain/weather/weather-api-key.ts`): `endpoint` 50자, `ip` 45자(+ `X-Forwarded-For` 처럼 콤마로 이어진 값은 첫 항목만, 공백 제거 후 빈 값이면 `null`), `user_agent` 512자, `error_code` 50자. 값이 길어 insert 가 통째로 실패해 한도 산정 소스가 비는 일을 막는다.
 
 ### 2. KMA API·base time·캐시 규칙 (`kma-api.ts`)
 
@@ -101,8 +102,8 @@
 | `getFcstVersion` | `getFcstVersion`(예보버전) | 1 | vilage 와 동일 base + `basedatetime` 파라미터 | 다음 base시각 `:10` |
 
 - 공통 쿼리(ncst/fcst/vilage): `serviceKey=env.KMA_API_KEY`, `dataType=JSON`, `pageNo=1`, `base_date`/`base_time`, `nx`/`ny`. `getFcstVersion` 은 `base_date`/`base_time`/`nx`/`ny` 대신 `ftype`·`basedatetime`(=`baseDate+baseTime`) 를 보낸다(`serviceKey`/`dataType=JSON`/`pageNo=1` 은 공통).
-- 최소 TTL 30초(`MIN_CACHE_TTL`). 캐시는 **성공 응답만** 저장.
-- `redisCache`(`service/shared/redis-cache.ts`): 인메모리 Map(최대 30초) → Redis(`EX` ttl초). Redis 실패 시 인메모리로만 동작.
+- 최소 TTL 30초(`MIN_CACHE_TTL`). 캐시는 **성공 응답 + NO_DATA(`resultCode='03'`, 30초)** 만 저장한다.
+- `redisCache`(`service/shared/redis-cache.ts`): 로컬 LRU 캐시(`createCache`, 최대 500 항목 · TTL 30초) → Redis(`EX` ttl초). Redis 클라이언트는 `service/shared/redis-client.ts` 가 `REDIS_URL` 이 있을 때만 지연 생성하며(프로세스당 1개), Redis 실패는 `captureException` 후 로컬 캐시로만 동작한다. `REDIS_URL` 이 없으면 Redis 는 아예 시도하지 않는다.
 
 ### 3. 위경도↔격자 변환 (`grid-converter.ts`, `location.ts`)
 
@@ -177,7 +178,8 @@
 - **PTY 코드 세트 상이**: 초단기(`getPtyText`: 0/1/2/3/5/6/7)와 단기(`getPtyTextShort`: 0/1/2/3/4=소나기)의 강수형태 코드 매핑이 다르다. SKY 는 1/3/4 만 정의(2 없음).
 - **키 소유권**: `revoke`/`listByUser` 는 `user_id` 스코프이나 `updateDailyLimit`(관리자)은 소유자 검증 없이 `key_id` 만으로 수정한다.
 - **요청 로그는 저장 전에 절단된다**: `endpoint`(50)·`ip`(45, XFF 첫 항목)·`user_agent`(512)·`error_code`(50). 스키마 길이를 넘겨 insert 가 실패하면 그 요청이 한도 집계에서 누락되기 때문이다.
-- **부가 쓰기 실패 무시**: `validate` 의 `last_used_at` 갱신·`logRequest` insert 는 실패 시 `captureException` 후 삼킨다. `redisCache.set` 의 Redis 쓰기 실패는 `captureException` 없이 조용히 무시하고(빈 catch) 인메모리 캐시만 유지한다. 셋 다 조회 응답에는 영향 없다.
+- **부가 쓰기는 응답 전에 끝난다**: `validate` 의 `last_used_at` 갱신과 `logRequest` insert 는 모두 `await` 로 실행하고 실패만 `captureException` 후 삼킨다(응답에는 영향 없음). `redisCache` 의 Redis 실패도 이제 `captureException` 으로 보고한 뒤 로컬 캐시로만 동작한다 — 예전의 빈 catch 무음 처리는 없어졌다. 대신 요청 지연에 이 쓰기 시간이 포함된다.
+- **`weather_api_log` 는 90일 보존이다**: `GET /api/logs/purge` 크론(매일 04:40 UTC)이 90일 지난 행을 `LIMIT 1000` × 최대 50회로 삭제한다(→ [../logging.md](../logging.md)). 한도 산정은 롤링 24시간이라 보존 삭제의 영향을 받지 않는다.
 
 ## 관련 문서
 

@@ -1,6 +1,6 @@
 # Spotify 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch2-immediate-errors @ `af05000` + 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/spotify/*`, `route/spotify/*`, `service/domain/spotify/*`, `compose/spotify.ts`, `lib/with-spotify-auth.ts`, `lib/hmac-state.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/shared/cache.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `middleware/security-headers.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/spotify/*`, `route/spotify/*`, `service/domain/spotify/*`, `compose/spotify.ts`, `lib/rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/hmac-state.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/shared/cache.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `middleware/security-headers.ts`
 
 ## 개요
 
@@ -66,11 +66,12 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
 | POST | `/api/spotify/widget-tokens` | 세션 | 위젯 토큰 발급 — 평문 `{ token }` 1회 반환 |
 | DELETE | `/api/spotify/widget-tokens/:id` | 세션 | 위젯 토큰 삭제 |
 | PATCH | `/api/spotify/widget-tokens/:id/active` | 세션 | `isActive` 토글 |
-| GET | `/api/spotify/playing/:token` | 위젯 토큰(공개) | SVG 배지(`image/svg+xml`) |
-| GET | `/api/spotify/playing/:token/widget` | 위젯 토큰(공개) | HTML 위젯(5초 폴링, 진행바 애니메이션) |
-| GET | `/api/spotify/playing/:token/data` | 위젯 토큰(공개) | now-playing JSON(`Access-Control-Allow-Origin: *`) |
+| GET | `/api/spotify/playing/:token` | 위젯 토큰(공개) + rate limit | SVG 배지(`image/svg+xml`) |
+| GET | `/api/spotify/playing/:token/widget` | 위젯 토큰(공개) + rate limit | HTML 위젯(5초 폴링, 진행바 애니메이션) |
+| GET | `/api/spotify/playing/:token/data` | 위젯 토큰(공개) + rate limit | now-playing JSON(`Access-Control-Allow-Origin: *`) |
 
 - 세션 인증은 `withAuth` HOF(better-auth `getSession`). `now-playing`/`playlists` 만 `withSpotifyAuth`(아래 §핵심 흐름).
+- **공개 playing 3종에는 rate limit 이 걸린다**: `route/index.ts` 가 만든 공용 인메모리 리미터(분당 60회)를 `checkLimit` 으로 주입하고, 키는 `public:{token}:{IP}:spotify:playing` 이다(IP 는 `x-forwarded-for` 첫 값 → `x-real-ip` → `unknown`). 토큰 검증 **전에** 판정하므로 무효 토큰 폭주도 차단된다. 세 응답 모두 `X-RateLimit-Limit`/`-Remaining`/`-Reset` 헤더가 붙고, 초과 시 429 `RATE_LIMIT_EXCEEDED`. 이 리미터는 인스턴스별 인메모리라 다중 인스턴스에서는 한도가 느슨해질 수 있다(IP 키라 소비자 영향 없음 — [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md)).
 - `describeRoute`(OpenAPI) 는 account/key/data 라우트만 선언(tag `Spotify`). widget-token·playing 라우트는 OpenAPI 미선언.
 - `now-playing`/`playlists`/`playing/*` 응답 본문 구조는 코드상 `describeRoute` 스키마로 고정되어 있지 않다(반환 형태는 §핵심 흐름 참조).
 
@@ -110,8 +111,9 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
 - Spotify API 호출은 `spotifyFetch`(기본 재시도 `MAX_RETRIES=3`):
   - `401` → `refreshToken()` 후 재시도. refresh 는 `POST .../api/token`(`grant_type=refresh_token`)로 새 access token 을 받아 `account.accessToken`·`accessTokenExpiresAt` 갱신.
   - **refresh 실패는 `SPOTIFY_API_ERROR`(502)**. `refreshOAuthToken` 은 예외를 던지지 않고 `{ accessToken }` 또는 `{ status }`(HTTP 상태) 유니온을 반환하고(`compose/spotify.ts:146-168`), provider 가 `status` 쪽이면 `createAppError('SPOTIFY_API_ERROR', { status })` 를 던진다(`spotify-provider.ts:40`). 저장된 refresh token 이 아예 없을 때도 같은 코드(`detail: 'No refresh token'`)다. 이전에는 `new Error(...)` 라 `INTERNAL_ERROR`(500)로 나갔다.
-  - `429` → `Retry-After`(최대 60초로 캡, 기본 1초) 대기 후 재시도.
+  - `429` → `Retry-After`(없거나 비정상이면 1초) 만큼 대기 후 재시도하되, **한 요청의 대기 총합이 3초를 넘으면 자지 않고 즉시** `SPOTIFY_API_ERROR`(502, `details.status = 429`) 를 던진다. 이전에는 `Retry-After` 를 최대 60초까지 그대로 자서 재시도 3회면 요청 하나가 최대 180초 매달릴 수 있었다(서버리스 타임아웃 소진).
   - 동시 refresh 는 `refreshPromise` 로 single-flight(중복 방지).
+  - refresh 응답에 **새 `refresh_token` 이 오면 함께 저장**한다(`compose/spotify.ts`). 회전형 refresh token 을 발급하는 경우 옛 토큰만 남아 다음 갱신이 실패하던 경로를 막는다. 없으면 기존 값을 유지한다.
 - 갱신은 **401 반응형**이다. 저장된 `accessTokenExpiresAt` 를 미리 읽어 선제 갱신하지 않는다.
 
 ### 4. 데이터 인증(`withSpotifyAuth`)
@@ -172,6 +174,7 @@ mount 접두사: `index.ts` 가 `api` 라우터를 `/api` 에 마운트. `route/
 - **응답 캐시 없음, 앨범아트만 서버 캐시**: 위젯/데이터 응답은 모두 `Cache-Control: no-cache`(SVG 는 `no-store` 포함). 유일한 캐시는 `compose/spotify.ts` 의 앨범아트 base64 캐시(`createCache`, `maxSize=200`, TTL 5분, 앨범아트 URL 키)로 SVG 생성에만 쓰인다. provider 의 access token 은 인스턴스 메모리에만 있고 요청 처리 후 `disconnect()` 로 비워진다.
 - **라우트 순서 의존**: `route/spotify/account.ts` 는 `/connect`·`/connect/callback` 를 `/:accountId` 보다 먼저 등록한다(뒤에 두면 `connect` 가 `:accountId` 로 매칭됨).
 - **now-playing 은 재생 없을 때 recently-played fallback**: `isPlaying:false` 여도 최근 곡을 반환할 수 있으므로 "재생 중"과 "최근 재생"을 소비 측에서 `isPlaying`/`lastPlayedAt` 로 구분해야 한다.
+- **API 키 `last_used_at` 갱신은 응답 전 `await`** 다(`spotify-api-key.ts` `validate`). 실패는 `captureException` 으로 삼키지만, 서버리스에서 응답 후 실행이 끊겨 사용 시각이 유실되던 경로는 없어졌다.
 - **`parseStatePayload` 는 서명 미검증**: 콜백 에러 경로에서 redirect 대상을 뽑을 때만 쓰는 best-effort 파서(서비스 `parseRedirectFromState` 가 이를 래핑해 라우트가 호출)로, 신뢰 판단에 쓰지 않는다(신뢰 검증은 `verifyOAuthState`).
 
 ## 관련 문서

@@ -1,6 +1,6 @@
 # 환경변수 레퍼런스
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `lib/env.ts`, `.env.example`, `compose/index.ts`, `compose/shared.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/mail.ts`, `compose/spotify.ts`, `compose/weather.ts`, `compose/logs.ts`, `compose/ai.ts`, `db/index.ts`, `drizzle.config.ts`, `index.ts`, `lib/sentry.ts`, `service/shared/redis-cache.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `lib/api-response.ts`, `lib/with-error-handling.ts`, `middleware/error-handler.ts`, `middleware/index.ts`, `service/shared/auth-provider.ts`, `deploy/caldav-proxy/proxy.ts`, `deploy/upload-server/index.ts`
+> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/env.ts`, `.env.example`, `compose/index.ts`, `compose/shared.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/mail.ts`, `compose/spotify.ts`, `compose/weather.ts`, `compose/logs.ts`, `compose/ai.ts`, `db/index.ts`, `drizzle.config.ts`, `index.ts`, `lib/sentry.ts`, `lib/cron-auth.ts`, `route/logs/purge.ts`, `service/shared/redis-cache.ts`, `service/shared/redis-client.ts`, `service/shared/rate-limit-store.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `lib/api-response.ts`, `lib/with-error-handling.ts`, `middleware/error-handler.ts`, `middleware/index.ts`, `page/admin/guard.ts`, `service/shared/auth-provider.ts`, `deploy/caldav-proxy/proxy.ts`, `deploy/upload-server/index.ts`
 
 ## 개요
 
@@ -26,7 +26,6 @@
 
 | 파일:라인 | 변수 | 맥락 |
 |------|------|------|
-| `db/index.ts:14` | `DATABASE_URL` | Drizzle DB 풀 싱글톤 생성 |
 | `drizzle.config.ts:8` | `DATABASE_URL` | drizzle-kit 설정(앱 런타임 밖) |
 | `index.ts:38` | `NODE_ENV` | 비프로덕션에서만 `/docs`·`/swagger` 노출 |
 | `index.ts:60` | `PORT` | 서버 리슨 포트(미설정 시 `9999`) |
@@ -36,10 +35,10 @@
 | `middleware/index.ts:23` | `NODE_ENV` | 환경 분기 |
 | `service/shared/font-loader.ts:21` | `VERCEL` | Vercel 파일 경로 분기 |
 | `service/shared/icon-loader.ts:11` | `VERCEL` | Vercel 파일 경로 분기 |
-| `service/shared/redis-cache.ts:3` | `REDIS_URL` | 모듈 스코프 Redis 클라이언트 초기화 |
+| `page/admin/guard.ts` | `NODE_ENV` | 일회성 노출 쿠키(`hub_reveal`)의 `Secure` 플래그 분기 |
 
-- `NODE_ENV` 는 주입 소비 1곳(`compose/shared.ts:32` `isProduction: env.NODE_ENV === 'production'`, 2026-07 deps 업그레이드에서 auth-provider 직접접근을 주입으로 정리) + `process.env` 직접 접근 5곳이 혼재한다.
-- `DATABASE_URL`·`REDIS_URL`·`PORT` 도 소비는 `process.env` 로 하지만, `DATABASE_URL` 은 `getEnv()` 가 검증은 수행한다(`REDIS_URL`·`PORT`·`NODE_ENV`·`VERCEL` 은 optional).
+- `NODE_ENV` 는 주입 소비 1곳(`compose/shared.ts:32` `isProduction: env.NODE_ENV === 'production'`, 2026-07 deps 업그레이드에서 auth-provider 직접접근을 주입으로 정리) + `process.env` 직접 접근이 혼재한다.
+- **`DATABASE_URL`·`REDIS_URL` 은 이제 `getEnv()` 경유다**: `db/index.ts` 가 `getEnv().DATABASE_URL` 로, `service/shared/redis-cache.ts`·`service/shared/rate-limit-store.ts` 가 `getEnv().REDIS_URL`(→ `service/shared/redis-client.ts` 지연 생성)로 읽는다. `PORT` 만 `process.env` 직접 소비로 남는다.
 - `VERCEL` 은 `compose/shared.ts:70` 에서는 주입 `env` 로, 폰트/아이콘 로더에서는 `process.env` 로 이중 접근.
 
 ## 변수 인벤토리
@@ -48,7 +47,7 @@
 
 | 변수 | 필수/선택(zod) | 기본값 | 용도 | 사용 파일 |
 |------|------|------|------|------|
-| `DATABASE_URL` | 필수 (min1) | — | MySQL 접속 URL. Drizzle 풀 생성 | `db/index.ts:14`, `drizzle.config.ts:8` (process.env 직접) |
+| `DATABASE_URL` | 필수 (min1) | — | MySQL 접속 URL. Drizzle 풀 생성(`connectionLimit 20`·`maxIdle 5`·`idleTimeout 60초`·keepAlive) | `db/index.ts`(`getEnv()`), `drizzle.config.ts:8`(process.env 직접) |
 | `SITE_URL` | 선택 (url) | — | **선언만, 소비 코드 없음** | (없음) |
 | `BASE_URL` | 선택 (min1) | — | better-auth `baseURL`(미설정 시 `http://localhost:9999`) / 앱 `baseUrl`(미설정 시 `''`) | `compose/shared.ts:25`, `compose/index.ts:47` |
 | `GITHUB_CLIENT_ID` | 선택 (min1) | — | better-auth GitHub OAuth | `compose/shared.ts:26` |
@@ -65,15 +64,15 @@
 | `R2_CUSTOME_DOMAIN` | 선택 (min1) | — | **오타 별칭**. `R2_CUSTOM_DOMAIN` 미설정 시 fallback 소스 | `compose/shared.ts:63` |
 | `KMA_API_KEY` | 선택 (min1) | — | 기상청 서비스키(미설정 시 `''` 주입) | `compose/weather.ts:9` |
 | `DISCORD_WEBHOOK_URL` | 선택 (url) | — | 로그 알림 Discord webhook. 미설정 시 alerter 비활성 | `compose/logs.ts:52`·`58` |
-| `SENTRY_DSN` | 선택 (url) | — | **선언·`.env.example` 에 있으나 소비 코드 없음**(`initSentry` 런타임 미호출) | (없음) |
+| `SENTRY_DSN` | 선택 (url) | — | Sentry 초기화. **`index.ts` 가 부트스트랩 최상단에서 `initSentry(getEnv().SENTRY_DSN)` 를 호출**하므로 값이 있으면 `captureException` 이 실제 전송되고 아웃바운드 fetch 에 `sentry-trace`/`baggage` 헤더가 붙는다. 없으면 no-op | `index.ts`, `lib/sentry.ts` |
 | `BETTER_AUTH_SECRET` | 선택 (min1) | — | better-auth secret + mail/spotify OAuth connect 서명(`secret`) | `compose/shared.ts:30`, `compose/mail.ts:110`, `compose/spotify.ts:76` |
 | `TRUSTED_ORIGINS` | 선택 | — | better-auth `trustedOrigins`(CSV → `split(',')`, 미설정 시 `[]`) | `compose/shared.ts:31` |
 | `MAIL_ENCRYPTION_KEY` | 선택 (min32) | — | 메일 자격증명 암호화 키. **`compose/mail.ts` 가 미설정 시 throw**(아래 함정) | `compose/mail.ts:15`·`18` |
 | `AI_ENCRYPTION_KEY` | 선택 (min32) | — | AI 프로바이더 자격증명 암호화 키(mail 과 분리). **미설정 시 `compose/ai.ts` 가 `{}` 반환 → AI 라우트만 `SERVICE_NOT_CONFIGURED`(503), 앱은 정상 부팅** | `compose/ai.ts` |
 | `GDRIVE_ROOT_FOLDER_ID` | 선택 (min1) | — | Google Drive 루트 폴더 ID(미설정 시 `''`) | `compose/index.ts:48` |
-| `UPLOAD_SERVER_SECRET` | 선택 (min1) | — | upload-server 토큰 서명 시크릿(blog·drive, 미설정 시 `''`) | `compose/blog.ts:493`, `compose/drive.ts:244`·`297` |
+| `UPLOAD_SERVER_SECRET` | 선택 (min1) | — | upload-server 토큰 서명 시크릿(blog·drive, 미설정 시 `''`) **+ Vercel 크론 4종의 인증 시크릿**(`verifyCronAuth` 대조 대상. Vercel 의 `CRON_SECRET` 을 이 값과 동일하게 설정해야 크론이 통과한다) | `compose/blog.ts:493`, `compose/drive.ts:244`·`297`, `route/logs/purge.ts`(주입 없으면 `getEnv()` 폴백) |
 | `UPLOAD_SERVER_URL` | 선택 (url) | — | upload-server base URL(blog, 미설정 시 `''`) | `compose/blog.ts:494` |
-| `REDIS_URL` | 선택 (min1) | — | 캐시 Redis 접속. 미설정/실패 시 인메모리 fallback | `service/shared/redis-cache.ts:3` (process.env 직접) |
+| `REDIS_URL` | 선택 (min1) | — | Redis 접속. 용도 2가지 — ① 응답 캐시(weather 등), ② **rate limit 공유 카운터**(`compose/index.ts` 가 값이 있을 때만 스토어를 만들어 mail·ai 리미터에 주입). 미설정/실패 시 둘 다 프로세스 인메모리 fallback(응답 계약 동일). 클라이언트는 `redis-client.ts` 가 프로세스당 1개 지연 생성 | `service/shared/redis-cache.ts`·`rate-limit-store.ts`·`redis-client.ts`(모두 `getEnv()`), `compose/index.ts` |
 | `MONGODB_URI` | 선택 (min1) | — | metrics 로그·디바이스 MongoDB 접속. **미설정 시 `compose/metrics.ts` 가 `{}` 반환 → metrics 라우트만 `SERVICE_NOT_CONFIGURED`(503), 앱은 정상 부팅**(DB 명은 코드 상수 `metrics` 고정, URI path 무시) | `compose/metrics.ts:15`·`17`, `db/mongo.ts` |
 | `VERCEL` | 선택 | — | Vercel 런타임 감지(파일 경로 분기) | `compose/shared.ts:70`(env), `service/shared/font-loader.ts:21`·`service/shared/icon-loader.ts:11`(process.env) |
 | `PORT` | 선택 | — | 서버 리슨 포트(미설정 시 `9999`) | `index.ts:60` (process.env 직접) |
@@ -134,10 +133,12 @@
 ## 주의사항 / 함정
 
 - **`MAIL_ENCRYPTION_KEY` 는 스키마상 optional 이나 사실상 부팅 필수**: `compose/mail.ts:15` 가 미설정 시 `throw new Error('MAIL_ENCRYPTION_KEY is required for mail functionality')`. `compose()` 가 `composeMail` 을 무조건 호출하므로, 미설정이면 zod 통과 후 compose 단계에서 앱 전체 부팅이 실패한다. 설정 시엔 `.min(32)` 도 만족해야 한다.
-- **`SITE_URL`·`SENTRY_DSN` 은 선언만 되고 소비되지 않음**: 코드 어디서도 읽지 않는다. `SENTRY_DSN` 은 `lib/sentry.ts` 의 `initSentry(dsn)` 인자로 전달돼야 하나, 프로덕션 코드에 `initSentry` 호출이 없어(`tests/lib/sentry.test.ts` 만 호출) 항상 미초기화 → `captureException` 이 no-op. (로깅 세부는 [../logging.md](../logging.md))
+- **`SITE_URL` 은 선언만 되고 소비되지 않음**: 코드 어디서도 읽지 않는다.
+- **`SENTRY_DSN` 은 2026-09-07 3차 배치부터 실제로 쓰인다**: `index.ts` 최상단의 `initSentry(getEnv().SENTRY_DSN)` 이 유일한 초기화 지점이다. 이전에는 호출이 없어(`tests/lib/sentry.test.ts` 만 호출) `captureException` 이 항상 no-op 이었다. 값을 설정하면 그동안 삼켜지던 예외가 한꺼번에 Sentry 로 흐르므로 초기 이벤트 급증을 예상할 것. (로깅 세부는 [../logging.md](../logging.md))
+- **`REDIS_URL` 첫 연결 실패는 프로세스 단위로 고착된다**: ioredis 가 `end` 상태가 되면 그 프로세스는 계속 인메모리로 동작한다(응답은 동일, 실패는 Sentry 기록). 새 인스턴스가 뜨면 다시 시도한다.
 - **`R2_CUSTOME_DOMAIN` 오타 별칭**: `compose/shared.ts:63` 가 `R2_CUSTOM_DOMAIN ?? R2_CUSTOME_DOMAIN ?? 'https://blogimg.gumyo.net'` 로 두 철자 모두 fallback으로 읽는다. 정상 철자(`_CUSTOM_`)가 우선.
 - **소비 측 fallback 이 zod default 를 대체**: 대부분의 optional 키는 zod default 가 없고, 미설정 시 compose 에서 `?? ''`/`?? 'blog-cloud'`/`?? 'http://localhost:9999'` 등으로 흡수된다. "미설정=빈 문자열/로컬 기본"이라 인증·업로드가 조용히 무력화될 수 있다(에러 아님).
-- **`NODE_ENV` 는 주입 env 미경유**: 검증된 `env.NODE_ENV`(default 적용본) 대신 5개 파일(`index.ts`·`middleware/error-handler.ts`·`middleware/index.ts`·`lib/api-response.ts`·`lib/with-error-handling.ts`)이 `process.env.NODE_ENV` 를 직접 본다(`service/shared/auth-provider.ts` 는 2026-07 `isProduction` 주입으로 정리됨). `process.env.NODE_ENV` 는 미설정 시 `undefined` 라 zod default(`'development'`)와 값이 다를 수 있다.
+- **`NODE_ENV` 는 주입 env 미경유**: 검증된 `env.NODE_ENV`(default 적용본) 대신 여러 파일(`index.ts`·`middleware/error-handler.ts`·`middleware/index.ts`·`lib/api-response.ts`·`lib/with-error-handling.ts`·`page/admin/guard.ts`)이 `process.env.NODE_ENV` 를 직접 본다(`service/shared/auth-provider.ts` 는 2026-07 `isProduction` 주입으로 정리됨). `process.env.NODE_ENV` 는 미설정 시 `undefined` 라 zod default(`'development'`)와 값이 다를 수 있다.
 
 ## 관련 문서
 

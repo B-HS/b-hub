@@ -72,6 +72,7 @@
 | [reference/env.md](./reference/env.md) | 환경변수 전수(필수/기본값/용도/사용 파일) |
 | [reference/lib-utilities.md](./reference/lib-utilities.md) | `lib/` 전수 — 새 유틸 작성 전 중복 확인용 |
 | [reference/shared-services.md](./reference/shared-services.md) | `service/shared/` 전수 — 역할·의존·주입 관계 |
+| [reference/consumer-contracts.md](./reference/consumer-contracts.md) | 소비자 레포별 계약 인벤토리(엔드포인트·봉투·상태 코드·헤더·SSE·정수 타입) — 2026-09-06 전수 감사 수정의 불변 기준 |
 
 ### guidelines/ — 작업 지침서
 
@@ -93,6 +94,7 @@
 | [quality-assurance/pre-merge-checklist.md](./quality-assurance/pre-merge-checklist.md) | 머지 전 체크(typecheck·test·prettier·컨벤션·문서·시크릿) |
 | [quality-assurance/endpoint-qa.md](./quality-assurance/endpoint-qa.md) | 엔드포인트 QA(검증·인증·봉투·OpenAPI·캡처·테스트) |
 | [quality-assurance/fe-deps-impact-check.md](./quality-assurance/fe-deps-impact-check.md) | FE 소비자 영향 검수(2026-07 deps 업그레이드 — 400 바디 구조·문구·이메일·코드젠) |
+| [quality-assurance/2026-09-06-audit-findings.md](./quality-assurance/2026-09-06-audit-findings.md) | 2026-09-06 전수 감사 발견 목록(D·S·E·R·P·C)과 배치별 처리 상태 — 계약 대조 결과·승인 표 포함 |
 
 ### 기록 폴더 (ai-process §9)
 
