@@ -22,7 +22,7 @@ const mockWebResume = {
 const createMockDb = () => ({
     getResumesByUserId: mock(() => Promise.resolve({ resumes: [mockResume], total: 1 })),
     getResumeById: mock((id: number) => Promise.resolve(id === 1 ? mockResume : null)),
-    getLatestResumeByType: mock((type: string) => Promise.resolve(type === 'web' ? mockWebResume : null)),
+    getLatestResumeByTypePreferringAdmin: mock((type: string) => Promise.resolve(type === 'web' ? mockWebResume : null)),
     insertResume: mock(() => Promise.resolve({ id: 2 })),
     updateResume: mock(() => Promise.resolve()),
     deleteResume: mock(() => Promise.resolve()),
@@ -44,12 +44,12 @@ describe('createResumeService', () => {
 
         const result = await service.getPublicWebResume()
         expect(result?.type).toBe('web')
-        expect(db.getLatestResumeByType).toHaveBeenCalledWith('web')
+        expect(db.getLatestResumeByTypePreferringAdmin).toHaveBeenCalledWith('web')
     })
 
     test('getPublicWebResume는 web 이력서가 없으면 null을 반환한다', async () => {
         const db = createMockDb()
-        db.getLatestResumeByType = mock(() => Promise.resolve(null))
+        db.getLatestResumeByTypePreferringAdmin = mock(() => Promise.resolve(null))
         const service = createResumeService({ db })
 
         expect(await service.getPublicWebResume()).toBeNull()
@@ -65,9 +65,21 @@ describe('createResumeService', () => {
         expect(db.updateResume).toHaveBeenCalledWith(mockWebResume.id, { data })
     })
 
+    test('updateWebResume는 getPublicWebResume가 서빙하는 admin 소유 행을 갱신한다', async () => {
+        const db = createMockDb()
+        const service = createResumeService({ db })
+
+        const served = await service.getPublicWebResume()
+        const data = { profile: { firstName: 'Hyunseok' } } as never
+        await service.updateWebResume(data)
+
+        expect(db.getLatestResumeByTypePreferringAdmin).toHaveBeenCalledWith('web')
+        expect(db.updateResume).toHaveBeenCalledWith(served?.id, { data })
+    })
+
     test('updateWebResume는 web 행이 없으면 not_found를 반환한다', async () => {
         const db = createMockDb()
-        db.getLatestResumeByType = mock(() => Promise.resolve(null))
+        db.getLatestResumeByTypePreferringAdmin = mock(() => Promise.resolve(null))
         const service = createResumeService({ db })
 
         const result = await service.updateWebResume({ profile: { firstName: 'Hyunseok' } } as never)

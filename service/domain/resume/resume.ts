@@ -15,7 +15,7 @@ type ResumeRow = {
 type ResumeServiceDb = {
     getResumesByUserId: (userId: string, query: ResumeListQuery) => Promise<{ resumes: ResumeRow[]; total: number }>
     getResumeById: (id: number) => Promise<ResumeRow | null>
-    getLatestResumeByType: (type: string) => Promise<ResumeRow | null>
+    getLatestResumeByTypePreferringAdmin: (type: string) => Promise<ResumeRow | null>
     insertResume: (data: { userId: string; type: string; title: string; data: unknown; isPublic: boolean }) => Promise<{ id: number }>
     updateResume: (id: number, data: { title?: string; data?: unknown; isPublic?: boolean }) => Promise<void>
     deleteResume: (id: number) => Promise<void>
@@ -31,11 +31,11 @@ export const createResumeService = (deps: ResumeServiceDeps) => ({
     },
 
     getPublicWebResume: async () => {
-        return deps.db.getLatestResumeByType('web')
+        return deps.db.getLatestResumeByTypePreferringAdmin('web')
     },
 
     updateWebResume: async (data: WebResumeData) => {
-        const existing = await deps.db.getLatestResumeByType('web')
+        const existing = await deps.db.getLatestResumeByTypePreferringAdmin('web')
         if (!existing) return { success: false as const, reason: 'not_found' as const }
         await deps.db.updateResume(existing.id, { data })
         return { success: true as const }

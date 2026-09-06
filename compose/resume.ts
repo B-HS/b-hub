@@ -1,7 +1,9 @@
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, getTableColumns, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { createResumeService } from '../service/domain/resume/resume'
 import type { ComposeResumeArgs } from './types'
+
+const ADMIN_ROLE = 'admin'
 
 export const composeResume = ({ db }: ComposeResumeArgs) => {
     const resumeService = createResumeService({
@@ -31,12 +33,13 @@ export const composeResume = ({ db }: ComposeResumeArgs) => {
                 return resume ?? null
             },
 
-            getLatestResumeByType: async (type) => {
+            getLatestResumeByTypePreferringAdmin: async (type) => {
                 const [resume] = await db
-                    .select()
+                    .select(getTableColumns(schema.resumes))
                     .from(schema.resumes)
+                    .leftJoin(schema.user, eq(schema.resumes.userId, schema.user.id))
                     .where(eq(schema.resumes.type, type))
-                    .orderBy(desc(schema.resumes.updatedAt))
+                    .orderBy(desc(sql`${schema.user.role} = ${ADMIN_ROLE}`), desc(schema.resumes.updatedAt))
                     .limit(1)
                 return resume ?? null
             },
