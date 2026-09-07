@@ -5,6 +5,8 @@ import { generateToken, hashToken } from '../../lib/token-utils'
 
 export { hashToken }
 
+const LAST_USED_UPDATE_INTERVAL_MS = 5 * 60 * 1000
+
 type ApiTokenDeps = {
     db: Database
 }
@@ -33,7 +35,8 @@ export const createApiTokenService = (deps: ApiTokenDeps) => {
 
         if (record.expiresAt && record.expiresAt < new Date()) return null
 
-        await deps.db.update(apiToken).set({ lastUsedAt: new Date() }).where(eq(apiToken.id, record.id))
+        const isLastUsedStale = !record.lastUsedAt || Date.now() - record.lastUsedAt.getTime() >= LAST_USED_UPDATE_INTERVAL_MS
+        if (isLastUsedStale) await deps.db.update(apiToken).set({ lastUsedAt: new Date() }).where(eq(apiToken.id, record.id))
 
         return { id: record.userId }
     }

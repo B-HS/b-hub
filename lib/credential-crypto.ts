@@ -5,11 +5,30 @@ const SALT_LEN = 16
 const IV_LEN = 12
 const AUTH_TAG_LEN = 16
 const KEY_LEN = 32
+const KEY_CACHE_MAX_SIZE = 500
 
 export const createCredentialCrypto = (encryptionKey: string) => {
     const v1Key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32), 'utf-8')
+    const derivedKeyCache = new Map<string, Buffer>()
 
     const deriveKey = (salt: Buffer): Buffer => scryptSync(encryptionKey, salt, KEY_LEN, { N: 16384, r: 8, p: 1 }) as Buffer
+
+    const deriveKeyCached = (salt: Buffer): Buffer => {
+        const cacheKey = salt.toString('base64')
+        const cached = derivedKeyCache.get(cacheKey)
+        if (cached) {
+            derivedKeyCache.delete(cacheKey)
+            derivedKeyCache.set(cacheKey, cached)
+            return cached
+        }
+        const derived = deriveKey(salt)
+        if (derivedKeyCache.size >= KEY_CACHE_MAX_SIZE) {
+            const oldest = derivedKeyCache.keys().next().value
+            if (oldest !== undefined) derivedKeyCache.delete(oldest)
+        }
+        derivedKeyCache.set(cacheKey, derived)
+        return derived
+    }
 
     const encrypt = (plaintext: string): string => {
         const salt = randomBytes(SALT_LEN)
@@ -29,7 +48,7 @@ export const createCredentialCrypto = (encryptionKey: string) => {
             const iv = buf.subarray(SALT_LEN, SALT_LEN + IV_LEN)
             const authTag = buf.subarray(SALT_LEN + IV_LEN, SALT_LEN + IV_LEN + AUTH_TAG_LEN)
             const encrypted = buf.subarray(SALT_LEN + IV_LEN + AUTH_TAG_LEN)
-            const key = deriveKey(salt)
+            const key = deriveKeyCached(salt)
             const decipher = createDecipheriv('aes-256-gcm', key, iv)
             decipher.setAuthTag(authTag)
             return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf-8')

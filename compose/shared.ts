@@ -22,6 +22,8 @@ import type { ComposeSharedArgs } from './types'
 const ADMIN_ROLE = 'admin'
 const GOOGLE_PROVIDER_ID = 'google'
 const GDRIVE_SCOPE_FRAGMENT = 'drive.file'
+const GDRIVE_TOKEN_EXPIRY_MARGIN_MS = 60 * 1000
+const SECOND_MS = 1000
 
 export const composeShared = ({ db, env }: ComposeSharedArgs) => {
     const auth = createAuthProvider({
@@ -123,7 +125,9 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
         return gdriveStorageService
     }
 
+    let cachedGdriveAccessToken: { token: string; expiresAt: number } | null = null
     const getGdriveAccessToken = async (): Promise<string | null> => {
+        if (cachedGdriveAccessToken && cachedGdriveAccessToken.expiresAt > Date.now()) return cachedGdriveAccessToken.token
         if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null
         const refreshToken = await getGdriveRefreshToken()
         if (!refreshToken) return null
@@ -138,7 +142,9 @@ export const composeShared = ({ db, env }: ComposeSharedArgs) => {
             }),
         })
         if (!res.ok) return null
-        const data = (await res.json()) as { access_token: string }
+        const data = (await res.json()) as { access_token: string; expires_in?: number }
+        const expiresAt = Date.now() + (data.expires_in ?? 0) * SECOND_MS - GDRIVE_TOKEN_EXPIRY_MARGIN_MS
+        cachedGdriveAccessToken = expiresAt > Date.now() ? { token: data.access_token, expiresAt } : null
         return data.access_token
     }
 

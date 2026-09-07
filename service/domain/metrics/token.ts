@@ -4,6 +4,7 @@ import type { MetricsToken } from '../../../db/schema'
 import type { MetricsTokenCreateInput } from '../../../dto/metrics/token'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const LAST_USED_UPDATE_INTERVAL_MS = 5 * 60 * 1000
 
 export type MetricsTokenServiceDb = {
     insertToken: (row: { token: string; alias: string; scope: string; dailyLimit?: number; expiresAt: Date | null }) => Promise<{ id: number }>
@@ -38,7 +39,8 @@ export const createMetricsTokenService = ({ db }: MetricsTokenServiceDeps) => {
         if (record.revokedAt) return null
         if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
 
-        db.touchLastUsed(record.id).catch((e) => captureException(e))
+        const isLastUsedStale = !record.lastUsedAt || Date.now() - record.lastUsedAt.getTime() >= LAST_USED_UPDATE_INTERVAL_MS
+        if (isLastUsedStale) db.touchLastUsed(record.id).catch((e) => captureException(e))
 
         return record
     }
