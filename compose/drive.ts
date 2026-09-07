@@ -1,4 +1,4 @@
-import { asc, desc, eq, gte, like, lt, notInArray, or, sql, and, isNull, isNotNull } from 'drizzle-orm'
+import { asc, desc, eq, gte, inArray, like, lt, notInArray, or, sql, and, isNull, isNotNull } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { createDriveAssetService } from '../service/domain/drive/drive-asset'
 import { createDriveFolderService } from '../service/domain/drive/drive-folder'
@@ -36,6 +36,15 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                 .orderBy(asc(schema.driveFolders.name))
         },
 
+        getByParentIds: async (userId: string, parentIds: string[]) => {
+            if (parentIds.length === 0) return []
+            return db
+                .select()
+                .from(schema.driveFolders)
+                .where(and(eq(schema.driveFolders.userId, userId), inArray(schema.driveFolders.parentId, parentIds)))
+                .orderBy(asc(schema.driveFolders.name))
+        },
+
         getByNameAndParent: async (userId: string, name: string, parentId: string | null) => {
             const conditions = [eq(schema.driveFolders.userId, userId), eq(schema.driveFolders.name, name)]
             if (parentId === null) {
@@ -65,16 +74,18 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
     const driveFolderService = createDriveFolderService({
         db: folderDb,
         generateId: () => crypto.randomUUID(),
-        getAssetsByFolderId: async (folderId: string) => {
+        getAssetsByFolderIds: async (folderIds: string[]) => {
+            if (folderIds.length === 0) return []
             const rows = await db
                 .select({
                     id: schema.cloudAssets.id,
                     s3Key: schema.cloudAssets.s3Key,
                     storageTiers: schema.cloudAssets.storageTiers,
                     gdriveFileId: schema.cloudAssets.gdriveFileId,
+                    folderId: schema.cloudAssets.folderId,
                 })
                 .from(schema.cloudAssets)
-                .where(eq(schema.cloudAssets.folderId, folderId))
+                .where(inArray(schema.cloudAssets.folderId, folderIds))
             return rows
         },
         deleteAssetFromTiers: async (asset) => {
@@ -195,18 +206,13 @@ export const composeDrive = ({ db, env, storageService, imageProcessor, initGdri
                       : schema.cloudAssets.createdAt
             const orderFn = params.order === 'asc' ? asc : desc
 
-            const data = await db
-                .select()
-                .from(schema.cloudAssets)
-                .where(whereClause)
-                .orderBy(orderFn(sortColumn))
-                .limit(params.limit)
-                .offset(params.offset)
-
-            const [{ count }] = await db
-                .select({ count: sql<number>`COUNT(*)` })
-                .from(schema.cloudAssets)
-                .where(whereClause)
+            const [data, [{ count }]] = await Promise.all([
+                db.select().from(schema.cloudAssets).where(whereClause).orderBy(orderFn(sortColumn)).limit(params.limit).offset(params.offset),
+                db
+                    .select({ count: sql<number>`COUNT(*)` })
+                    .from(schema.cloudAssets)
+                    .where(whereClause),
+            ])
 
             return { data, total: count }
         },

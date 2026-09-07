@@ -231,6 +231,96 @@ describe('composeDrive assetDb.touchAccess', () => {
     })
 })
 
+describe('composeDrive assetDb.list 목록·카운트 병렬', () => {
+    test('목록 쿼리를 먼저 보내고 COUNT 쿼리가 그 응답을 기다리지 않는다', async () => {
+        const queries: string[] = []
+        let releaseListQuery = () => {}
+        const countQueryStarted = new Promise<void>((resolve) => {
+            releaseListQuery = resolve
+        })
+
+        const db = drizzle(
+            async (sql) => {
+                queries.push(sql)
+                if (sql.includes('COUNT(*)')) {
+                    releaseListQuery()
+                    return { rows: [[0]] }
+                }
+                await countQueryStarted
+                return { rows: [] }
+            },
+            { schema, mode: 'default' },
+        ) as unknown as ComposeDriveArgs['db']
+
+        const composed = composeDrive({
+            db,
+            env: { UPLOAD_SERVER_SECRET: 'secret' } as unknown as ComposeDriveArgs['env'],
+            storageService: {} as unknown as ComposeDriveArgs['storageService'],
+            imageProcessor: {} as unknown as ComposeDriveArgs['imageProcessor'],
+            gdriveStorageService: null,
+            initGdriveStorage: async () => null as unknown as Awaited<ReturnType<ComposeDriveArgs['initGdriveStorage']>>,
+        })
+
+        const result = await composed.driveAssetService.list('user-1', { page: 1, limit: 20, sort: 'created', order: 'desc' })
+
+        expect(result).toEqual({ data: [], total: 0, page: 1, limit: 20 })
+        expect(queries).toHaveLength(2)
+        expect(queries[0].startsWith('select `id`, `user_id`')).toBe(true)
+        expect(queries[1]).toContain('COUNT(*)')
+    })
+
+    test('목록 응답 필드와 total 은 HEAD 와 동일하게 매핑된다', async () => {
+        const createdAt = new Date('2026-01-02T03:04:05.000Z')
+        const { composed } = createCapturingCompose((sql) => {
+            if (sql.includes('COUNT(*)')) return { rows: [[3]] }
+            return { rows: [[...ASSET_ROW.slice(0, 17), createdAt, createdAt]] }
+        })
+
+        const result = await composed.driveAssetService.list('user-1', { page: 2, limit: 20, sort: 'created', order: 'desc' })
+
+        expect(result).toEqual({
+            data: [
+                {
+                    id: 1,
+                    originalName: 'photo.jpg',
+                    mimeType: 'image/jpeg',
+                    sizeBytes: 100,
+                    folderId: null,
+                    isPublic: false,
+                    storageTiers: '',
+                    uploadStatus: 'uploading',
+                    thumbnail: null,
+                    createdAt: createdAt.toISOString(),
+                    updatedAt: createdAt.toISOString(),
+                },
+            ],
+            total: 3,
+            page: 2,
+            limit: 20,
+        })
+    })
+})
+
+describe('composeDrive folderDb 배치 조회', () => {
+    test('재귀 삭제가 폴더·에셋을 IN 절로 일괄 조회한다', async () => {
+        const folderRow = ['folder-1', 'user-1', null, '사진', new Date(), new Date()]
+        const { composed, queries } = createCapturingCompose((sql) => {
+            if (sql.startsWith('select `id`, `user_id`, `parent_id`') && sql.includes('`id` = ?')) return { rows: [folderRow] }
+            if (sql.startsWith('delete')) return { rows: [{ insertId: 0, affectedRows: 1 }] as unknown as unknown[][] }
+            return { rows: [] }
+        })
+
+        const result = await composed.driveFolderService.remove('folder-1', 'user-1')
+
+        expect(result).toEqual({ id: 'folder-1' })
+        const folderBatchQuery = queries.find((q) => q.sql.includes('`drive_folders`.`parent_id` in (?)'))
+        expect(folderBatchQuery?.params).toEqual(['user-1', 'folder-1'])
+        const assetBatchQuery = queries.find((q) => q.sql.includes('`cloud_assets`.`folder_id` in (?)'))
+        expect(assetBatchQuery?.params).toEqual(['folder-1'])
+        expect(queries.some((q) => q.sql.includes('`cloud_assets`.`folder_id` = ?'))).toBe(false)
+    })
+})
+
 describe('composeDrive assetDb.list stale 필터', () => {
     test('stale 조건을 drizzle 연산자(not in · >=)로 만들고 Date 를 파라미터로 바인딩한다', async () => {
         const { composed, queries } = createCapturingCompose((sql) => {

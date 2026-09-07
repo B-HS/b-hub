@@ -14,6 +14,7 @@ type DriveFolderServiceDb = {
     insert: (data: { id: string; userId: string; parentId: string | null; name: string }) => Promise<void>
     getById: (id: string) => Promise<DriveFolderRow | null>
     getByParent: (userId: string, parentId: string | null) => Promise<DriveFolderRow[]>
+    getByParentIds: (userId: string, parentIds: string[]) => Promise<DriveFolderRow[]>
     getByNameAndParent: (userId: string, name: string, parentId: string | null) => Promise<DriveFolderRow | null>
     update: (id: string, data: Partial<{ name: string; parentId: string | null }>) => Promise<void>
     remove: (id: string) => Promise<void>
@@ -26,10 +27,12 @@ type AssetForDelete = {
     gdriveFileId: string | null
 }
 
+type AssetForDeleteInFolder = AssetForDelete & { folderId: string | null }
+
 type DriveFolderServiceDeps = {
     db: DriveFolderServiceDb
     generateId: () => string
-    getAssetsByFolderId: (folderId: string) => Promise<AssetForDelete[]>
+    getAssetsByFolderIds: (folderIds: string[]) => Promise<AssetForDeleteInFolder[]>
     deleteAssetFromTiers: (asset: AssetForDelete) => Promise<void>
     removeAssetFromDb: (assetId: number) => Promise<void>
 }
@@ -61,6 +64,37 @@ const isDescendant = async (db: DriveFolderServiceDb, ancestorId: string, target
         depth++
     }
     return false
+}
+
+const collectFolderIdsInDeleteOrder = async (db: DriveFolderServiceDb, userId: string, rootId: string) => {
+    const childIdsByParentId = new Map<string, string[]>()
+    const visitedIds = new Set([rootId])
+    let frontier = [rootId]
+
+    while (frontier.length > 0) {
+        const children = await db.getByParentIds(userId, frontier)
+        const nextFrontier: string[] = []
+
+        for (const child of children) {
+            if (!child.parentId || visitedIds.has(child.id)) continue
+            visitedIds.add(child.id)
+            const siblingIds = childIdsByParentId.get(child.parentId)
+            if (siblingIds) siblingIds.push(child.id)
+            else childIdsByParentId.set(child.parentId, [child.id])
+            nextFrontier.push(child.id)
+        }
+
+        frontier = nextFrontier
+    }
+
+    const orderedIds: string[] = []
+    const appendChildrenFirst = (id: string) => {
+        for (const childId of childIdsByParentId.get(id) ?? []) appendChildrenFirst(childId)
+        orderedIds.push(id)
+    }
+    appendChildrenFirst(rootId)
+
+    return orderedIds
 }
 
 export const createDriveFolderService = (deps: DriveFolderServiceDeps) => ({
@@ -149,14 +183,18 @@ export const createDriveFolderService = (deps: DriveFolderServiceDeps) => ({
         if (!folder) throw createAppError('DRIVE_FOLDER_NOT_FOUND')
         if (folder.userId !== userId) throw createAppError('DRIVE_FOLDER_NOT_FOUND')
 
-        const deleteRecursive = async (id: string) => {
-            const children = await deps.db.getByParent(userId, id)
-            for (const child of children) {
-                await deleteRecursive(child.id)
-            }
+        const folderIdsInDeleteOrder = await collectFolderIdsInDeleteOrder(deps.db, userId, folderId)
+        const assets = await deps.getAssetsByFolderIds(folderIdsInDeleteOrder)
 
-            const assets = await deps.getAssetsByFolderId(id)
-            for (const asset of assets) {
+        const assetsByFolderId = new Map<string | null, AssetForDeleteInFolder[]>()
+        for (const asset of assets) {
+            const bucket = assetsByFolderId.get(asset.folderId)
+            if (bucket) bucket.push(asset)
+            else assetsByFolderId.set(asset.folderId, [asset])
+        }
+
+        for (const id of folderIdsInDeleteOrder) {
+            for (const asset of assetsByFolderId.get(id) ?? []) {
                 try {
                     await deps.deleteAssetFromTiers(asset)
                 } catch (error) {
@@ -167,8 +205,6 @@ export const createDriveFolderService = (deps: DriveFolderServiceDeps) => ({
 
             await deps.db.remove(id)
         }
-
-        await deleteRecursive(folderId)
 
         return { id: folderId }
     },
