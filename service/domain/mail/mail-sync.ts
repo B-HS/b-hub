@@ -1,7 +1,7 @@
 import type { MailSyncLog, MailSyncSession, MailFolder } from '../../../db/schema'
 import type { MailAccountService } from './mail-account'
 import type { MailProvider, ProviderMessage } from './mail-provider'
-import { createAppError } from '../../../lib/error'
+import { createAppError, describeThrownError } from '../../../lib/error'
 import { captureException } from '../../../lib/sentry'
 import { isLocalMailFolder, maskProviderError } from '../../../lib/mail-utils'
 
@@ -305,7 +305,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 return { added: totalAdded, updated: totalUpdated, deleted: totalDeleted, durationMs }
             } catch (error) {
                 const durationMs = Date.now() - startTime
-                const errorMessage = (error instanceof Error ? error.message : 'Unknown error').slice(0, SYNC_ERROR_MESSAGE_MAX_LENGTH)
+                const errorMessage = describeThrownError(error).slice(0, SYNC_ERROR_MESSAGE_MAX_LENGTH)
 
                 try {
                     await deps.db.updateSyncLog(syncLog.id, {
@@ -434,7 +434,7 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
 
             if (error && typeof error === 'object' && 'code' in error) throw error
             throw createAppError('MAIL_PROVIDER_ERROR', {
-                message: maskProviderError(error instanceof Error ? error.message : 'Unknown error'),
+                message: maskProviderError(describeThrownError(error).slice(0, SYNC_ERROR_MESSAGE_MAX_LENGTH)),
             })
         } finally {
             await provider.disconnect().catch(captureException)

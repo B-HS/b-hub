@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createAppError, describeAppError, isAppError, getStatusCode } from '../../lib/error'
+import { createAppError, describeAppError, describeThrownError, isAppError, getStatusCode } from '../../lib/error'
 import { ERROR_CODE } from '../../lib/error-code'
 import { ERROR_MESSAGE } from '../../lib/error-message'
 
@@ -19,6 +19,18 @@ describe('describeAppError', () => {
     test('문자열 사유가 없으면 메시지만 돌려준다', () => {
         expect(describeAppError(createAppError('NOT_FOUND'))).toBe(ERROR_MESSAGE.NOT_FOUND)
         expect(describeAppError(createAppError('NOT_FOUND', { status: 404 }))).toBe(ERROR_MESSAGE.NOT_FOUND)
+    })
+})
+
+describe('describeThrownError', () => {
+    test('cause 가 있으면 cause 메시지를 앞에 둔다', () => {
+        const wrapped = new Error('Failed query: delete from mail_messages', { cause: new Error('Lock wait timeout exceeded') })
+        expect(describeThrownError(wrapped)).toBe('Lock wait timeout exceeded: Failed query: delete from mail_messages')
+    })
+
+    test('cause 가 없으면 메시지만 돌려주고, Error 가 아니면 Unknown error 다', () => {
+        expect(describeThrownError(new Error('plain'))).toBe('plain')
+        expect(describeThrownError('text')).toBe('Unknown error')
     })
 })
 

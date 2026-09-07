@@ -7,6 +7,7 @@ import {
     comments,
     imageAssets,
     logEvents,
+    mailMessages,
     mailSyncLogs,
     messages,
     posts,
@@ -47,6 +48,10 @@ describe('db/schema 인덱스 정의 (P-02)', () => {
 
     test('image_assets 는 created_at 단일 인덱스를 가진다', () => {
         expect(indexColumns(imageAssets, 'idx_image_assets_created')).toEqual(['created_at'])
+    })
+
+    test('mail_messages 는 Gmail 계정 단위 조회·삭제용 (account_id, remote_message_id) 인덱스를 가진다', () => {
+        expect(indexColumns(mailMessages, 'idx_mail_messages_account_remote')).toEqual(['account_id', 'remote_message_id'])
     })
 
     test('mail_sync_logs 는 계정별 최신순 조회용 복합 인덱스를 가진다', () => {

@@ -149,3 +149,13 @@ export const describeAppError = (error: AppError) => {
     const reason = error.details?.detail ?? error.details?.message
     return typeof reason === 'string' && reason.length > 0 ? `${error.message} (${reason})` : error.message
 }
+
+/**
+ * Describes a thrown value for logs, leading with the underlying cause when the error wraps one
+ * (for example a driver error inside a DrizzleQueryError) so the reason survives truncation.
+ */
+export const describeThrownError = (error: unknown) => {
+    if (!(error instanceof Error)) return 'Unknown error'
+    const cause = error.cause instanceof Error && error.cause.message ? `${error.cause.message}: ` : ''
+    return `${cause}${error.message}`
+}
