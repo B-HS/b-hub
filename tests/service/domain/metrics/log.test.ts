@@ -1,6 +1,6 @@
 import { describe, expect, test, mock } from 'bun:test'
 import { createMetricsLogService } from '../../../../service/domain/metrics/log'
-import type { MetricsDeviceRecord, MetricsLogRecord } from '../../../../service/domain/metrics/log'
+import type { MetricsDeviceRecord, MetricsDeviceUpsert, MetricsLogRecord } from '../../../../service/domain/metrics/log'
 
 const sampleDevice = (overrides: Partial<MetricsDeviceRecord> = {}): MetricsDeviceRecord => ({
     deviceId: 'mac-1',
@@ -18,7 +18,7 @@ const sampleDevice = (overrides: Partial<MetricsDeviceRecord> = {}): MetricsDevi
 
 const createMockDb = (overrides: Record<string, unknown> = {}) => ({
     insertLogs: mock(async (rows: MetricsLogRecord[]) => rows.length),
-    upsertDevice: mock(async (_row: { deviceId: string }) => {}),
+    upsertDevices: mock(async (_rows: MetricsDeviceUpsert[]) => {}),
     listLogs: mock(async () => ({ rows: [] as MetricsLogRecord[], total: 0 })),
     listDevices: mock(async () => [] as MetricsDeviceRecord[]),
     getDevice: mock(async (_deviceId: string) => null as MetricsDeviceRecord | null),
@@ -49,10 +49,30 @@ describe('createMetricsLogService', () => {
         expect(row.tokenAlias).toBe('demo-mbp')
         expect(row.hostname).toBeNull()
         expect(row.receivedAt).toBeInstanceOf(Date)
-        expect(db.upsertDevice).toHaveBeenCalledTimes(2)
-        const macUpsert = db.upsertDevice.mock.calls[0][0] as { deviceId: string; intervalSec: number | null }
-        expect(macUpsert.deviceId).toBe('mac-1')
-        expect(macUpsert.intervalSec).toBe(60)
+        expect(db.upsertDevices).toHaveBeenCalledTimes(1)
+        const upserted = db.upsertDevices.mock.calls[0][0]
+        expect(upserted).toHaveLength(2)
+        expect(upserted.map((d) => d.deviceId)).toEqual(['mac-1', 'esp32-1'])
+        expect(upserted[0].intervalSec).toBe(60)
+        expect(upserted[1].intervalSec).toBeNull()
+        expect(upserted[0].seenAt).toBe(row.receivedAt)
+    })
+
+    test('ingest는 디바이스 upsert를 한 번의 배치 호출로 묶는다', async () => {
+        const db = createMockDb()
+        const service = createMetricsLogService({ db: db as never, archiveStorage: createArchiveStorage() })
+        await service.ingest({ id: 9, alias: 'multi' }, [
+            { deviceId: 'a', hostname: 'a.local', payload: {} },
+            { deviceId: 'b', payload: {} },
+            { deviceId: 'a', hostname: 'a2.local', os: 'macos', payload: {} },
+        ])
+
+        expect(db.upsertDevices).toHaveBeenCalledTimes(1)
+        const upserted = db.upsertDevices.mock.calls[0][0]
+        expect(upserted.map((d) => d.deviceId)).toEqual(['a', 'b'])
+        expect(upserted[0].hostname).toBe('a2.local')
+        expect(upserted[0].os).toBe('macos')
+        expect(upserted.every((d) => d.tokenId === 9 && d.tokenAlias === 'multi')).toBe(true)
     })
 
     test('listDevices는 임계(3x interval, 최소 5분) 기준으로 online을 계산한다', async () => {

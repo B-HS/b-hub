@@ -9,9 +9,36 @@ const BASE_TIME_MS = 1_700_000_000_000
 const DISCORD_DELAY_MS = 10
 const DISCORD_SETTLE_WAIT_MS = 30
 
+const COUNT_DELAY_MS = 20
+const ROWS_DELAY_MS = 5
+const LIST_TOTAL = 42
+
 const createDb = () => ({
     insert: () => ({ values: () => ({ $returningId: async () => [{ id: 1 }] }) }),
 })
+
+const createListEventsDb = (timeline: string[], rows: { id: number }[]) => {
+    const whereArgs: unknown[] = []
+    const thenable = <T>(label: string, value: T, delayMs: number) => ({
+        then: (resolve: (v: T) => void) => {
+            timeline.push(`start:${label}`)
+            setTimeout(() => {
+                timeline.push(`end:${label}`)
+                resolve(value)
+            }, delayMs)
+        },
+    })
+    const countChain = { from: () => ({ where: (w: unknown) => (whereArgs.push(w), thenable('count', [{ total: LIST_TOTAL }], COUNT_DELAY_MS)) }) }
+    const rowsChain = {
+        from: () => ({
+            where: (w: unknown) => (
+                whereArgs.push(w),
+                { orderBy: () => ({ limit: () => ({ offset: () => thenable('rows', rows, ROWS_DELAY_MS) }) }) }
+            ),
+        }),
+    }
+    return { db: { select: (fields?: unknown) => (fields === undefined ? rowsChain : countChain) }, whereArgs }
+}
 
 const createEnv = () => ({ DISCORD_WEBHOOK_URL: 'https://discord.test/hook' })
 
@@ -118,5 +145,45 @@ describe('composeLogs 알림 throttle', () => {
         await logEventService.ingest(alertEvent('E_NO_HOOK'), {})
 
         expect(fetchMock).not.toHaveBeenCalled()
+    })
+})
+
+describe('composeLogs listEvents', () => {
+    test('count 와 목록 조회를 병렬로 실행한다', async () => {
+        const timeline: string[] = []
+        const { db } = createListEventsDb(timeline, [{ id: 1 }])
+        const { logEventService } = composeLogs({ db: db as never, env: {} as never })
+
+        await logEventService.list({ limit: 20, offset: 0 })
+
+        expect(timeline).toEqual(['start:count', 'start:rows', 'end:rows', 'end:count'])
+    })
+
+    test('응답은 { rows, total } 형태를 그대로 유지한다', async () => {
+        const rows = [{ id: 1 }, { id: 2 }]
+        const { db } = createListEventsDb([], rows)
+        const { logEventService } = composeLogs({ db: db as never, env: {} as never })
+
+        expect(await logEventService.list({ limit: 20, offset: 0 })).toEqual({ rows, total: LIST_TOTAL })
+    })
+
+    test('두 쿼리에 같은 where 조건을 넘긴다', async () => {
+        const { db, whereArgs } = createListEventsDb([], [])
+        const { logEventService } = composeLogs({ db: db as never, env: {} as never })
+
+        await logEventService.list({ service: 'esp32', unresolved: true, limit: 10, offset: 30 })
+
+        expect(whereArgs).toHaveLength(2)
+        expect(whereArgs[0]).toBe(whereArgs[1])
+        expect(whereArgs[0]).toBeDefined()
+    })
+
+    test('필터가 없으면 where 조건도 undefined 로 동일하다', async () => {
+        const { db, whereArgs } = createListEventsDb([], [])
+        const { logEventService } = composeLogs({ db: db as never, env: {} as never })
+
+        await logEventService.list({ limit: 20, offset: 0 })
+
+        expect(whereArgs).toEqual([undefined, undefined])
     })
 })

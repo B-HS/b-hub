@@ -53,7 +53,13 @@ export const getMongo = (uri: string) => {
     return mongoInstance
 }
 
-export const resetMongo = async () => {
+/**
+ * Drops the shared client so the next getMongo() reconnects.
+ * When `stale` is given, only that exact instance is replaced, so concurrent callers
+ * that already triggered a reconnect never close the fresh client.
+ */
+export const resetMongo = async (stale?: ReturnType<typeof createMongo>) => {
+    if (stale && mongoInstance !== stale) return
     const instance = mongoInstance
     mongoInstance = null
     if (instance) await instance.client.close().catch(() => undefined)

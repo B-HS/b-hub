@@ -37,9 +37,11 @@ export type MetricsDeviceRecord = {
     lastSeenAt: Date
 }
 
+export type MetricsDeviceUpsert = Omit<MetricsDeviceRecord, 'firstSeenAt' | 'lastSeenAt'> & { seenAt: Date }
+
 export type MetricsLogServiceDb = {
     insertLogs: (rows: MetricsLogRecord[]) => Promise<number>
-    upsertDevice: (row: Omit<MetricsDeviceRecord, 'firstSeenAt' | 'lastSeenAt'> & { seenAt: Date }) => Promise<void>
+    upsertDevices: (rows: MetricsDeviceUpsert[]) => Promise<void>
     listLogs: (filter: MetricsLogListQuery) => Promise<{ rows: MetricsLogRecord[]; total: number }>
     listDevices: () => Promise<MetricsDeviceRecord[]>
     getDevice: (deviceId: string) => Promise<MetricsDeviceRecord | null>
@@ -90,8 +92,8 @@ export const createMetricsLogService = ({ db, archiveStorage }: MetricsLogServic
 
         const latestByDevice = new Map<string, MetricsIngestInput>()
         events.forEach((e) => latestByDevice.set(e.deviceId, e))
-        for (const e of latestByDevice.values()) {
-            await db.upsertDevice({
+        await db.upsertDevices(
+            [...latestByDevice.values()].map((e) => ({
                 deviceId: e.deviceId,
                 tokenId: token.id,
                 tokenAlias: token.alias,
@@ -101,8 +103,8 @@ export const createMetricsLogService = ({ db, archiveStorage }: MetricsLogServic
                 agentVersion: e.agentVersion ?? null,
                 intervalSec: e.intervalSec ?? null,
                 seenAt: receivedAt,
-            })
-        }
+            })),
+        )
         return count
     }
 

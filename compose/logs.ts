@@ -37,11 +37,13 @@ export const composeLogs = ({ db, env }: ComposeLogsArgs) => {
             if (filter.from) conds.push(gte(logEvents.createdAt, filter.from))
             if (filter.to) conds.push(lte(logEvents.createdAt, filter.to))
             const where = conds.length ? and(...conds) : undefined
-            const [{ total }] = await db
-                .select({ total: sql<number>`count(*)` })
-                .from(logEvents)
-                .where(where)
-            const rows = await db.select().from(logEvents).where(where).orderBy(desc(logEvents.createdAt)).limit(filter.limit).offset(filter.offset)
+            const [[{ total }], rows] = await Promise.all([
+                db
+                    .select({ total: sql<number>`count(*)` })
+                    .from(logEvents)
+                    .where(where),
+                db.select().from(logEvents).where(where).orderBy(desc(logEvents.createdAt)).limit(filter.limit).offset(filter.offset),
+            ])
             return { rows, total: Number(total) }
         },
         getById: async (id) => {

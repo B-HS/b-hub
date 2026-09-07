@@ -3,10 +3,10 @@ import { metricsToken } from '../db/schema'
 import { getMongo, isMongoClientClosed, resetMongo } from '../db/mongo'
 import { createMetricsTokenService } from '../service/domain/metrics/token'
 import { createMetricsLogService } from '../service/domain/metrics/log'
-import type { Filter } from 'mongodb'
-import type { MetricsLogDoc, Mongo } from '../db/mongo'
+import type { AnyBulkWriteOperation, Filter } from 'mongodb'
+import type { MetricsDeviceDoc, MetricsLogDoc, Mongo } from '../db/mongo'
 import type { MetricsTokenServiceDb } from '../service/domain/metrics/token'
-import type { MetricsArchiveStorage, MetricsLogServiceDb } from '../service/domain/metrics/log'
+import type { MetricsArchiveStorage, MetricsDeviceUpsert, MetricsLogServiceDb } from '../service/domain/metrics/log'
 import type { MetricsSeriesQuery } from '../dto/metrics/query'
 import type { ComposeMetricsArgs } from './types'
 
@@ -45,16 +45,28 @@ export const buildSeriesPipeline = (params: MetricsSeriesQuery) => {
     ]
 }
 
+export const buildDeviceUpsertOperations = (rows: MetricsDeviceUpsert[]) =>
+    rows.map<AnyBulkWriteOperation<MetricsDeviceDoc>>(({ seenAt, deviceId, tokenId, tokenAlias, ...meta }) => {
+        const set: Record<string, unknown> = { tokenId, tokenAlias, lastSeenAt: seenAt }
+        const setOnInsert: Record<string, unknown> = { deviceId, firstSeenAt: seenAt }
+        for (const [key, value] of Object.entries(meta)) {
+            if (value === null) setOnInsert[key] = null
+            else set[key] = value
+        }
+        return { updateOne: { filter: { deviceId }, update: { $set: set, $setOnInsert: setOnInsert }, upsert: true } }
+    })
+
 export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) => {
     if (!env.MONGODB_URI) return {}
 
     const uri = env.MONGODB_URI
     const runMongo = async <T>(op: (mongo: Mongo) => Promise<T>) => {
+        const mongo = getMongo(uri)
         try {
-            return await op(getMongo(uri))
+            return await op(mongo)
         } catch (error) {
             if (!isMongoClientClosed(error)) throw error
-            await resetMongo()
+            await resetMongo(mongo)
             return op(getMongo(uri))
         }
     }
@@ -85,15 +97,10 @@ export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) 
             const res = await runMongo((mongo) => mongo.logs.insertMany(rows))
             return res.insertedCount
         },
-        upsertDevice: async (row) => {
-            const { seenAt, deviceId, tokenId, tokenAlias, ...meta } = row
-            const set: Record<string, unknown> = { tokenId, tokenAlias, lastSeenAt: seenAt }
-            const setOnInsert: Record<string, unknown> = { deviceId, firstSeenAt: seenAt }
-            for (const [key, value] of Object.entries(meta)) {
-                if (value === null) setOnInsert[key] = null
-                else set[key] = value
-            }
-            await runMongo((mongo) => mongo.devices.updateOne({ deviceId }, { $set: set, $setOnInsert: setOnInsert }, { upsert: true }))
+        upsertDevices: async (rows) => {
+            if (rows.length === 0) return
+            const operations = buildDeviceUpsertOperations(rows)
+            await runMongo((mongo) => mongo.devices.bulkWrite(operations))
         },
         listLogs: async (filter) => {
             const query: Filter<MetricsLogDoc> = {}
@@ -101,15 +108,17 @@ export const composeMetrics = ({ db, env, storageService }: ComposeMetricsArgs) 
             if (filter.tokenId) query.tokenId = filter.tokenId
             if (filter.from || filter.to)
                 query.receivedAt = { ...(filter.from ? { $gte: filter.from } : {}), ...(filter.to ? { $lte: filter.to } : {}) }
-            const total = await runMongo((mongo) => mongo.logs.countDocuments(query))
-            const rows = await runMongo((mongo) =>
-                mongo.logs
-                    .find(query, { projection: { _id: 0 } })
-                    .sort({ receivedAt: -1 })
-                    .skip(filter.offset)
-                    .limit(filter.limit)
-                    .toArray(),
-            )
+            const [total, rows] = await Promise.all([
+                runMongo((mongo) => mongo.logs.countDocuments(query)),
+                runMongo((mongo) =>
+                    mongo.logs
+                        .find(query, { projection: { _id: 0 } })
+                        .sort({ receivedAt: -1 })
+                        .skip(filter.offset)
+                        .limit(filter.limit)
+                        .toArray(),
+                ),
+            ])
             return { rows, total }
         },
         listDevices: async () =>
