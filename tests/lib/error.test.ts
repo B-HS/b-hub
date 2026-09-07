@@ -1,7 +1,26 @@
 import { describe, expect, test } from 'bun:test'
-import { createAppError, isAppError, getStatusCode } from '../../lib/error'
+import { createAppError, describeAppError, isAppError, getStatusCode } from '../../lib/error'
 import { ERROR_CODE } from '../../lib/error-code'
 import { ERROR_MESSAGE } from '../../lib/error-message'
+
+describe('describeAppError', () => {
+    test('details.detail 이 있으면 메시지 뒤에 괄호로 붙인다', () => {
+        expect(describeAppError(createAppError('WEATHER_KMA_API_ERROR', { detail: 'HTTP 403' }))).toBe(
+            `${ERROR_MESSAGE.WEATHER_KMA_API_ERROR} (HTTP 403)`,
+        )
+    })
+
+    test('details.message 도 사유로 쓴다', () => {
+        expect(describeAppError(createAppError('MAIL_PROVIDER_ERROR', { message: 'Failed query' }))).toBe(
+            `${ERROR_MESSAGE.MAIL_PROVIDER_ERROR} (Failed query)`,
+        )
+    })
+
+    test('문자열 사유가 없으면 메시지만 돌려준다', () => {
+        expect(describeAppError(createAppError('NOT_FOUND'))).toBe(ERROR_MESSAGE.NOT_FOUND)
+        expect(describeAppError(createAppError('NOT_FOUND', { status: 404 }))).toBe(ERROR_MESSAGE.NOT_FOUND)
+    })
+})
 
 describe('createAppError', () => {
     test('에러 코드로 AppError를 생성한다', () => {

@@ -1,5 +1,5 @@
 import type { Context } from 'hono'
-import { isAppError } from './error'
+import { describeAppError, isAppError } from './error'
 import { ERROR_MESSAGE } from './error-message'
 import { errorResponse } from './api-response'
 import { captureException } from './sentry'
@@ -12,6 +12,7 @@ export const withErrorHandling = (handler: Handler) => async (c: Context) => {
     } catch (error) {
         if (isAppError(error)) {
             c.set('errorCode', error.code)
+            c.set('errorDetail', describeAppError(error))
             return c.json(errorResponse(error.code, error.message, error.details), error.statusCode as 400)
         }
         const safeMessage = error instanceof Error ? error.message : 'Unknown error'

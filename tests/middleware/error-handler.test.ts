@@ -13,6 +13,23 @@ const createApp = (throwFn: () => never) => {
 }
 
 describe('errorHandler middleware', () => {
+    test('AppError 의 사유를 errorDetail 컨텍스트 변수로 남긴다', async () => {
+        const app = new Hono()
+        let captured: unknown = null
+        app.use('*', async (c, next) => {
+            await next()
+            captured = c.get('errorDetail' as never)
+        })
+        app.use('*', errorHandler())
+        app.get('/test', async () => {
+            throw createAppError('MAIL_PROVIDER_ERROR', { message: 'Failed query: insert' })
+        })
+
+        const res = await app.request('/test')
+        expect(res.status).toBe(502)
+        expect(captured).toBe('메일 서버 연결에 실패했습니다 (Failed query: insert)')
+    })
+
     test('AppError면 해당 statusCode와 코드를 반환한다', async () => {
         const app = createApp(() => {
             throw createAppError('NOT_FOUND')

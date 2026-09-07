@@ -140,3 +140,12 @@ export const createAppError = (code: ErrorCode, details?: Record<string, unknown
 
 export const isAppError = (error: unknown): error is AppError =>
     typeof error === 'object' && error !== null && 'code' in error && 'message' in error && 'statusCode' in error
+
+/**
+ * Builds the log description for an AppError: the user-facing message plus the
+ * diagnostic reason carried in details.detail or details.message, when present.
+ */
+export const describeAppError = (error: AppError) => {
+    const reason = error.details?.detail ?? error.details?.message
+    return typeof reason === 'string' && reason.length > 0 ? `${error.message} (${reason})` : error.message
+}

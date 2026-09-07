@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Hono } from 'hono'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
+import { ERROR_MESSAGE } from '../../lib/error-message'
 
 describe('withErrorHandling', () => {
     test('정상 응답을 그대로 통과시킨다', async () => {
@@ -31,6 +32,25 @@ describe('withErrorHandling', () => {
         const body = await res.json()
         expect(body.success).toBe(false)
         expect(body.error.code).toBe('NOT_FOUND')
+    })
+
+    test('AppError 의 사유를 errorDetail 컨텍스트 변수로 남겨 로그 캡처가 읽게 한다', async () => {
+        const app = new Hono()
+        let captured: unknown = null
+        app.use('*', async (c, next) => {
+            await next()
+            captured = c.get('errorDetail' as never)
+        })
+        app.get(
+            '/test',
+            withErrorHandling(async () => {
+                throw createAppError('WEATHER_KMA_API_ERROR', { detail: 'HTTP 403' })
+            }),
+        )
+
+        const res = await app.request('/test')
+        expect(res.status).toBe(502)
+        expect(captured).toBe(`${ERROR_MESSAGE.WEATHER_KMA_API_ERROR} (HTTP 403)`)
     })
 
     test('AppError의 details를 포함한다', async () => {
