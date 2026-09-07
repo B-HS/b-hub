@@ -16,6 +16,7 @@ type BadgeRouteDeps = {
 }
 
 const BADGE_IMAGE_RATE_LIMIT_PATH = 'badge:image'
+const BADGE_IMAGE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 const UNKNOWN_CLIENT_IP = 'unknown'
 
 const getClientIp = (c: Context) => {
@@ -138,7 +139,8 @@ export const createBadgeRoute = (deps: BadgeRouteDeps) => {
                 headers: {
                     'Content-Type': 'image/png',
                     'X-Cache': result.cacheHit ? 'HIT' : 'MISS',
-                    'Cache-Control': 'public, max-age=31536000, immutable',
+                    'Cache-Control': BADGE_IMAGE_CACHE_CONTROL,
+                    'CDN-Cache-Control': BADGE_IMAGE_CACHE_CONTROL,
                     ...rateLimitHeaders,
                 },
             })

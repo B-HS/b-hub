@@ -65,7 +65,14 @@ export const createBadgeService = (deps: BadgeDeps) => {
         const cached = deps.cache.get(cacheKey)
         if (cached) return { buffer: cached, cacheHit: true }
 
-        const fontConfig = await deps.fontLoader.load(request.font, request.fontWeight)
+        const loadIcon = async () => {
+            if (request.iconUrl) return (await deps.iconLoader.loadFromUrl(request.iconUrl)) ?? undefined
+            if (request.icon) return (await deps.iconLoader.loadLocal(request.icon)) ?? undefined
+            return undefined
+        }
+
+        const [fontConfig, iconDataUrl] = await Promise.all([deps.fontLoader.load(request.font, request.fontWeight), loadIcon()])
+
         const fonts = fontConfig
             ? [
                   {
@@ -76,13 +83,6 @@ export const createBadgeService = (deps: BadgeDeps) => {
                   },
               ]
             : []
-
-        let iconDataUrl: string | undefined
-        if (request.iconUrl) {
-            iconDataUrl = (await deps.iconLoader.loadFromUrl(request.iconUrl)) ?? undefined
-        } else if (request.icon) {
-            iconDataUrl = (await deps.iconLoader.loadLocal(request.icon)) ?? undefined
-        }
 
         const tailwindStyles = convertTailwind(request.tailwind)
         const computedStyles = mergeStyles(tailwindStyles, request.css)

@@ -235,6 +235,28 @@ describe('createBadgeService 폰트 크기와 실패 처리', () => {
         expect(readTextStyle(zeroDeps).fontSize).toBe(100)
     })
 
+    test('폰트와 아이콘을 병렬로 로드한다', async () => {
+        const deps = createMockDeps()
+        let isIconStarted = false
+
+        deps.fontLoader.load = mock(
+            () =>
+                new Promise((resolve) => {
+                    const waitForIcon = () => (isIconStarted ? resolve(null) : setTimeout(waitForIcon, 1))
+                    waitForIcon()
+                }),
+        ) as never
+        deps.iconLoader.loadFromUrl = mock(() => {
+            isIconStarted = true
+            return Promise.resolve('data:image/png;base64,xyz')
+        })
+
+        await createBadgeService(deps).generate({ ...defaultRequest, iconUrl: 'https://example.com/icon.png' })
+
+        expect(isIconStarted).toBe(true)
+        expect(deps.imageGenerator.generate).toHaveBeenCalledTimes(1)
+    })
+
     test('이미지 생성 예외는 IMAGE_GENERATE_FAILED로 변환한다', async () => {
         const deps = createMockDeps()
         deps.imageGenerator.generate = mock(() => Promise.reject(new Error('satori boom'))) as never

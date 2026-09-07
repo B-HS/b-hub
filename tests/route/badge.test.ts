@@ -35,6 +35,13 @@ describe('GET /badge/image', () => {
         expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable')
     })
 
+    test('CDN-Cache-Control 을 Cache-Control 과 같은 값으로 내려준다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/badge/image')
+        expect(res.headers.get('CDN-Cache-Control')).toBe('public, max-age=31536000, immutable')
+        expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable')
+    })
+
     test('캐시 미스면 X-Cache: MISS를 반환한다', async () => {
         const { app } = createApp()
         const res = await app.request('/badge/image')
