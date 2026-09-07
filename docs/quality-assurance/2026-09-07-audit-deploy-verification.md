@@ -6,31 +6,36 @@
 
 ## 1. 배포 전 (한 번만)
 
-- [ ] **스키마 반영** — `bun run db:push` 를 프로덕션 DB 에 실행한다. 대기 중인 변경 3건이 한 번에 적용된다.
+- [x] **스키마 반영** (2026-09-07 완료 — 1차 실행은 `ER_DROP_INDEX_FK` 로 중단, FK 인덱스 2종 유지 후 재실행, `No changes detected` 확인) — `bun run db:push` 를 프로덕션 DB 에 실행한다. 대기 중인 변경 3건이 한 번에 적용된다.
   - `mail_messages` unique → `(account_id, folder_id, remote_message_id)` (1차 F-7). 적용 전 같은 계정·폴더에 `remote_message_id` 중복 행이 있으면 push 가 실패한다. 실패하면 중복 행을 먼저 정리한다(가장 낮은 id 만 남김).
   - `calendar_subscription.user_id` unique (3차 R-25). 사용자당 구독 행이 2개 이상이면 실패한다.
   - 조회용 인덱스 8종 추가 + 중복 인덱스 3종 제거 (4차 P-02). FK 컬럼의 단일 인덱스(`idx_subscription_user`·`idx_mail_sync_logs_account`)는 유지한다. 큰 테이블(`log_events`·`weather_api_log`·`mail_sync_logs`)은 인덱스 생성에 수십 초가 걸릴 수 있다.
   - 기대: `drizzle-kit push` 가 오류 없이 끝나고, 이후 `bun run db:push` 재실행 시 "No changes detected".
-- [ ] **환경변수 확인** (Vercel 프로젝트 설정)
+- [x] **환경변수 확인** (2026-09-07 완료 — 코드가 읽는 항목 전부 존재, `SENTRY_DSN`·`DISCORD_WEBHOOK_URL` 은 선택으로 보류)
   - `UPLOAD_SERVER_SECRET` — upload-server 콜백 인증(1차 S-01)과 크론 시크릿 폴백(`/api/drive/lifecycle/*`·`/api/metrics/archive`·`/api/logs/purge`)에 쓰인다. 미설정이면 콜백은 503, 크론은 401 로 fail-closed.
   - `BETTER_AUTH_SECRET` — `/admin`·`/manage` CSRF 시크릿. 미설정이면 상태 변경 POST 가 403.
   - `MONGODB_URI`·`MAIL_ENCRYPTION_KEY`·`AI_ENCRYPTION_KEY` — 기존과 동일.
   - `REDIS_URL`(선택) — 있으면 mail·ai rate limit 카운터가 인스턴스 간 공유되고 weather 캐시가 Redis 를 쓴다. 없으면 인메모리(이전과 동일).
   - `SENTRY_DSN`(선택) — 3차부터 부트스트랩에서 실제로 초기화된다. 설정돼 있으면 이벤트가 처음으로 들어오기 시작하므로 쿼터를 확인한다.
-- [ ] **Vercel 크론 수** — `vercel.json` 의 crons 가 4개(`evict-r2`·`auto-promote`·`metrics/archive`·`logs/purge`)다. 플랜 한도 안인지 확인한다.
-- [ ] **별도 Docker 서비스 재배포** — `deploy/upload-server`(2차: complete 콜백에 `sizeBytes` 추가, 4차: gdrive folderCache LRU)와 `deploy/caldav-proxy`(2차: `Accept-Encoding: identity` + 압축 헤더 제거)를 재빌드·재기동한다. 순서: b-hub 먼저, 그다음 두 서비스.
+- [x] **Vercel 크론 수** — 해당 없음: 사용자가 2026-09-07 크론을 비활성화했다. 다시 켤 때 `CRON_SECRET` 과 `UPLOAD_SERVER_SECRET` 값이 같아야 하며, 4개(`evict-r2`·`auto-promote`·`metrics/archive`·`logs/purge`)가 플랜 한도 안인지 확인한다.
+- [x] **별도 Docker 서비스 재배포** (2026-09-07 완료) — 서버(`~/server`)에서 두 경로가 다르다.
+  - upload-server: `cd ~/server/b-hub/deploy/upload-server && git pull && docker compose up -d --build` (compose 프로젝트 `upload-server`, `.env` 는 그 디렉터리 것).
+  - caldav-proxy: `~/server/compose.yml` 의 서비스(`build: ./caldav-proxy`, `gumyo` 네트워크)라 **`~/server/caldav-proxy/` 사본을 먼저 덮어써야** 한다: `cp b-hub/deploy/caldav-proxy/{proxy.ts,Dockerfile} caldav-proxy/ && docker compose up -d --build caldav-proxy`. `deploy/caldav-proxy` 에서 직접 `up` 하면 포트 4000 충돌로 실패한다.
 - [ ] **롤백 준비** — 문제가 생기면 Vercel 에서 직전 배포로 promote 한다. 스키마는 unique·인덱스 추가만이라 롤백 코드와도 호환된다(unique 위반이 생길 수 있는 경로는 1차 이전 코드의 중복 upsert 뿐).
 
 ## 2. 배포 직후 스모크 (5분)
 
-- [ ] `GET /api/health` → 200.
-- [ ] `GET /` (어드민 대시보드) → 로그인 리다이렉트 303 `/admin/login?next=…`. 로그인 후 대시보드 200, `GET /admin/login/logout` 으로 로그아웃되고 다시 `/admin/login` 이 보인다(3차 원복 확인).
-- [ ] `GET /api/blog/posts?limit=1` → 200, `data[0]` 의 필드 순서가 `postId … tags` 이고 `tags` 가 배열.
-- [ ] `GET /api/weather/locations` → 200 + `ETag`·`Cache-Control` 헤더. 같은 `If-None-Match` 로 재요청 → 304.
-- [ ] `GET /api/badge/image` → 200 PNG + `CDN-Cache-Control` 헤더 + `X-RateLimit-Limit: 60`.
-- [ ] Vercel 함수 로그에 `MongoTopologyClosedError`·`ER_DUP_ENTRY`·`Unknown column` 이 없다.
+- [x] `GET /api/health` → 200. (2026-09-07 11:52 UTC 확인)
+- [x] `GET /admin` → 303 `/admin/login?next=%2Fadmin`, `GET /admin/login/logout` → 302 `/admin/login` + 세션 쿠키 무효화 `Set-Cookie`(3차 원복 확인). 로그인 후 대시보드 200 은 사용자 확인 필요.
+- [x] `GET /api/blog/posts?limit=1` → 200, 필드 순서 `postId … tags`, `tags` 배열, `pagination.total` 정상.
+- [ ] `GET /api/weather/locations` → 키 없이 401(정책 불변) 확인. ETag·304 는 weather 키로 사용자 확인 필요.
+- [x] `GET /api/badge/image?v=<ts>` → 200 + `CDN-Cache-Control` + `X-RateLimit-Limit: 60`, 기존 `Cache-Control` 값 동일. `GET /api/spotify/playing/<무효 토큰>` → 404 + `X-RateLimit-Limit: 60`.
+- [x] `GET /api/logs/purge` 시크릿 없이 → 401 `{ success:false, error:{ code:'UNAUTHORIZED' } }` 봉투(3차 신규 라우트 반영 지표). `POST /api/metrics/ingest` 토큰 없이 → 401.
+- [ ] Vercel 함수 로그에 `MongoTopologyClosedError`·`ER_DUP_ENTRY`·`Unknown column` 이 없다(사용자 확인).
 
 ## 3. 소비자별 실동작 확인 (배포 당일)
+
+> 2026-09-07 사용자 확인: bblog·RESUME·mail·Calendar·Storage 정상. weather 웹·ESP32, ESP32 로그·dashboard, Spotify 위젯, /manage 는 추후 확인(사용자 결정).
 
 | 소비자 | 확인 | 기대 결과 |
 |------|------|------|

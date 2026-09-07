@@ -105,6 +105,7 @@
 - `Dockerfile`: `oven/bun:1-alpine`, `proxy.ts` 복사, `EXPOSE 4000`, `CMD ["bun", "run", "proxy.ts"]`.
 - `compose.yml`: `build: .`, `restart: unless-stopped`, 포트 `4000:4000`, env `PORT=4000`.
 - 기동: `docker compose up -d --build caldav-proxy`(`compose.yml` 주석).
+- **실제 운영 서버 배치(2026-09-07 확인)**: 프로덕션 컨테이너 `server-caldav-proxy-1` 은 `deploy/caldav-proxy/compose.yml` 이 아니라 **`~/server/compose.yml` 의 서비스**(`build: ./caldav-proxy`, `gumyo` 네트워크로 nginx 와 연결)다. 코드를 바꾸면 `~/server/caldav-proxy/` **사본을 먼저 덮어쓴 뒤** `~/server` 에서 빌드한다: `cp b-hub/deploy/caldav-proxy/{proxy.ts,Dockerfile} caldav-proxy/ && docker compose up -d --build caldav-proxy`. `deploy/caldav-proxy` 안에서 `docker compose up` 을 실행하면 별도 프로젝트가 생성돼 포트 4000 충돌(`port is already allocated`)로 실패한다.
 - 이 프록시는 `:4000` 에서 HTTP 로 수신한다. TLS 종단은 이 컨테이너 밖(외부 리버스 프록시/터널)에서 처리한다.
 
 ---
