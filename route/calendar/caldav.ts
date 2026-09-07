@@ -158,20 +158,24 @@ export const createCalendarCaldavRoute = (deps: CalendarCaldavRouteDeps) => {
         const calendarHref = buildCollectionHref(token!, isDefaultCollection)
 
         if (report.type === 'calendar-multiget') {
-            const responses: Array<{ href: string; etag: string; calendarData?: string; status?: number }> = []
-
-            for (const href of report.hrefs) {
+            const requestedEvents = report.hrefs.map((href) => {
                 const uid = href.split('/').pop()?.replace('.ics', '').replace(/%40/g, '@') ?? ''
-                const searchUid = uid.split('@')[0]
-                const event = await deps.calendarService.getEventByUid(userId, searchUid)
+                return { href, searchUid: uid.split('@')[0] }
+            })
+            const eventsByUid = await deps.calendarService.getEventsByUids(
+                userId,
+                requestedEvents.map((requested) => requested.searchUid),
+            )
 
-                if (event) {
+            const responses: Array<{ href: string; etag: string; calendarData?: string; status?: number }> = requestedEvents.map(
+                ({ href, searchUid }) => {
+                    const event = eventsByUid.get(searchUid)
+                    if (!event) return { href, etag: '', status: 404 }
+
                     const icsContent = eventsToICS([event], 'Calendar', domain, timezone)
-                    responses.push({ href, etag: deps.calendarService.getEventEtag(event), calendarData: icsContent })
-                } else {
-                    responses.push({ href, etag: '', status: 404 })
-                }
-            }
+                    return { href, etag: deps.calendarService.getEventEtag(event), calendarData: icsContent }
+                },
+            )
 
             return new Response(buildCalendarDataResponse(responses), {
                 status: 207,

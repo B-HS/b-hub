@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from 'bun:test'
+import { afterEach, describe, expect, setSystemTime, test, mock } from 'bun:test'
 import { Hono } from 'hono'
 import { createCalendarIcsRoute } from '../../../route/calendar/ics'
 
@@ -99,5 +99,91 @@ describe('GET /calendar/:icsToken', () => {
         expect(body).toContain('BEGIN:VCALENDAR')
         expect(body).toContain('END:VCALENDAR')
         expect(body).not.toContain('BEGIN:VEVENT')
+    })
+})
+
+describe('GET /calendar/:icsToken ETag (P-18)', () => {
+    const CLOCK_SHIFT_MS = 60 * 1000
+
+    afterEach(() => {
+        setSystemTime()
+    })
+
+    test('약한 ETag 헤더를 함께 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/calendar/valid-ics-token')
+
+        expect(res.status).toBe(200)
+        expect(res.headers.get('ETag')).toMatch(/^W\/"[0-9a-f]{32}"$/)
+        expect(res.headers.get('Content-Type')).toBe('text/calendar; charset=utf-8')
+        expect(res.headers.get('Cache-Control')).toBe('no-cache, no-store, must-revalidate')
+        expect(res.headers.get('Content-Disposition')).toBe('attachment; filename="My Calendar.ics"')
+    })
+
+    test('If-None-Match 가 일치하면 본문 없이 304 를 반환한다', async () => {
+        const { app } = createApp()
+        const first = await app.request('/calendar/valid-ics-token')
+        const etag = first.headers.get('ETag')!
+
+        const second = await app.request('/calendar/valid-ics-token', { headers: { 'If-None-Match': etag } })
+
+        expect(second.status).toBe(304)
+        expect(second.headers.get('ETag')).toBe(etag)
+        expect(await second.text()).toBe('')
+    })
+
+    test('강한 형식·목록·와일드카드 If-None-Match 도 304 로 처리한다', async () => {
+        const { app } = createApp()
+        const etag = (await app.request('/calendar/valid-ics-token')).headers.get('ETag')!
+        const strongEtag = etag.replace('W/', '')
+
+        const strong = await app.request('/calendar/valid-ics-token', { headers: { 'If-None-Match': strongEtag } })
+        const list = await app.request('/calendar/valid-ics-token', { headers: { 'If-None-Match': `"other", ${etag}` } })
+        const wildcard = await app.request('/calendar/valid-ics-token', { headers: { 'If-None-Match': '*' } })
+
+        expect(strong.status).toBe(304)
+        expect(list.status).toBe(304)
+        expect(wildcard.status).toBe(304)
+    })
+
+    test('If-None-Match 가 다르면 200 과 본문을 그대로 반환한다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/calendar/valid-ics-token', { headers: { 'If-None-Match': 'W/"stale-etag"' } })
+
+        expect(res.status).toBe(200)
+        expect(await res.text()).toContain('BEGIN:VEVENT')
+    })
+
+    test('DTSTAMP 만 달라지면 ETag 가 유지된다', async () => {
+        const { app } = createApp()
+        setSystemTime(new Date('2024-06-01T00:00:00Z'))
+        const first = await app.request('/calendar/valid-ics-token')
+        const firstBody = await first.text()
+
+        setSystemTime(new Date(new Date('2024-06-01T00:00:00Z').getTime() + CLOCK_SHIFT_MS))
+        const second = await app.request('/calendar/valid-ics-token')
+        const secondBody = await second.text()
+
+        expect(firstBody).not.toBe(secondBody)
+        expect(second.headers.get('ETag')).toBe(first.headers.get('ETag'))
+    })
+
+    test('이벤트 내용이 바뀌면 ETag 가 달라진다', async () => {
+        const { app } = createApp()
+        const before = await app.request('/calendar/valid-ics-token')
+
+        const changedDeps = createMockDeps()
+        changedDeps.calendarService.getAllEvents = mock(() => Promise.resolve([{ ...mockEvent, summary: '변경된 회의' }])) as never
+        const { app: changedApp } = createApp(changedDeps)
+        const after = await changedApp.request('/calendar/valid-ics-token')
+
+        expect(after.headers.get('ETag')).not.toBe(before.headers.get('ETag'))
+    })
+
+    test('구독이 없으면 If-None-Match 와 무관하게 404 이다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/calendar/invalid-token', { headers: { 'If-None-Match': '*' } })
+
+        expect(res.status).toBe(404)
     })
 })

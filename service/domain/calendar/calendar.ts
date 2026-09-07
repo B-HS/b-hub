@@ -91,7 +91,7 @@ export type CalendarServiceDb = {
     getEventsByDateRange: (userId: string, startDate: Date, endDate: Date, groupId?: string) => Promise<CalendarEventRow[]>
     getAllEvents: (userId: string) => Promise<CalendarEventRow[]>
     getEventByUid: (userId: string, uid: string) => Promise<CalendarEventRow | null>
-    getEventByUidWithDomain: (userId: string, uid: string) => Promise<CalendarEventRow | null>
+    getEventsByUids: (userId: string, uids: string[]) => Promise<CalendarEventRow[]>
     insertEvent: (data: {
         id: string
         userId: string
@@ -168,6 +168,10 @@ export type CalendarServiceDb = {
     updateUserTimezone: (userId: string, timezone: string) => Promise<void>
 }
 
+export const CALENDAR_UID_DOMAIN_SUFFIX = '@b-calendar'
+
+const SUBSCRIPTION_LAST_ACCESSED_INTERVAL_MS = 5 * 60 * 1000
+
 const toNull = <T>(value: T | undefined | null | ''): T | null => (value === undefined || value === null || value === '' ? null : value)
 
 const toCalendarEvent = (row: CalendarEventRow): CalendarEvent => ({
@@ -243,10 +247,23 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
 
     const getEventByUid = async (userId: string, uid: string): Promise<CalendarEvent | null> => {
         const row = await db.getEventByUid(userId, uid)
-        if (row) return toCalendarEvent(row)
+        return row ? toCalendarEvent(row) : null
+    }
 
-        const rowWithDomain = await db.getEventByUidWithDomain(userId, uid)
-        return rowWithDomain ? toCalendarEvent(rowWithDomain) : null
+    const getEventsByUids = async (userId: string, uids: string[]): Promise<Map<string, CalendarEvent>> => {
+        const uniqueUids = [...new Set(uids)]
+        const eventsByUid = new Map<string, CalendarEvent>()
+        if (uniqueUids.length === 0) return eventsByUid
+
+        const rows = await db.getEventsByUids(userId, [...uniqueUids, ...uniqueUids.map((uid) => `${uid}${CALENDAR_UID_DOMAIN_SUFFIX}`)])
+        const rowsByUid = new Map(rows.map((row) => [row.uid, row]))
+
+        for (const uid of uniqueUids) {
+            const row = rowsByUid.get(uid) ?? rowsByUid.get(`${uid}${CALENDAR_UID_DOMAIN_SUFFIX}`)
+            if (row) eventsByUid.set(uid, toCalendarEvent(row))
+        }
+
+        return eventsByUid
     }
 
     const createEvent = async (userId: string, data: Omit<CalendarEvent, 'uid' | 'created' | 'lastModified'>): Promise<CalendarEvent> => {
@@ -336,16 +353,14 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
 
     const deleteEvent = async (userId: string, uid: string): Promise<void> => {
         const event = await db.getEventByUid(userId, uid)
-        const eventWithDomain = event ?? (await db.getEventByUidWithDomain(userId, uid))
+        if (!event) return
 
-        if (eventWithDomain) {
-            await db.deleteEventWithTombstone({
-                userId,
-                uid: eventWithDomain.uid,
-                deletedEventId: crypto.randomUUID(),
-                syncToken: Date.now().toString(36),
-            })
-        }
+        await db.deleteEventWithTombstone({
+            userId,
+            uid: event.uid,
+            deletedEventId: crypto.randomUUID(),
+            syncToken: Date.now().toString(36),
+        })
     }
 
     const upsertEventByUid = async (
@@ -451,8 +466,10 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
 
     const getSubscriptionByToken = async (token: string): Promise<CalendarSubscription | null> => {
         const subscription = await db.getSubscriptionByToken(token)
+        if (!subscription) return null
 
-        if (subscription) {
+        const lastAccessedMs = subscription.lastAccessedAt?.getTime() ?? 0
+        if (Date.now() - lastAccessedMs >= SUBSCRIPTION_LAST_ACCESSED_INTERVAL_MS) {
             await db.updateSubscriptionLastAccessed(subscription.id)
         }
 
@@ -518,6 +535,7 @@ export const createCalendarService = (deps: CalendarServiceDeps) => {
         getEventsByDateRange,
         getAllEvents,
         getEventByUid,
+        getEventsByUids,
         createEvent,
         updateEvent,
         deleteEvent,

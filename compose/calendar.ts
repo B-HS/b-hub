@@ -1,6 +1,6 @@
-import { eq, and, gte, lte, or, isNotNull, sql } from 'drizzle-orm'
+import { eq, and, gte, lte, or, isNotNull, inArray, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
-import { createCalendarService } from '../service/domain/calendar/calendar'
+import { CALENDAR_UID_DOMAIN_SUFFIX, createCalendarService } from '../service/domain/calendar/calendar'
 import { createCaldavService } from '../service/domain/calendar/caldav'
 import type { ComposeCoreArgs } from './types'
 
@@ -48,16 +48,21 @@ export const composeCalendar = ({ db }: ComposeCoreArgs) => {
                 const rows = await db
                     .select()
                     .from(schema.calendarEvent)
-                    .where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.uid, uid)))
-                return rows[0] ?? null
+                    .where(
+                        and(
+                            eq(schema.calendarEvent.userId, userId),
+                            or(eq(schema.calendarEvent.uid, uid), eq(schema.calendarEvent.uid, `${uid}${CALENDAR_UID_DOMAIN_SUFFIX}`)),
+                        ),
+                    )
+                return rows.find((row) => row.uid === uid) ?? rows[0] ?? null
             },
 
-            getEventByUidWithDomain: async (userId, uid) => {
-                const rows = await db
+            getEventsByUids: async (userId, uids) => {
+                if (uids.length === 0) return []
+                return db
                     .select()
                     .from(schema.calendarEvent)
-                    .where(and(eq(schema.calendarEvent.userId, userId), eq(schema.calendarEvent.uid, `${uid}@b-calendar`)))
-                return rows[0] ?? null
+                    .where(and(eq(schema.calendarEvent.userId, userId), inArray(schema.calendarEvent.uid, uids)))
             },
 
             insertEvent: async (data) => {

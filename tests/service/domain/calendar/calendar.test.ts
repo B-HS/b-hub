@@ -7,7 +7,7 @@ const createMockDb = (): CalendarServiceDb => ({
     getEventsByDateRange: mock(() => Promise.resolve([])),
     getAllEvents: mock(() => Promise.resolve([])),
     getEventByUid: mock(() => Promise.resolve(null)),
-    getEventByUidWithDomain: mock(() => Promise.resolve(null)),
+    getEventsByUids: mock(() => Promise.resolve([])),
     insertEvent: mock(() => Promise.resolve()),
     updateEvent: mock(() => Promise.resolve()),
     deleteEventWithTombstone: mock(() => Promise.resolve()),
@@ -154,35 +154,69 @@ describe('CalendarService', () => {
             expect(event?.uid).toBe('uid-123@b-calendar')
         })
 
-        test('도메인 접미사 없이도 찾는다', async () => {
-            const mockRow = {
-                uid: 'uid-123@b-calendar',
-                summary: 'Test Event',
-                description: null,
-                location: null,
-                dtstart: new Date('2024-01-15T10:00:00Z'),
-                dtend: new Date('2024-01-15T11:00:00Z'),
-                isAllDay: false,
-                rrule: null,
-                exdate: null,
-                status: null,
-                transp: null,
-                priority: null,
-                categories: null,
-                color: null,
-                groupId: null,
-                sequence: 0,
-                createdAt: new Date('2024-01-01'),
-                updatedAt: new Date('2024-01-01'),
-            }
-            ;(mockDb.getEventByUid as ReturnType<typeof mock>).mockResolvedValue(null)
-            ;(mockDb.getEventByUidWithDomain as ReturnType<typeof mock>).mockResolvedValue(mockRow)
+        test('도메인 변형까지 DB 조회 1회로 해결한다 (P-18)', async () => {
+            const mockRow = createEventRow({ uid: 'uid-123@b-calendar' })
+            ;(mockDb.getEventByUid as ReturnType<typeof mock>).mockResolvedValue(mockRow)
             const service = createCalendarService({ db: mockDb })
 
             const event = await service.getEventByUid('user-123', 'uid-123')
 
-            expect(event).not.toBeNull()
             expect(event?.uid).toBe('uid-123@b-calendar')
+            expect(mockDb.getEventByUid).toHaveBeenCalledTimes(1)
+            expect(mockDb.getEventByUid).toHaveBeenCalledWith('user-123', 'uid-123')
+        })
+    })
+
+    describe('getEventsByUids', () => {
+        test('uid 별 도메인 변형까지 한 번의 조회로 매핑한다 (P-18)', async () => {
+            const bareRow = createEventRow({ uid: 'bare-uid' })
+            const domainRow = createEventRow({ uid: 'domain-uid@b-calendar' })
+            ;(mockDb.getEventsByUids as ReturnType<typeof mock>).mockResolvedValue([bareRow, domainRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByUids('user-123', ['bare-uid', 'domain-uid', 'missing-uid'])
+
+            expect(mockDb.getEventsByUids).toHaveBeenCalledTimes(1)
+            expect(mockDb.getEventsByUids).toHaveBeenCalledWith('user-123', [
+                'bare-uid',
+                'domain-uid',
+                'missing-uid',
+                'bare-uid@b-calendar',
+                'domain-uid@b-calendar',
+                'missing-uid@b-calendar',
+            ])
+            expect(events.get('bare-uid')?.uid).toBe('bare-uid')
+            expect(events.get('domain-uid')?.uid).toBe('domain-uid@b-calendar')
+            expect(events.get('missing-uid')).toBeUndefined()
+        })
+
+        test('정확히 일치하는 uid 를 도메인 변형보다 우선한다', async () => {
+            const exactRow = createEventRow({ uid: 'dup-uid', summary: 'exact' })
+            const domainRow = createEventRow({ uid: 'dup-uid@b-calendar', summary: 'domain' })
+            ;(mockDb.getEventsByUids as ReturnType<typeof mock>).mockResolvedValue([domainRow, exactRow])
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByUids('user-123', ['dup-uid'])
+
+            expect(events.get('dup-uid')?.summary).toBe('exact')
+        })
+
+        test('중복 uid 는 한 번만 조회한다', async () => {
+            ;(mockDb.getEventsByUids as ReturnType<typeof mock>).mockResolvedValue([])
+            const service = createCalendarService({ db: mockDb })
+
+            await service.getEventsByUids('user-123', ['same-uid', 'same-uid'])
+
+            expect(mockDb.getEventsByUids).toHaveBeenCalledWith('user-123', ['same-uid', 'same-uid@b-calendar'])
+        })
+
+        test('빈 목록이면 DB 를 조회하지 않는다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const events = await service.getEventsByUids('user-123', [])
+
+            expect(events.size).toBe(0)
+            expect(mockDb.getEventsByUids).not.toHaveBeenCalled()
         })
     })
 
@@ -713,6 +747,36 @@ describe('CalendarService', () => {
 
             expect(result?.ctag).toBe('original-ctag')
             expect(mockDb.incrementCtag).not.toHaveBeenCalled()
+        })
+
+        test('5분 이내에 접근한 구독은 lastAccessedAt 을 다시 쓰지 않는다 (P-07)', async () => {
+            const sub = { ...existingSubscription, lastAccessedAt: new Date(Date.now() - 60 * 1000) }
+            ;(mockDb.getSubscriptionByToken as ReturnType<typeof mock>).mockResolvedValue(sub)
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.getSubscriptionByToken('existing-token')
+
+            expect(result).toBe(sub)
+            expect(mockDb.updateSubscriptionLastAccessed).not.toHaveBeenCalled()
+        })
+
+        test('5분이 지난 구독은 lastAccessedAt 을 갱신한다 (P-07)', async () => {
+            const sub = { ...existingSubscription, lastAccessedAt: new Date(Date.now() - 6 * 60 * 1000) }
+            ;(mockDb.getSubscriptionByToken as ReturnType<typeof mock>).mockResolvedValue(sub)
+            const service = createCalendarService({ db: mockDb })
+
+            await service.getSubscriptionByToken('existing-token')
+
+            expect(mockDb.updateSubscriptionLastAccessed).toHaveBeenCalledWith('sub-1')
+        })
+
+        test('구독이 없으면 null 을 반환하고 갱신하지 않는다', async () => {
+            const service = createCalendarService({ db: mockDb })
+
+            const result = await service.getSubscriptionByToken('missing-token')
+
+            expect(result).toBeNull()
+            expect(mockDb.updateSubscriptionLastAccessed).not.toHaveBeenCalled()
         })
     })
 

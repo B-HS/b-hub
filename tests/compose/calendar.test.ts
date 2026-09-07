@@ -85,6 +85,90 @@ describe('composeCalendar deleteEventWithTombstone', () => {
     })
 })
 
+const createEventRow = (uid: string, summary = 'Event') => ({
+    uid,
+    summary,
+    description: null,
+    location: null,
+    dtstart: new Date('2024-01-01T10:00:00Z'),
+    dtend: new Date('2024-01-01T11:00:00Z'),
+    isAllDay: false,
+    rrule: null,
+    exdate: null,
+    status: null,
+    transp: null,
+    priority: null,
+    categories: null,
+    color: null,
+    groupId: null,
+    sequence: 0,
+    createdAt: new Date('2024-01-01T10:00:00Z'),
+    updatedAt: new Date('2024-01-01T10:00:00Z'),
+})
+
+const createSelectCountingDb = (rows: unknown[]) => {
+    let selectCalls = 0
+    const db = {
+        select: () => {
+            selectCalls += 1
+            return { from: () => ({ where: async () => rows }) }
+        },
+    }
+    return { db, selectCalls: () => selectCalls }
+}
+
+describe('composeCalendar getEventByUid (P-18)', () => {
+    test('도메인 접미사 유무를 or() 단일 조회로 해결한다', async () => {
+        const fake = createSelectCountingDb([createEventRow('uid-1@b-calendar')])
+        const { calendarService } = createServices(fake.db)
+
+        const event = await calendarService.getEventByUid('user-1', 'uid-1')
+
+        expect(fake.selectCalls()).toBe(1)
+        expect(event?.uid).toBe('uid-1@b-calendar')
+    })
+
+    test('정확히 일치하는 uid 를 도메인 변형보다 우선한다', async () => {
+        const fake = createSelectCountingDb([createEventRow('uid-1@b-calendar', 'domain'), createEventRow('uid-1', 'exact')])
+        const { calendarService } = createServices(fake.db)
+
+        const event = await calendarService.getEventByUid('user-1', 'uid-1')
+
+        expect(event?.summary).toBe('exact')
+    })
+
+    test('일치하는 행이 없으면 null 을 반환한다', async () => {
+        const fake = createSelectCountingDb([])
+        const { calendarService } = createServices(fake.db)
+
+        expect(await calendarService.getEventByUid('user-1', 'uid-1')).toBeNull()
+    })
+})
+
+describe('composeCalendar getEventsByUids (P-18)', () => {
+    test('여러 uid 를 단일 조회로 가져온다', async () => {
+        const fake = createSelectCountingDb([createEventRow('uid-1'), createEventRow('uid-2@b-calendar')])
+        const { calendarService } = createServices(fake.db)
+
+        const events = await calendarService.getEventsByUids('user-1', ['uid-1', 'uid-2', 'uid-3'])
+
+        expect(fake.selectCalls()).toBe(1)
+        expect(events.get('uid-1')?.uid).toBe('uid-1')
+        expect(events.get('uid-2')?.uid).toBe('uid-2@b-calendar')
+        expect(events.get('uid-3')).toBeUndefined()
+    })
+
+    test('uid 가 없으면 조회하지 않는다', async () => {
+        const fake = createSelectCountingDb([])
+        const { calendarService } = createServices(fake.db)
+
+        const events = await calendarService.getEventsByUids('user-1', [])
+
+        expect(fake.selectCalls()).toBe(0)
+        expect(events.size).toBe(0)
+    })
+})
+
 describe('composeCalendar insertSubscription', () => {
     test('select 없이 onDuplicateKeyUpdate 로 upsert 한다', async () => {
         const calls: { values: unknown; set: unknown }[] = []

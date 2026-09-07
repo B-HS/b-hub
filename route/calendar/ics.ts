@@ -8,6 +8,40 @@ type CalendarIcsRouteDeps = {
     calendarService: CalendarService
 }
 
+const ICS_CACHE_CONTROL = 'no-cache, no-store, must-revalidate'
+const ICS_LINE_SEPARATOR = '\r\n'
+const ICS_VOLATILE_LINE_PREFIX = 'DTSTAMP:'
+const ETAG_HASH_ALGORITHM = 'SHA-256'
+const ETAG_HASH_LENGTH = 32
+const NOT_MODIFIED_STATUS = 304
+
+/**
+ * Hashes the ICS payload without its per-render DTSTAMP lines so the validator
+ * only changes when the calendar content itself changes.
+ */
+const buildIcsEtagHash = async (icsContent: string) => {
+    const stableContent = icsContent
+        .split(ICS_LINE_SEPARATOR)
+        .filter((line) => !line.startsWith(ICS_VOLATILE_LINE_PREFIX))
+        .join(ICS_LINE_SEPARATOR)
+
+    const digest = await crypto.subtle.digest(ETAG_HASH_ALGORITHM, new TextEncoder().encode(stableContent))
+
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
+        .join('')
+        .slice(0, ETAG_HASH_LENGTH)
+}
+
+const isNotModified = (ifNoneMatch: string | undefined, etagHash: string) => {
+    if (!ifNoneMatch) return false
+
+    const quotedEtag = `"${etagHash}"`
+    return ifNoneMatch.split(',').some((candidate) => {
+        const trimmed = candidate.trim()
+        return trimmed === '*' || trimmed === quotedEtag || trimmed === `W/${quotedEtag}`
+    })
+}
+
 export const createCalendarIcsRoute = (deps: CalendarIcsRouteDeps) => {
     const route = new Hono()
 
@@ -25,12 +59,25 @@ export const createCalendarIcsRoute = (deps: CalendarIcsRouteDeps) => {
             const calendarName = subscription.name ?? 'My Calendar'
 
             const icsContent = eventsToICS(events, calendarName, domain, timezone)
+            const etagHash = await buildIcsEtagHash(icsContent)
+            const etag = `W/"${etagHash}"`
+
+            if (isNotModified(c.req.header('If-None-Match'), etagHash)) {
+                return new Response(null, {
+                    status: NOT_MODIFIED_STATUS,
+                    headers: {
+                        'ETag': etag,
+                        'Cache-Control': ICS_CACHE_CONTROL,
+                    },
+                })
+            }
 
             return new Response(icsContent, {
                 headers: {
                     'Content-Type': 'text/calendar; charset=utf-8',
                     'Content-Disposition': `attachment; filename="${calendarName}.ics"`,
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Cache-Control': ICS_CACHE_CONTROL,
+                    'ETag': etag,
                 },
             })
         }),

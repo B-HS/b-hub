@@ -32,6 +32,7 @@ const createMockCalendarService = () => ({
     getSubscriptionByToken: mock((token: string) => Promise.resolve(token === 'valid-token' ? mockSubscription : null)),
     getAllEvents: mock(() => Promise.resolve([mockEvent])),
     getEventByUid: mock((_userId: string, _uid: string) => Promise.resolve(mockEvent as typeof mockEvent | null)),
+    getEventsByUids: mock((_userId: string, uids: string[]) => Promise.resolve(new Map(uids.map((uid) => [uid, mockEvent])))),
     getEventEtag: mock(() => 'etag-123'),
     upsertEventByUid: mock(() => Promise.resolve({ event: mockEvent, created: true as boolean })),
     deleteEvent: mock(() => Promise.resolve()),
@@ -459,7 +460,7 @@ describe('CalDAV REPORT', () => {
 
     test('calendar-multiget에서 존재하지 않는 이벤트는 404를 포함한다', async () => {
         const deps = createMockDeps()
-        deps.calendarService.getEventByUid = mock(() => Promise.resolve(null))
+        deps.calendarService.getEventsByUids = mock(() => Promise.resolve(new Map<string, typeof mockEvent>()))
         const { app } = createApp(deps)
         const reportBody = `<?xml version="1.0" encoding="UTF-8"?>
 <C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
@@ -803,6 +804,82 @@ describe('CalDAV href 단일화 (D-16)', () => {
         const body = await res.text()
         expect(body).toContain('/caldav/valid-token/default/test-uid.ics')
         expect(body).toContain('/caldav/valid-token/default/deleted-uid.ics')
+    })
+})
+
+describe('CalDAV calendar-multiget 일괄 조회 (P-18)', () => {
+    const buildMultigetBody = (hrefs: string[]) => `<?xml version="1.0" encoding="UTF-8"?>
+<C:calendar-multiget xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:prop>
+    <D:getetag/>
+    <C:calendar-data/>
+  </D:prop>
+${hrefs.map((href) => `  <D:href>${href}</D:href>`).join('\n')}
+</C:calendar-multiget>`
+
+    test('href 가 여러 개여도 이벤트 조회는 1회다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: buildMultigetBody(['/caldav/valid-token/uid-a.ics', '/caldav/valid-token/uid-b.ics', '/caldav/valid-token/uid-c.ics']),
+        })
+
+        expect(res.status).toBe(207)
+        expect(deps.calendarService.getEventsByUids).toHaveBeenCalledTimes(1)
+        expect(deps.calendarService.getEventByUid).not.toHaveBeenCalled()
+        const [, uids] = deps.calendarService.getEventsByUids.mock.calls[0] as unknown as [string, string[]]
+        expect(uids).toEqual(['uid-a', 'uid-b', 'uid-c'])
+    })
+
+    test('응답 href 순서가 요청 순서와 같다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: buildMultigetBody(['/caldav/valid-token/uid-a.ics', '/caldav/valid-token/uid-b.ics', '/caldav/valid-token/uid-c.ics']),
+        })
+
+        const body = await res.text()
+        const hrefOrder = [...body.matchAll(/<D:href>([^<]+)<\/D:href>/g)].map((match) => match[1])
+        expect(hrefOrder).toEqual(['/caldav/valid-token/uid-a.ics', '/caldav/valid-token/uid-b.ics', '/caldav/valid-token/uid-c.ics'])
+    })
+
+    test('없는 uid 는 그 자리에 404 를 남기고 나머지는 200 을 유지한다', async () => {
+        const deps = createMockDeps()
+        deps.calendarService.getEventsByUids = mock((_userId: string, uids: string[]) =>
+            Promise.resolve(new Map(uids.filter((uid) => uid !== 'uid-b').map((uid) => [uid, mockEvent]))),
+        )
+        const { app } = createApp(deps)
+
+        const res = await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: buildMultigetBody(['/caldav/valid-token/uid-a.ics', '/caldav/valid-token/uid-b.ics', '/caldav/valid-token/uid-c.ics']),
+        })
+
+        const body = await res.text()
+        expect(body).toContain('/caldav/valid-token/uid-b.ics')
+        expect(body).toContain('404 Not Found')
+        expect([...body.matchAll(/BEGIN:VCALENDAR/g)]).toHaveLength(2)
+    })
+
+    test('%40 인코딩된 도메인 uid 도 요청 순서대로 처리한다', async () => {
+        const deps = createMockDeps()
+        const { app } = createApp(deps)
+
+        await app.request('/caldav/valid-token/', {
+            method: 'REPORT',
+            headers: { 'Content-Type': 'application/xml' },
+            body: buildMultigetBody(['/caldav/valid-token/uid-a%40b-calendar.ics']),
+        })
+
+        const [, uids] = deps.calendarService.getEventsByUids.mock.calls[0] as unknown as [string, string[]]
+        expect(uids).toEqual(['uid-a'])
     })
 })
 
