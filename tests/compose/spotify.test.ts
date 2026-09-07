@@ -19,6 +19,7 @@ const createFakeDb = (selectResults: unknown[][]) => {
 
     const selectChain = {
         from: () => selectChain,
+        leftJoin: () => selectChain,
         where: () => selectChain,
         limit: () => Promise.resolve(queue.shift() ?? []),
     }
@@ -93,6 +94,117 @@ describe('composeSpotify 의 provider 생성', () => {
     })
 })
 
+const createJoinedRow = (overrides: Record<string, unknown> = {}) => ({
+    betterAuthAccountId: 'ba-1',
+    isActive: true,
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    accessTokenExpiresAt: null,
+    ...overrides,
+})
+
+const createCountingDb = (selectResults: unknown[][]) => {
+    const queue = [...selectResults]
+    const state = { selectCalls: 0, updatedValues: [] as Record<string, unknown>[] }
+
+    const selectChain = {
+        from: () => selectChain,
+        leftJoin: () => selectChain,
+        where: () => selectChain,
+        limit: () => Promise.resolve(queue.shift() ?? []),
+    }
+
+    const db = {
+        select: () => {
+            state.selectCalls += 1
+            return selectChain
+        },
+        update: () => ({
+            set: (values: Record<string, unknown>) => {
+                state.updatedValues.push(values)
+                return { where: () => Promise.resolve(undefined) }
+            },
+        }),
+    }
+
+    return { db, state }
+}
+
+const composeWithDb = (db: unknown) =>
+    composeSpotify({
+        db,
+        env: { SPOTIFY_CLIENT_ID: 'client-id', SPOTIFY_CLIENT_SECRET: 'client-secret', BETTER_AUTH_SECRET: 'auth-secret' },
+    } as never)
+
+describe('composeSpotify 의 계정·토큰 단일 조회', () => {
+    const originalFetch = globalThis.fetch
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    const captureAuthHeaders = () => {
+        const authHeaders: string[] = []
+        globalThis.fetch = mock((input: string, init?: RequestInit) => {
+            if (input.includes('accounts.spotify.com')) {
+                return Promise.resolve(new Response(JSON.stringify({ access_token: 'new-access-token', expires_in: 3600 }), { status: 200 }))
+            }
+            authHeaders.push(String((init?.headers as Record<string, string>).Authorization))
+            return Promise.resolve(new Response(JSON.stringify({ is_playing: false }), { status: 200 }))
+        }) as typeof fetch
+        return authHeaders
+    }
+
+    test('JOIN 으로 계정과 토큰을 한 번에 읽어 토큰 재조회를 하지 않는다', async () => {
+        const authHeaders = captureAuthHeaders()
+        const { db, state } = createCountingDb([[createJoinedRow()], []])
+        const { spotifyDataService } = composeWithDb(db)
+
+        await spotifyDataService.getNowPlaying(1)
+
+        expect(state.selectCalls).toBe(1)
+        expect(authHeaders[0]).toBe('Bearer access-token')
+    })
+
+    test('만료가 5분 이내면 401 을 기다리지 않고 선제 갱신한다', async () => {
+        const authHeaders = captureAuthHeaders()
+        const { db, state } = createCountingDb([[createJoinedRow({ accessTokenExpiresAt: new Date(Date.now() + 60_000) })], []])
+        const { spotifyDataService } = composeWithDb(db)
+
+        await spotifyDataService.getNowPlaying(1)
+
+        expect(authHeaders[0]).toBe('Bearer new-access-token')
+        expect(state.updatedValues[0]).toMatchObject({ accessToken: 'new-access-token' })
+    })
+
+    test('만료까지 5분 넘게 남았으면 갱신하지 않는다', async () => {
+        const authHeaders = captureAuthHeaders()
+        const { db, state } = createCountingDb([[createJoinedRow({ accessTokenExpiresAt: new Date(Date.now() + 60 * 60_000) })], []])
+        const { spotifyDataService } = composeWithDb(db)
+
+        await spotifyDataService.getNowPlaying(1)
+
+        expect(authHeaders[0]).toBe('Bearer access-token')
+        expect(state.updatedValues).toHaveLength(0)
+    })
+
+    test('선제 갱신이 실패하면 기존 토큰으로 요청한다', async () => {
+        const authHeaders: string[] = []
+        globalThis.fetch = mock((input: string, init?: RequestInit) => {
+            if (input.includes('accounts.spotify.com')) return Promise.resolve(new Response('nope', { status: 400 }))
+            authHeaders.push(String((init?.headers as Record<string, string>).Authorization))
+            return Promise.resolve(new Response(JSON.stringify({ is_playing: false }), { status: 200 }))
+        }) as typeof fetch
+
+        const { db } = createCountingDb([[createJoinedRow({ accessTokenExpiresAt: new Date(Date.now() + 60_000) })], []])
+        const { spotifyDataService } = composeWithDb(db)
+
+        await spotifyDataService.getNowPlaying(1)
+
+        expect(authHeaders[0]).toBe('Bearer access-token')
+    })
+})
+
 describe('composeSpotify 의 토큰 갱신', () => {
     const originalFetch = globalThis.fetch
 
@@ -105,6 +217,7 @@ describe('composeSpotify 의 토큰 갱신', () => {
 
         const selectChain = {
             from: () => selectChain,
+            leftJoin: () => selectChain,
             where: () => selectChain,
             limit: () => Promise.resolve(queue.shift() ?? []),
         }

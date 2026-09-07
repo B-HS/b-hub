@@ -11,6 +11,15 @@ import { createSpotifyWidgetService } from '../service/domain/spotify/spotify-wi
 import type { ComposeSpotifyArgs } from './types'
 
 const MS_PER_SECOND = 1000
+const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000
+const PREFETCHED_TOKEN_TTL_MS = 5 * 1000
+const MAX_PREFETCHED_TOKENS = 50
+
+type SpotifyOAuthTokenRow = {
+    accessToken: string | null
+    refreshToken: string | null
+    accessTokenExpiresAt: Date | null
+}
 
 export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
     const spotifyAccountDb = {
@@ -130,45 +139,103 @@ export const composeSpotify = ({ db, env }: ComposeSpotifyArgs) => {
         },
     })
 
+    const prefetchedOAuthTokens = new Map<string, { row: SpotifyOAuthTokenRow; expiresAtMs: number }>()
+
+    const rememberPrefetchedOAuthToken = (betterAuthAccountId: string, row: SpotifyOAuthTokenRow) => {
+        if (prefetchedOAuthTokens.size >= MAX_PREFETCHED_TOKENS) {
+            const oldest = prefetchedOAuthTokens.keys().next().value
+            if (oldest !== undefined) prefetchedOAuthTokens.delete(oldest)
+        }
+        prefetchedOAuthTokens.set(betterAuthAccountId, { row, expiresAtMs: Date.now() + PREFETCHED_TOKEN_TTL_MS })
+    }
+
+    const takePrefetchedOAuthToken = (betterAuthAccountId: string) => {
+        const entry = prefetchedOAuthTokens.get(betterAuthAccountId)
+        if (!entry) return null
+        prefetchedOAuthTokens.delete(betterAuthAccountId)
+        if (entry.expiresAtMs <= Date.now()) return null
+        return entry.row
+    }
+
+    const selectOAuthToken = async (betterAuthAccountId: string) => {
+        const [acc] = await db
+            .select({
+                accessToken: schema.account.accessToken,
+                refreshToken: schema.account.refreshToken,
+                accessTokenExpiresAt: schema.account.accessTokenExpiresAt,
+            })
+            .from(schema.account)
+            .where(eq(schema.account.id, betterAuthAccountId))
+            .limit(1)
+        return acc ?? null
+    }
+
+    const refreshSpotifyToken = async (betterAuthAccountId: string, refreshTokenValue: string) => {
+        const res = await fetch('https://accounts.spotify.com/api/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${Buffer.from(`${env.SPOTIFY_CLIENT_ID ?? ''}:${env.SPOTIFY_CLIENT_SECRET ?? ''}`).toString('base64')}`,
+            },
+            body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: refreshTokenValue,
+            }),
+        })
+        if (!res.ok) return { status: res.status }
+        const data = (await res.json()) as { access_token: string; expires_in: number; refresh_token?: string }
+        await db
+            .update(schema.account)
+            .set({
+                accessToken: data.access_token,
+                accessTokenExpiresAt: new Date(Date.now() + data.expires_in * MS_PER_SECOND),
+                ...(data.refresh_token ? { refreshToken: data.refresh_token } : {}),
+            })
+            .where(eq(schema.account.id, betterAuthAccountId))
+        return { accessToken: data.access_token, refreshToken: data.refresh_token }
+    }
+
+    const refreshExpiringOAuthToken = async (betterAuthAccountId: string, row: SpotifyOAuthTokenRow) => {
+        if (!row.refreshToken || !row.accessTokenExpiresAt) return null
+        if (row.accessTokenExpiresAt.getTime() - Date.now() > TOKEN_REFRESH_MARGIN_MS) return null
+
+        const refreshed = await refreshSpotifyToken(betterAuthAccountId, row.refreshToken)
+        if ('status' in refreshed) return null
+        return { accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken ?? row.refreshToken }
+    }
+
     const createSpotifyProviderForAccount = createSpotifyProviderFactory({
         findAccount: async (spotifyAccountId: number) => {
-            const spotifyAccount = await spotifyAccountDb.getById(spotifyAccountId)
-            if (!spotifyAccount) return null
-            return { betterAuthAccountId: spotifyAccount.betterAuthAccountId, isActive: spotifyAccount.isActive }
+            const [row] = await db
+                .select({
+                    betterAuthAccountId: schema.spotifyAccounts.betterAuthAccountId,
+                    isActive: schema.spotifyAccounts.isActive,
+                    accessToken: schema.account.accessToken,
+                    refreshToken: schema.account.refreshToken,
+                    accessTokenExpiresAt: schema.account.accessTokenExpiresAt,
+                })
+                .from(schema.spotifyAccounts)
+                .leftJoin(schema.account, eq(schema.account.id, schema.spotifyAccounts.betterAuthAccountId))
+                .where(eq(schema.spotifyAccounts.id, spotifyAccountId))
+                .limit(1)
+            if (!row) return null
+            if (row.betterAuthAccountId && row.accessToken) {
+                rememberPrefetchedOAuthToken(row.betterAuthAccountId, {
+                    accessToken: row.accessToken,
+                    refreshToken: row.refreshToken,
+                    accessTokenExpiresAt: row.accessTokenExpiresAt,
+                })
+            }
+            return { betterAuthAccountId: row.betterAuthAccountId, isActive: row.isActive }
         },
         getOAuthToken: async (betterAuthAccountId: string) => {
-            const [acc] = await db
-                .select({ accessToken: schema.account.accessToken, refreshToken: schema.account.refreshToken })
-                .from(schema.account)
-                .where(eq(schema.account.id, betterAuthAccountId))
-                .limit(1)
+            const acc = takePrefetchedOAuthToken(betterAuthAccountId) ?? (await selectOAuthToken(betterAuthAccountId))
             if (!acc?.accessToken) return null
+            const refreshed = await refreshExpiringOAuthToken(betterAuthAccountId, acc)
+            if (refreshed) return refreshed
             return { accessToken: acc.accessToken, refreshToken: acc.refreshToken ?? undefined }
         },
-        refreshOAuthToken: async (betterAuthAccountId: string, refreshTokenValue: string) => {
-            const res = await fetch('https://accounts.spotify.com/api/token', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Authorization': `Basic ${Buffer.from(`${env.SPOTIFY_CLIENT_ID ?? ''}:${env.SPOTIFY_CLIENT_SECRET ?? ''}`).toString('base64')}`,
-                },
-                body: new URLSearchParams({
-                    grant_type: 'refresh_token',
-                    refresh_token: refreshTokenValue,
-                }),
-            })
-            if (!res.ok) return { status: res.status }
-            const data = (await res.json()) as { access_token: string; expires_in: number; refresh_token?: string }
-            await db
-                .update(schema.account)
-                .set({
-                    accessToken: data.access_token,
-                    accessTokenExpiresAt: new Date(Date.now() + data.expires_in * MS_PER_SECOND),
-                    ...(data.refresh_token ? { refreshToken: data.refresh_token } : {}),
-                })
-                .where(eq(schema.account.id, betterAuthAccountId))
-            return { accessToken: data.access_token }
-        },
+        refreshOAuthToken: refreshSpotifyToken,
     })
 
     const spotifyDataService = createSpotifyDataService({
