@@ -222,8 +222,8 @@
 
 ## `lib/`
 
-- **역할**: 도메인·HTTP 프레임워크 무관 순수 유틸 + 코어(에러 3파일·응답 헬퍼·HOF·env·컨텍스트 타입). 파일 32개, 배럴(`index.ts`) 없음 — 소비자는 파일 직접 상대경로 import.
-- **배치 규칙**: 2곳 이상 쓰이는 순수 함수만. **새 유틸 작성 전 [reference/lib-utilities.md](../reference/lib-utilities.md) 인벤토리에서 기존 것을 먼저 찾는다**(현존 중복: `external-api.ts`·`pagination.ts`·`db-helper.ts`·`sensitive-filter.ts` 는 비-test 미사용). 상태·외부 SDK 를 가진 건 `service/shared/` 로.
+- **역할**: 도메인·HTTP 프레임워크 무관 순수 유틸 + 코어(에러 3파일·응답 헬퍼·HOF·env·컨텍스트 타입). 파일 33개, 배럴(`index.ts`) 없음 — 소비자는 파일 직접 상대경로 import.
+- **배치 규칙**: 2곳 이상 쓰이는 순수 함수만. **새 유틸 작성 전 [reference/lib-utilities.md](../reference/lib-utilities.md) 인벤토리에서 기존 것을 먼저 찾는다**(현존 중복: `pagination.ts`·`db-helper.ts`·`sensitive-filter.ts` 는 비-test 미사용. `external-api.ts` 는 같은 이유로 4차 배치에서 삭제됐다 — 되살리지 말 것). 상태·외부 SDK 를 가진 건 `service/shared/` 로.
 - **작성 컨벤션** (근거: `lib/error.ts`·`lib/api-response.ts`·`lib/with-*.ts`, [reference/lib-utilities.md](../reference/lib-utilities.md))
   - **에러는 3파일**(`error-code.ts` 코드 109종 + `error-message.ts` `Record<ErrorCode,string>` + `error.ts` `STATUS_MAP`/`createAppError`/`isAppError`). 새 에러는 **세 파일 모두** 추가(코드·메시지·상태). `STATUS_MAP` 은 `Record<string,number>` 라 컴파일러가 누락을 못 잡음 — 정합 수동 확인. 도메인 접두사(`BLOG_`·`MAIL_` …).
   - **응답은 `api-response.ts` 헬퍼로만**(`successResponse`/`paginatedResponse`/`errorResponse`). `details` 는 비프로덕션만 직렬화.

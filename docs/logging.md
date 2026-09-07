@@ -1,6 +1,6 @@
 # 중앙 로깅 / 에러-이벤트 시스템 (`log_events`)
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`·`weatherApiLog`·`mailSyncLogs`·`mailSyncSessions`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `lib/cron-auth.ts`, `vercel.json`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `compose/ai.ts`(`logUsage` — AI 사용기록 직접 적재).
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋분) 코드 검증. 다루는 코드: `db/schema.ts`(`logEvents`·`deviceKey`·`weatherApiLog`·`mailSyncLogs`·`mailSyncSessions`), `dto/logs/*`, `service/domain/logs/*`, `compose/logs.ts`, `route/logs/*`, `lib/cron-auth.ts`, `vercel.json`, `route/index.ts`, `middleware/log-capture.ts`, `middleware/require-device-key.ts`, `middleware/index.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `lib/with-error-handling.ts`·`middleware/error-handler.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`, `compose/ai.ts`(`logUsage` — AI 사용기록 직접 적재).
 
 > b-hub 전 도메인과 외부 디바이스(ESP32 등)가 공통으로 쓰는 **단일 에러·이벤트 저장소**.
 > 세 가지 입력 경로 — ① 디바이스가 직접 올리는 이벤트, ② 기존 모든 API 엔드포인트의 서버 측 4xx·5xx 자동 캡처, ③ 서버 측 도메인이 `logEventService.ingest` 로 직접 남기는 사용·이벤트 기록(에러가 아닌 성공 INFO 포함 — 현재 AI 도메인) — 가 같은 `log_events` 테이블로 모인다.
@@ -31,7 +31,9 @@
 | `ingest_ip` | `varchar(45)` | 서버가 기록한 요청 IP |
 | `created_at` | `timestamp(3)` default now | **서버** insert 시각(권위 시각) |
 
-인덱스: `(service, created_at)`, `(device_id, created_at)`, `(error_code, resolved_at)`, `(severity, created_at)`.
+인덱스: `(service, created_at)`, `(device_id, created_at)`, `(error_code, resolved_at)`, `(severity, created_at)`, `(created_at)`.
+
+- 단일 `created_at` 인덱스(`idx_log_events_created`)는 4차 감사(P-02)에서 추가했다 — 필터 없는 목록 조회와 리텐션 삭제(§5)가 복합 인덱스의 선두 컬럼에 걸리지 않아 전체 스캔으로 떨어지던 경로용이다. **적용에 `bun run db:push` 가 필요하다.**
 
 ### Postgres → MySQL 번역 결정
 
@@ -115,6 +117,7 @@
   - DEBUG·INFO(<30): 7일 / WARN(30): 30일 / ERROR·FATAL(≥40): 180일.
 - **보존 삭제**(`logEventService.purgeRetention()`) — `log_events` 밖의 이력 테이블:
   - `weather_api_log` 90일 / `mail_sync_logs` 90일 / **완료된**(`completed_at` NOT NULL) `mail_sync_sessions` 30일.
+- 4차 감사(P-02)에서 삭제 조건을 받쳐 줄 인덱스를 추가했다: `log_events(created_at)` · `weather_api_log(created_at)` · `mail_sync_logs(account_id, created_at)`. 전수는 [reference/db-schema.md](./reference/db-schema.md).
 - **삭제는 배치 반복**이다: 등급·테이블마다 `LIMIT 1000` DELETE 를 최대 50회 돌리고, 반환 건수가 1000 미만이면 멈춘다. 한 실행의 상한은 대상당 50,000건이며 그 이상은 다음 실행에서 이어 지운다(대량 DELETE 로 락·타임아웃이 나던 경로 회피).
 - 실행: **Vercel Cron 이 매일 04:40(UTC) `GET /api/logs/purge`** 를 호출한다(`vercel.json`, 인증은 `verifyCronAuth` — `Authorization: Bearer <secret>` 또는 `x-cron-secret`, 시크릿은 `UPLOAD_SERVER_SECRET`). 이 경로가 정책 삭제 + 보존 삭제를 모두 수행한다. 어드민 `POST /api/logs/purge` 는 수동 정책 삭제용으로 그대로 남아 있다(보존 삭제 미포함).
 
@@ -123,7 +126,8 @@
 ## 6. 어드민
 
 - 어드민 UI(`/admin/logs` 필터·resolve 액션, 대시보드 `Log Errors (24h)` Stat·`최근 로그 이벤트` 섹션)는 [admin-features.md](./admin-features.md) §5(Log Events)·§0(Dashboard) 가 소유 — 상세는 그쪽 참조.
-- 데이터 계층(`page/admin/db.ts`): `listLogEvents`(목록·필터) / `recentLogEvents`(대시보드) / `resolveLogEvent`(해소) / `counts`(24h `logEvents24h`·`logErrors24h`).
+- 데이터 계층(`page/admin/db.ts`): `listLogEvents`(목록·필터) / `recentLogEvents`(대시보드) / `resolveLogEvent`(해소) / `counts`(24h `logEvents24h`·`logErrors24h`). 어드민 목록의 count/select 병렬화와 `counts()` 병렬 실행은 [admin-features.md](./admin-features.md) §16 이 소유한다.
+- API 목록(`GET /api/logs`)의 데이터 계층은 `compose/logs.ts` 의 `listEvents` 로 별개다. 총건수 count 와 행 select 를 `Promise.all` 로 동시에 실행한다(감사 P-01, 응답 봉투·정렬 불변).
 
 ---
 

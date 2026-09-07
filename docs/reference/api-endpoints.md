@@ -1,8 +1,10 @@
 # API 엔드포인트 전수 인벤토리
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/rate-limit.ts`, `lib/with-rate-limit.ts`, `lib/cron-auth.ts`, `vercel.json`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 반영) 코드 검증. 다루는 코드: `index.ts`, `route/index.ts`, `route/**`, `page/index.ts`, `page/home.tsx`, `page/policy.tsx`, `page/well-known.ts`, `page/admin/index.ts`, `page/admin/guard.ts`, `middleware/index.ts`, `middleware/require-*.ts`, `lib/with-auth.ts`, `lib/with-spotify-auth.ts`, `lib/rate-limit.ts`, `lib/with-rate-limit.ts`, `lib/cron-auth.ts`, `vercel.json`
 
 ## 범위
+
+> **4차(성능) 배치의 표면 변화**: 라우트 추가·삭제·경로·인증 변경은 없고, **성공 응답 본문도 바이트 단위로 불변**이다. 바뀐 것은 아래 3곳의 응답 헤더(+조건부 304)뿐이다 — `GET /api/badge/image`(`CDN-Cache-Control` 추가), `GET /api/weather/locations`(`ETag`·`Cache-Control` 추가 + `If-None-Match` 일치 시 304), `GET /api/calendar/:icsToken`(`ETag` 추가 + `If-None-Match` 일치 시 304). 배치 범위·제외 항목은 [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md) 의 "2026-09-07 4차 배치 착수 결정".
 
 - b-hub 단일 Hono 앱에 등록된 **모든 HTTP 라우트의 평면 인벤토리**(도메인·경로·인증·핸들러 파일)를 소유한다.
 - 요청/응답 스키마·서비스 로직·에러코드 등 도메인 상세는 [../domains/](../domains/) 와 이 디렉터리의 다른 레퍼런스가 소유한다 — 여기서는 중복하지 않고 링크한다.
@@ -59,7 +61,7 @@
 
 | Method | 전체 Path | 인증 | 설명 | 핸들러 파일 |
 |--------|-----------|------|------|-------------|
-| GET | `/api/badge/image` | 없음 + IP rate limit | 동적 뱃지 PNG 생성(쿼리 파라미터 기반). IP 분당 60회 초과 시 429, `width*height > 2,000,000` 이면 400. `X-RateLimit-*` 헤더 포함 | `route/badge.ts` |
+| GET | `/api/badge/image` | 없음 + IP rate limit | 동적 뱃지 PNG 생성(쿼리 파라미터 기반). IP 분당 60회 초과 시 429, `width*height > 2,000,000` 이면 400. `X-RateLimit-*` 헤더 포함. 200 응답에 `Cache-Control` 과 **같은 값의 `CDN-Cache-Control`**(`public, max-age=31536000, immutable`) 동봉(4차 P-15) | `route/badge.ts` |
 | GET | `/api/badge/fonts` | 없음 | 사용 가능한 폰트 목록 | `route/badge.ts` |
 
 파일 카운트: `route/badge.ts` = 2. 상세: [../domains/badge.md](../domains/badge.md).
@@ -76,7 +78,7 @@
 | GET | `/api/weather/ultra-short` | weather-key | 초단기예보 | `route/weather/weather.ts` |
 | GET | `/api/weather/short-term` | weather-key | 단기예보 | `route/weather/weather.ts` |
 | GET | `/api/weather/version` | weather-key | 예보 버전 조회 | `route/weather/weather.ts` |
-| GET | `/api/weather/locations` | weather-key | 전체 위치 목록 | `route/weather/location.ts` |
+| GET | `/api/weather/locations` | weather-key | 전체 위치 목록. 4차 P-17: 프로세스 내 1회 계산한 `ETag`(본문 sha256 앞 32자, 큰따옴표 포함)와 `Cache-Control: private, max-age=3600` 을 붙이고, 요청 `If-None-Match` 가 그 값과 **완전히 같으면 본문 없이 304** | `route/weather/location.ts` |
 | GET | `/api/weather/locations/convert` | weather-key | 좌표 변환(위경도↔격자) | `route/weather/location.ts` |
 | GET | `/api/weather/locations/:keyword` | weather-key | 위치 검색 | `route/weather/location.ts` |
 | GET | `/api/weather/keys` | 세션 | Weather API 키 목록 | `route/weather/key.ts` |
@@ -247,7 +249,7 @@
 | POST | `/api/calendar/subscription` | 세션 | 구독 생성 | `route/calendar/subscription.ts` |
 | POST | `/api/calendar/subscription/regenerate` | 세션 | CalDAV 토큰 재발급 | `route/calendar/subscription.ts` |
 | POST | `/api/calendar/subscription/regenerate-ics` | 세션 | ICS 토큰 재발급 | `route/calendar/subscription.ts` |
-| GET | `/api/calendar/:icsToken` | 구독토큰 | ICS 피드 다운로드(`.ics`) | `route/calendar/ics.ts` |
+| GET | `/api/calendar/:icsToken` | 구독토큰 | ICS 피드 다운로드(`.ics`). 4차 P-18: `DTSTAMP:` 줄을 제외한 본문 해시로 약한 `ETag`(`W/"<32자>"`)를 붙이고, `If-None-Match` 에 그 값(`*`·`W/` 접두 포함)이 있으면 **본문 없이 304**(`ETag`·`Cache-Control` 만 재전송). 200 응답의 본문·`Content-Type`·`Content-Disposition`·`Cache-Control` 은 불변 | `route/calendar/ics.ts` |
 
 파일 카운트: `event.ts` = 8, `group.ts` = 4, `subscription.ts` = 4, `ics.ts` = 1. 상세: [../domains/calendar.md](../domains/calendar.md).
 
@@ -450,4 +452,4 @@
 | `route/metrics/query.ts` | 3 | `route/metrics/archive.ts` | 1 |
 | `route/logs/purge.ts` | 1 | | |
 
-- API(`/api/*`) 라우트 등록 합계 = **182**(2026-09-07 3차 배치에서 `route/logs/purge.ts` 의 크론 GET 1개 추가. 그 이전 181 = 기존 172 + metrics 9 — heartbeat-check 는 2026-07-22 사용자 결정으로 제거, archive 는 같은 날 추가). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).
+- API(`/api/*`) 라우트 등록 합계 = **182**(4차 배치는 라우트 증감 없음. 2026-09-07 3차 배치에서 `route/logs/purge.ts` 의 크론 GET 1개 추가. 그 이전 181 = 기존 172 + metrics 9 — heartbeat-check 는 2026-07-22 사용자 결정으로 제거, archive 는 같은 날 추가). CalDAV(`/caldav/*`) = **24**. 페이지/well-known = **11**(`home` 2 + `policy` 1 + `well-known` 8). 메타(`index.ts` 인라인) = **2**(비프로덕션). 어드민(`/admin/*`)은 위임(카운트 제외).

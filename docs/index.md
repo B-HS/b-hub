@@ -95,6 +95,7 @@
 | [quality-assurance/endpoint-qa.md](./quality-assurance/endpoint-qa.md) | 엔드포인트 QA(검증·인증·봉투·OpenAPI·캡처·테스트) |
 | [quality-assurance/fe-deps-impact-check.md](./quality-assurance/fe-deps-impact-check.md) | FE 소비자 영향 검수(2026-07 deps 업그레이드 — 400 바디 구조·문구·이메일·코드젠) |
 | [quality-assurance/2026-09-06-audit-findings.md](./quality-assurance/2026-09-06-audit-findings.md) | 2026-09-06 전수 감사 발견 목록(D·S·E·R·P·C)과 배치별 처리 상태 — 계약 대조 결과·승인 표 포함 |
+| [quality-assurance/2026-09-07-audit-deploy-verification.md](./quality-assurance/2026-09-07-audit-deploy-verification.md) | 감사 수정 1~4차 배포 전·후 검증 체크리스트(db:push 3건·env·Docker 재배포·소비자별 스모크·24시간 관측) |
 
 ### 기록 폴더 (ai-process §9)
 

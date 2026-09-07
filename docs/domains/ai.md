@@ -1,6 +1,6 @@
 # ai 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋 완료, 비교 기준 `bab14e8`) 코드 검증. **구현 완료**(db:push 반영·커밋 완료). 파일 맵·데이터 모델·엔드포인트·흐름·함정 반영됨. 결정 정본: [../acknowledge/2026-07-02-ai-provider-decisions.md](../acknowledge/2026-07-02-ai-provider-decisions.md) · 작업 이력: [../history/2026-07-ai-provider-system.md](../history/2026-07-ai-provider-system.md)
 
 ## 외부 프로바이더 API 계약 (2026-07 조사 확정)
 
@@ -115,6 +115,7 @@
 1. DTO discriminated union 으로 provider별 자격 검증. codex credentials 는 union — oauth 3필드(`idToken`+`accessToken`+`refreshToken`) 또는 accessToken 단독(`accessToken`+선택 `accountId`). `buildStored` 가 accountId 를 입력값 ?? JWT claim(`https://api.openai.com/auth`.chatgpt_account_id — oauth 는 idToken 에서, token 단독은 accessToken 에서)으로 확정하고 authType(`oauth`/`token`)을 결정 — accountId 확정 불가면 `AI_CREDENTIALS_INVALID`(opaque `at-` 토큰은 accountId 입력 필수).
 2. `factory.createFromStored(provider, stored).verify()` 로 실제 프로바이더에 ping(anthropic/ollama=모델 목록 GET, codex=`/models`). 실패 시 `AI_CREDENTIALS_INVALID`(에러는 `maskProviderError` 마스킹).
 3. 검증 통과분만 `crypto.encrypt(JSON)` 로 `credentials` 저장. 같은 provider 연결이 이미 있으면 자격 갱신 + `status=active` 복구(재인증 흐름) — 없으면 insert.
+- **재등록은 UPDATE 1회**다: `db.updateOnReconnect(id, { credentials, authType, status: 'active', statusDetail: null, displayName? })`(`ai-connection.ts`·`compose/ai.ts`)가 이전의 `updateCredentials` + `updateStatus` + (조건부)`updateDisplayName` 3개 UPDATE 를 하나로 합친다. `displayName` 은 입력에 있을 때만 set 에 포함돼, 미지정 시 기존 값이 유지되는 동작이 같다. 부분 실패로 자격만 바뀌고 status 가 `reauth_required` 로 남는 창도 사라진다.
 
 ### codex OAuth 자동 갱신 (`ai-provider-factory`) — refreshToken 이 있을 때만
 - 매 codex 호출 전 `getAccessToken()` 이 access_token JWT `exp` 를 확인해 **5분 이내 만료면** `refreshCodexToken`(`compose/ai.ts` 가 `POST https://auth.openai.com/oauth/token`, client_id `app_EMoamEEZ73f0CkXaXp7hrann`) 호출.
@@ -128,9 +129,9 @@
 - **업스트림 401**: listModels/complete/completeStream 이 status 401 인 `AppError` 로 실패하면 `markReauthRequired` 후 `AI_REAUTH_REQUIRED` 로 변환(새 토큰 재등록으로 복구). 401 외 실패는 기존 에러 그대로. `verify()` 는 변환하지 않는다(등록 검증은 `AI_CREDENTIALS_INVALID` 로 수렴).
 
 ### 채팅 (`ai-chat.send`)
-1. 세션 소유권 확인 → `resolveClient`(status reauth/disabled 가드) → 프롬프트(`session.promptIds`) 조립: stage system/context → system 텍스트, user/assistant → seed 메시지.
-2. `listRecentMessages`(최근 50) + 첨부 이미지(`resolveImages` base64) 로 messages 를 **메모리에서만** 조립(seed → history → 이번 user 메시지). 이 시점엔 DB 에 아무것도 저장하지 않는다.
-3. `client.complete` 호출(시간 측정). **실패 시 `logUsage`(severity 40 → Discord 알림) 후 재-throw — 메시지는 저장하지 않는다(고아 user 메시지 방지, f6c65f3).** 성공한 경우에만 `insertMessagePair` 로 **user·assistant 두 행을 한 트랜잭션에서** 저장하고(반환값은 두 PK), 이어서 첨부 연결(user 메시지 PK 기준) → `touchLastMessage`·`touchUsed` → `logUsage`(severity 20).
+1. 세션 소유권 확인 후, **서로 독립인 4가지 준비 작업을 병렬로 실행**한다(`prepareSend` 의 `Promise.allSettled`): `resolveClient`(status reauth/disabled 가드) · 프롬프트 해석(`session.promptIds` 있을 때) · `listRecentMessages`(최근 50) · 첨부 이미지 해석(`attachmentIds` 있을 때). 이전에는 네 단계를 순차 `await` 했다. `complete`(ephemeral)의 `prepareCompletion` 도 `resolveClient` + 프롬프트 해석 2가지를 같은 방식으로 병렬화한다.
+2. 결과는 `unwrapSettled` 로 **client → prompts → history → images 순서로 꺼내며**, 실패가 있으면 그 순서에서 먼저 걸린 오류를 그대로 던진다(직렬 실행 때와 같은 오류가 표면화된다). 프롬프트는 stage system/context → system 텍스트, user/assistant → seed 메시지로 조립하고, messages 는 **메모리에서만** 만든다(seed → history → 이번 user 메시지). 이 시점엔 DB 에 아무것도 저장하지 않는다.
+3. `client.complete` 호출(시간 측정). **실패 시 `logUsage`(severity 40 → Discord 알림) 후 재-throw — 메시지는 저장하지 않는다(고아 user 메시지 방지, f6c65f3).** 성공한 경우에만 `insertMessagePair` 로 **user·assistant 두 행을 한 트랜잭션에서** 저장하고(반환값은 두 PK), 이어서 첨부 연결(user 메시지 PK 기준)·`touchLastMessage`·`touchUsed` 를 **`Promise.all` 로 함께**(각각 `settleQuietly` 로 실패를 삼킨다) 실행한 뒤 `logUsage`(severity 20).
 - `complete`(ephemeral)는 세션 없이 동일 조립으로 completion 만 반환 — 다른 도메인이 `aiChatService.complete(userId, {...})` 로 융합 호출.
 
 ### SSE 스트리밍 (`ai-chat.sendStream` · `ai-chat.completeStream`)
@@ -177,6 +178,9 @@
 - **첨부 쿼터**: 업로드는 `user.storage_quota_bytes` 게이트를 강제한다(초과 시 `AI_ATTACHMENT_TOO_LARGE`). 단 이 사용량은 `ai_attachments` 만 합산하며 drive(`cloud_assets`)와는 별도로 카운트된다. 업로드 엔드포인트도 사용자당 레이트리밋(`ai:attachment:upload`)과 본문 `bodyLimit`(21MB) 대상이다.
 - **첨부 R2 정리 순서**: 업로드는 R2 put 후 DB insert 인데, **insert 가 실패하면 방금 올린 오브젝트를 지우고 예외를 다시 던진다**(고아 오브젝트 방지). 삭제(`remove`)는 반대로 **DB 행을 먼저 지우고 R2 오브젝트를 지운다** — 스토리지 삭제가 실패해도 사용자에겐 삭제된 것으로 보이고, 실패는 스토리지 서비스가 `captureException` 으로 보고한다.
 - **메시지 정렬은 `created_at` + `id` 2차 키**다(`compose/ai.ts` 의 목록·`listRecentMessages`). 같은 밀리초에 저장된 user·assistant 쌍의 순서가 뒤집혀 대화 맥락이 어긋나던 문제를 막는다. history 조립도 이 정렬을 그대로 쓴다.
+- **목록의 `count`·행 조회는 병렬**이다: `listSessions`·`listMessages`(`compose/ai.ts`)가 `count(*)` 와 페이지 select 를 `Promise.all` 로 함께 던진다. 페이지네이션 응답 값은 불변이다.
+- **준비 단계 병렬화의 부작용**: `prepareSend` 는 `resolveClient` 가 실패할 상황(reauth·disabled)에서도 프롬프트·history·첨부 조회가 이미 시작된 뒤다. 던지는 오류는 직렬 실행 때와 같지만, 실패 요청에서도 이 읽기 쿼리·R2 다운로드가 한 번씩 수행된다(쓰기는 없다). `resolveClient` 자체를 요청 간에 재사용하는 캐시는 두지 않았다 — 자격 복호화·status 가드는 호출마다 다시 수행된다.
+- **첨부 이미지 다운로드는 병렬**이다: `resolveImages`(`ai-attachment.ts`)가 소유 검증된 레코드들의 R2 `download` 를 `Promise.allSettled` 로 동시에 받고, 결과를 **레코드 순서대로** 검사해 거부는 그대로 재-throw, 본문이 없으면 `AI_ATTACHMENT_NOT_FOUND` 를 던진다. vision 입력에 실리는 이미지 순서와 오류 종류는 순차 다운로드 때와 같다.
 
 ## 관련 문서
 

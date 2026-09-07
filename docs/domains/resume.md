@@ -42,7 +42,7 @@
 | `created_at` | timestamp(fsp 3), defaultNow | 어드민 목록 정렬 기준 |
 | `updated_at` | timestamp(fsp 3), defaultNow, `$onUpdate` | API 목록 정렬 기준 |
 
-- 인덱스: `idx_resumes_user` on `user_id`.
+- 인덱스: `idx_resumes_user` on `user_id`, `idx_resumes_type_updated` on (`type`, `updated_at`) (4차 P-02, 타입별 최신 1건 조회용 — db:push 필요).
 - 관계: `user` 1—N `resumes`, 유저 삭제 시 cascade.
 
 ### data 본문 구조 (`dto/resume/resume-data.ts`)

@@ -1,6 +1,6 @@
 # 외부 API 연동 지침
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/url-validator.ts`, `lib/token-utils.ts`, `service/domain/weather/kma-api.ts`, `service/domain/weather/mock-kma-api.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/spotify/spotify-provider.ts`, `service/domain/spotify/spotify-oauth-connect.ts`, `service/domain/spotify/spotify-api-key.ts`, `service/domain/mail/mail-oauth-connect.ts`, `service/domain/ai/ai-provider-factory.ts`, `service/domain/ai/providers/codex-provider.ts`, `service/domain/ai/providers/anthropic-provider.ts`, `service/domain/ai/providers/ollama-provider.ts`, `compose/weather.ts`, `compose/spotify.ts`, `compose/mail.ts`, `compose/ai.ts`, `route/weather/mock.ts`, `route/index.ts`, `lib/error-code.ts`, `lib/error.ts`, `service/shared/cache.ts`, `service/shared/redis-cache.ts`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 반영) 코드 검증. 다루는 코드: `lib/hmac-state.ts`, `lib/url-validator.ts`, `lib/token-utils.ts`, `service/domain/weather/kma-api.ts`, `service/domain/weather/mock-kma-api.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/spotify/spotify-provider.ts`, `service/domain/spotify/spotify-oauth-connect.ts`, `service/domain/spotify/spotify-api-key.ts`, `service/domain/mail/mail-oauth-connect.ts`, `service/domain/ai/ai-provider-factory.ts`, `service/domain/ai/providers/codex-provider.ts`, `service/domain/ai/providers/anthropic-provider.ts`, `service/domain/ai/providers/ollama-provider.ts`, `compose/weather.ts`, `compose/spotify.ts`, `compose/mail.ts`, `compose/ai.ts`, `route/weather/mock.ts`, `route/index.ts`, `lib/error-code.ts`, `lib/error.ts`, `service/shared/cache.ts`, `service/shared/redis-cache.ts`
 
 ## 개요
 
@@ -20,18 +20,21 @@
 
 - storage(R2/S3), 이미지·아이콘 원격 로드 등 SDK/파일 계열 외부 의존은 [../reference/shared-services.md](../reference/shared-services.md) 가 소유한다.
 
-## 1. 공유 fetch 헬퍼 (`lib/external-api.ts`)
+## 1. 재시도·타임아웃 fetch — 공유 헬퍼는 없다 (도메인 클라이언트가 직접 구현)
 
-- `fetchWithRetry<T>(url, options?)` — 옵션 `maxRetries`(기본 3) / `retryDelay`(기본 1000ms) / `timeout`(기본 10000ms) / `headers`.
-  - `AbortController` + `setTimeout` 으로 요청별 타임아웃. `!response.ok` 이면 `HTTP {status}: {statusText}` 를 throw 해 재시도로 넘긴다.
-  - 백오프는 선형(`retryDelay * attempt`). 마지막 시도까지 실패하면 판별유니온 `{ success: false, error: string }` 반환(성공은 `{ success: true, data }`). **에러코드 매핑 없이 문자열 메시지만** 돌려준다.
-  - 응답은 `response.json() as T` 로 강제 파싱한다(JSON 응답 전제).
-- `fetchBatch<T>(ids, fetcher, batchSize = 10, batchDelay = 100)` — id 배열을 `batchSize` 청크로 잘라 `Promise.all` 로 병렬 처리하고 청크 사이에 `batchDelay` 지연. `(T | null)[]` 반환.
-- **현재 배선 상태**: 프로덕션 소비처 없음 — 참조가 `tests/lib/external-api.test.ts` 에만 존재한다. weather/spotify 는 이 헬퍼를 쓰지 않고 각자 재시도 로직을 인라인 구현한다(`kma-api.ts` 내부의 동명 `fetchWithRetry` 클로저, `spotify-provider.ts` 의 `spotifyFetch`).
-- 사용 규칙:
-  - 새 외부 GET 연동이 **단순 재시도 + 타임아웃 + JSON 파싱**이면 이 헬퍼 재사용을 우선한다.
-  - 아래가 필요하면 도메인 클라이언트에서 확장 구현한다(현 weather/spotify 가 그 예): (a) 응답 헤더 기반 백오프(예: 429 `Retry-After`), (b) OAuth 토큰 주입·401 갱신, (c) 프로바이더 결과코드 → 도메인 에러코드 매핑(§6).
-  - 헬퍼는 실패를 문자열로만 반환하므로, 도메인 에러코드가 필요하면 호출부에서 매핑한다.
+- 과거 `lib/external-api.ts`(`fetchWithRetry`·`fetchBatch`)가 있었으나 **비-test 소비처가 0** 이라 4차 배치(P-23)에서 테스트와 함께 삭제됐다. 되살리지 말고 아래 기존 구현을 참조해 도메인 클라이언트에 넣는다.
+- 현행 구현 2종(둘 다 각 도메인 클라이언트 내부 클로저):
+
+| 위치 | 재시도·타임아웃 | 실패 표현 |
+|------|-----------------|-----------|
+| `service/domain/weather/kma-api.ts`(동명 로컬 `fetchWithRetry`) | 3회 시도 + 선형 백오프(`1000ms × attempt`), `AbortSignal.timeout(8000)`, **4xx 는 재시도 없이 즉시 실패**. `resultCode '03'`(NO_DATA)은 30초 negative cache, 같은 캐시 키의 동시 요청은 single-flight 로 합류 | 판별유니온 `{ success:false, error:{ code, message } }`(§6) |
+| `service/domain/spotify/spotify-provider.ts`(`spotifyFetch`) | 401 은 토큰 갱신 후 1회 재시도(단일 비행 `refreshPromise`), 429 는 `Retry-After` 존중하되 **대기 총합 3초 캡** | 초과·기타 실패는 `throw createAppError('SPOTIFY_API_ERROR', { status })` |
+
+- 새 외부 연동의 선택 기준:
+  - **단순 재시도 + 타임아웃 + JSON 파싱**이면 `kma-api.ts` 형태(판별유니온 반환 → 라우트가 도메인 에러로 승격)를 그대로 본뜬다.
+  - (a) 응답 헤더 기반 백오프(429 `Retry-After`), (b) OAuth 토큰 주입·401 갱신, (c) 프로바이더 결과코드 → 도메인 에러코드 매핑(§6)이 필요하면 `spotify-provider.ts` 형태로 확장한다.
+  - **대기 시간에 상한을 둔다.** 서버리스 함수가 재시도로 매달리지 않도록 fetch 타임아웃과 재시도 대기 총합을 모두 상수로 고정한다(3차 R-10·R-30 의 결정).
+  - 공통 헬퍼가 다시 필요해질 만큼 같은 코드가 3곳 이상 반복되면 그때 `lib/` 로 승격하고 [../reference/lib-utilities.md](../reference/lib-utilities.md) 인벤토리에 1행 추가한다.
 
 ## 2. API 키 관리 패턴 2종
 
@@ -46,7 +49,9 @@
 | 개수 | 단일·공유 | 사용자당 다수 발급 |
 
 - **A. env 고정 상류 자격증명**: b-hub 가 외부를 호출할 때 쓰는 단일 시크릿. `createKmaApiService({ apiKey: env.KMA_API_KEY ?? '' })`(`compose/weather.ts`) 가 대표 예이며, KMA 요청 쿼리 `serviceKey` 에 그대로 붙는다. OAuth 앱 자격(`SPOTIFY_CLIENT_ID/SECRET`, `GOOGLE_CLIENT_ID/SECRET`)도 같은 부류다. 시크릿은 `getEnv()` 로만 접근하고 코드·로그에 노출하지 않는다. env 전수는 [../reference/env.md](../reference/env.md).
-- **B. DB 저장·발급 하류 키**: b-hub 가 자기 API 소비자에게 발급하는 키. `create` 는 `generateToken()`(32바이트 랜덤 hex)을 만들어 **1회만 평문 반환**하고 `hashToken()`(SHA-256 hex)로 저장한다(`lib/token-utils.ts`). `validate(token)` 은 해시로 매칭 → `expiresAt` 확인 → `lastUsedAt` 갱신(fire-and-forget, 실패는 `captureException`). weather 는 추가로 `weather_api_log` + `dailyLimit` + `checkRateLimit` 로 24시간 창 요청 한도를 건다.
+- **B. DB 저장·발급 하류 키**: b-hub 가 자기 API 소비자에게 발급하는 키. `create` 는 `generateToken()`(32바이트 랜덤 hex)을 만들어 **1회만 평문 반환**하고 `hashToken()`(SHA-256 hex)로 저장한다(`lib/token-utils.ts`). `validate(token)` 은 해시로 매칭 → `expiresAt`·폐기 확인 → `lastUsedAt` 갱신. weather 는 추가로 `weather_api_log` + `dailyLimit` + `checkRateLimit` 로 24시간 창 요청 한도를 건다.
+  - **`lastUsedAt` 쓰기 정책이 키마다 다르다**(4차 P-07): `api_token`(`service/shared/api-token.ts`)·`metrics_token`(`service/domain/metrics/token.ts`)·캘린더 구독 `lastAccessedAt` 은 **직전 값이 5분 이상 지났을 때만** UPDATE 를 보낸다(표시 정밀도 5분). weather 키는 매 검증마다 갱신하고 실패를 `captureException` 으로 삼킨다(3차 결정 유지). 새 하류 키는 5분 스로틀 쪽을 기본으로 삼는다.
+  - **한도 카운트 조회는 키 검증과 합친다**(4차 P-17): `weather-api-key.ts` 의 `validate` 가 키 행 SELECT 에 24시간 사용량 `COUNT(*)` 를 **상관 서브쿼리로 얹어 1회 왕복**으로 가져오고, 그 값을 프로세스 내 짧은 핸드오프 맵(TTL 5초·최대 100건, 1회 소비)에 넣어 뒤이은 `checkRateLimit` 이 재조회 없이 쓴다. 핸드오프가 없거나 만료면 종전대로 직접 `COUNT(*)` 한다 — 한도 판정 의미(24시간 창 `< dailyLimit`)와 429 응답은 불변이다.
   - 검증 위치는 미들웨어/HOF 다: `middleware/require-weather-key.ts`(헤더 `X-Weather-Key`, 실패 `WEATHER_KEY_INVALID` / 한도초과 `WEATHER_KEY_RATE_LIMIT`), `lib/with-spotify-auth.ts`(헤더 `X-Spotify-Key`, 실패 `SPOTIFY_KEY_INVALID`). 상세는 도메인 문서.
 - **변형 — OAuth access/refresh 토큰**: env 가 아니라 better-auth `account` 테이블(`providerId='google'|'spotify'`)에 저장·재사용한다. spotify 는 401 시 refresh 로 갱신 후 `account.accessToken/accessTokenExpiresAt` 를 업데이트한다(교환·업데이트는 `compose/spotify.ts` `refreshOAuthToken`, 동시 갱신 중복은 `spotify-provider.ts` 의 단일 비행 `refreshPromise` 로 방지). drive L3 는 `scope LIKE '%drive.file%'` 계정의 refresh token 을 읽는다 → [../reference/shared-services.md](../reference/shared-services.md). **AI codex** 는 OAuth 토큰(access/refresh/id)을 better-auth `account` 가 아니라 암호화해 `ai_providers` 테이블에 저장하고, accessToken JWT 만료 5분 전 자동 갱신 시 spotify 와 동일한 **단일 비행 락**(`providerId` 별 `refreshInFlight` Map, `ai-provider-factory.ts`)으로 동시 갱신 중복을 막는다. 갱신 실패는 `AI_REAUTH_REQUIRED` 로 재인증을 요구한다(`markReauthRequired`). anthropic·ollama 은 API key(암호화 저장)만 쓴다 → [../domains/ai.md](../domains/ai.md).
 
@@ -91,8 +96,8 @@ mail·spotify 의 계정 연결은 **동일한 2단계 구조**를 공유한다(
 
 정본 비교표는 [../reference/shared-services.md](../reference/shared-services.md) 의 "캐시 2종"이 소유한다. 외부 API 응답 캐싱 시 선택 규칙만 정리한다.
 
-- 상류 응답을 **서버리스 인스턴스 간 공유·재시작 후 유지**하고 프로바이더 발행 스케줄에 TTL 을 맞춰야 하면 `redisCache`(싱글톤, 직접 import). weather/KMA 가 예로, TTL 을 다음 발행 시각까지 계산하고 Redis 실패 시 30초 인메모리로 폴백한다(`kma-api.ts` `cachedFetch`, `redis-cache.ts`).
-- **인스턴스 로컬·타입지정·바운드 LRU** 로 충분한 파생/변환 값이면 `createCache`(compose 가 인스턴스화해 DI). spotify 앨범아트가 예(`maxSize 200`, `defaultTtlMs 5분`, `compose/spotify.ts:224`).
+- 상류 응답을 **서버리스 인스턴스 간 공유·재시작 후 유지**하고 프로바이더 발행 스케줄에 TTL 을 맞춰야 하면 `redisCache`(싱글톤, 직접 import). weather/KMA 가 예로, TTL 을 다음 발행 시각까지 계산하고 Redis 실패 시 30초 인메모리로 폴백한다(`kma-api.ts` `cachedFetch`, `redis-cache.ts`). 4차 P-17 에서 **TTL 경계와 base time 전환 시각이 같은 상수를 쓰도록 정렬**했다 — ncst 매시 40분(이전에는 TTL 만 10분 기준이라 캐시 만료와 새 base time 생성 시각이 어긋났다), fcst 45분, vilage 발표시각 +10분.
+- **인스턴스 로컬·타입지정·바운드 LRU** 로 충분한 파생/변환 값이면 `createCache`(compose 가 인스턴스화해 DI). spotify 앨범아트가 예(`maxSize 200`, `defaultTtlMs 5분`, `compose/spotify.ts` 의 `albumArtCache`).
 
 ## 6. 에러 코드 매핑 규칙
 
@@ -124,7 +129,7 @@ mail·spotify 의 계정 연결은 **동일한 2단계 구조**를 공유한다(
 
 - [ ] **상류 자격증명**은 `.env` + `getEnv()`(`lib/env.ts`)로만. env 스키마에 키 추가, `?? ''` 폴백 여부 확인. 코드·로그 노출 금지.
 - [ ] **하류 소비자 키**가 필요하면 DB 발급·해시저장(`generateToken`/`hashToken`) + 미들웨어 검증 패턴(§2 B)을 재사용. 테이블 정의는 [../reference/db-schema.md](../reference/db-schema.md).
-- [ ] **외부 클라이언트**는 판별유니온 결과 또는 도메인 에러 throw 로 실패를 표면화. HTTP/네트워크 실패의 재시도·타임아웃 포함(단순하면 `lib/external-api.ts` 재사용).
+- [ ] **외부 클라이언트**는 판별유니온 결과 또는 도메인 에러 throw 로 실패를 표면화. HTTP/네트워크 실패의 재시도·타임아웃을 **상수로 상한을 정해** 포함한다(공유 헬퍼 없음 — §1 의 `kma-api.ts`/`spotify-provider.ts` 패턴).
 - [ ] **에러 매핑**: 프로바이더 실패 → 도메인 접두사 에러코드(§6). 신규 코드는 3파일 등록.
 - [ ] **OAuth** 면 hmac-state 서명 state + `userId` 바인딩 + redirect 화이트리스트 + 2단계(generate/callback) 구조(§3)를 따른다. `secret` 은 `BETTER_AUTH_SECRET`.
 - [ ] **캐시**가 필요하면 redis vs createCache 기준으로 선택(§5).
@@ -134,5 +139,5 @@ mail·spotify 의 계정 연결은 **동일한 2단계 구조**를 공유한다(
 검증:
 
 - 타입: `bunx tsc --noEmit`.
-- 테스트: `bun test <경로>`(예: `tests/lib/external-api.test.ts`, `tests/lib/hmac-state.test.ts`, 대상 도메인 테스트). 전체 테스트 지침은 [../testing.md](../testing.md).
+- 테스트: `bun test <경로>`(예: `tests/lib/hmac-state.test.ts`, `tests/service/domain/weather/kma-api.test.ts`, 대상 도메인 테스트). 전체 테스트 지침은 [../testing.md](../testing.md).
 - 엔드포인트 수기 검증 항목은 [../quality-assurance/endpoint-qa.md](../quality-assurance/endpoint-qa.md).

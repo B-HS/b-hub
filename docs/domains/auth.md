@@ -121,7 +121,7 @@ Hono `use()` 형 미들웨어. 통과 시 `c.set('user', ...)` 로 컨텍스트�
 
 - **발급** `create(userId, name?, expiresInDays = 90)`: `generateToken()` 으로 평문 생성 → `hashToken()`(sha256 hex) → `api_token` 에 해시·`name`·`expiresAt = now + 90일` insert. **평문은 반환값으로 1회만** 노출.
 - **생성기** `generateToken()`: `crypto.getRandomValues(new Uint8Array(32))` → hex 문자열(64자). `hashToken(t)`: `createHash('sha256').update(t).digest('hex')`.
-- **검증** `validate(token)`: 해시로 조회 → 없으면 `null` → `expiresAt` 경과면 `null` → 유효하면 `lastUsedAt` 갱신 후 `{ id: userId }`. (§4.3 대로 현재 호출부 없음)
+- **검증** `validate(token)`: 해시로 조회 → 없으면 `null` → `expiresAt` 경과면 `null` → 유효하면 `{ id: userId }`. `lastUsedAt` 은 마지막 갱신에서 5분 이상 지났을 때만 UPDATE 한다(4차 P-07, `LAST_USED_UPDATE_INTERVAL_MS`). (§4.3 대로 현재 호출부 없음)
 - **폐기** `revoke(userId, token)`: `(userId, hash)` 매칭 삭제(본인 토큰만).
 - **목록** `listByUser(userId)`.
 - `api_token` 테이블: `id int PK` · `user_id`(FK cascade) · `token varchar(64) unique` · `name varchar(100)` · `expires_at` · `last_used_at` · `created_at`. 인덱스 `idx_api_token_user(user_id)`.

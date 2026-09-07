@@ -6,12 +6,13 @@
 
 ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=조건부 위험, P=성능. 각 항목의 `계약` 열은 d 단계(계약 대조)에서 채운다: 불변 / 코드변경 승인 / 소비자 동시 수정.
 
-> **진행 표기**: `계약` 열의 **완료(1차)** 는 1차 수정 배치(+후속·회귀 리뷰 반영), **완료(2차)** 는 2차 배치(브랜치 `fix/audit-batch2-immediate-errors`), **완료(3차)** 는 3차 배치(브랜치 `fix/audit-batch3-serverless`)에서 코드에 반영된 항목이다. 승인 표(A-*)는 `번호` 열에 같은 표기를 단다. **부분(N차)** 은 수정 방향의 일부만 반영된 항목이며 남은 범위를 괄호에 적었고, **보류** 는 이번 감사 범위에서 적용하지 않기로 한 항목이다. 표기 없는 행은 미착수(4차 이후)다.
-> 배치 요약·검증 결과: 1차 [../history/2026-09-06-audit-batch1.md](../history/2026-09-06-audit-batch1.md), 2차 [../history/2026-09-07-audit-batch2.md](../history/2026-09-07-audit-batch2.md), 3차 [../history/2026-09-07-audit-batch3.md](../history/2026-09-07-audit-batch3.md).
-> **`db:push` 대기 2건**: `mail_messages` unique 3열(D-05, 1차) · `calendar_subscription.user_id` unique(R-25, 3차). 둘 다 push 전까지 DB 에 반영되지 않는다.
+> **진행 표기**: `계약` 열의 **완료(1차)** 는 1차 수정 배치(+후속·회귀 리뷰 반영), **완료(2차)** 는 2차 배치(브랜치 `fix/audit-batch2-immediate-errors`), **완료(3차)** 는 3차 배치(브랜치 `fix/audit-batch3-serverless`), **완료(4차)** 는 4차 성능 배치(브랜치 `fix/audit-batch4-performance`)에서 코드에 반영된 항목이다. 승인 표(A-*)는 `번호` 열에 같은 표기를 단다. **부분(N차)** 은 수정 방향의 일부만 반영된 항목이며 남은 범위를 괄호에 적었고, **보류** 는 이번 감사 범위에서 적용하지 않기로 한 항목이다. 표기 없는 행은 미착수다.
+> 배치 요약·검증 결과: 1차 [../history/2026-09-06-audit-batch1.md](../history/2026-09-06-audit-batch1.md), 2차 [../history/2026-09-07-audit-batch2.md](../history/2026-09-07-audit-batch2.md), 3차 [../history/2026-09-07-audit-batch3.md](../history/2026-09-07-audit-batch3.md), 4차 [../history/2026-09-07-audit-batch4.md](../history/2026-09-07-audit-batch4.md).
+> **`db:push` 대기 3건**: `mail_messages` unique 3열(D-05, 1차) · `calendar_subscription.user_id` unique(R-25, 3차) · P-02 인덱스 8종 추가 + 중복 4종 제거(4차). 전부 push 전까지 DB 에 반영되지 않는다.
 > 2차의 예외 2건: **E-13** 은 `posts` 테이블에 작성자 컬럼이 없어 사용자별 게시글 수를 셀 수 없으므로 계속 보류(응답 계약 유지를 위해 `postsCount: 0` 리터럴 유지), **E-09** 는 4차로 미뤘다가 **3차에서 완료**했다(drive stale 필터를 drizzle 연산자로 교체).
 > 3차의 회귀 리뷰 원복 3건(각 행에도 표기): **R-14** 어드민 GET 로그아웃 유지, **R-12** 크론 라우트 GET 전용, **R-15** `/admin/*`·`/manage/*` 의 `use('*')` 가드 복원. 근거는 [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md) "2026-09-07 3차 배치 독립 회귀 리뷰 결과와 조치".
-> 3차의 보류 6건: **R-05**(env 확인 사항) · **R-07**(업로드 4.5MB 우회) · **R-08**(maxDuration) · **R-22**(request-logger 장착) · **R-32 의 멀티파트 스트리밍** · **A-6~A-10**. 남은 **P 계열 전체는 4차(성능)** 로 이월한다.
+> 3차의 보류 6건: **R-05**(env 확인 사항) · **R-07**(업로드 4.5MB 우회) · **R-08**(maxDuration) · **R-22**(request-logger 장착) · **R-32 의 멀티파트 스트리밍** · **A-6~A-10**. 남은 **P 계열 전체는 4차(성능)** 로 이월했다.
+> 4차는 P 계열 중 **성공 응답이 바이트 단위로 동일한 범위**만 반영했다. 독립 회귀 리뷰 7 전원 완료, 미승인 차이 1건은 재검증에서 반박돼 **원복 없음**이고 조정자 보강 3건(`resetMongo(stale)` 멱등화, 블로그 댓글·방명록 동점 타이브레이크, 중복 인덱스 2건 추가 제거)만 반영됐다. 4차 보류 4건: **P-03**(preview 검증 필요) · **P-04**(A-9) · **P-10 · P-11**(사용자 결정 대기). 근거는 [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md) 의 "2026-09-07 4차 배치 착수 결정"·"2026-09-07 4차 배치 독립 회귀 리뷰 결과와 조정자 후속 조치".
 
 ## D. 데이터 손실·손상
 
@@ -138,29 +139,29 @@ ID 규칙: D=데이터 손실·손상, S=보안, E=즉시 500·잘못된 값, R=
 
 | ID | 위치 | 문제 | 수정 방향 | 계약 |
 |----|------|------|-----------|------|
-| P-01 | compose/blog.ts:61-69,274-297, compose/drive.ts:175-183, compose/ai.ts:156-198, compose/logs.ts:37-38, compose/metrics.ts:68-76, page/admin/db.ts 32쌍 + counts() 17개 | count/select 순차 await | Promise.all | 불변 |
-| P-02 | db/schema.ts | 인덱스 부재: posts(isPublished,isHide,createdAt), comments(postId,createdAt), messages(userId,deletedAt,createdAt), log_events(createdAt), weather_api_log(createdAt), image_assets(createdAt), mail_sync_logs(accountId,createdAt), resumes(type,updatedAt); 이중 인덱스 calendar_event.uid, subscription.token/icsToken | 추가·제거 후 db:push | 불변 |
-| P-03 | compose/shared.ts:3-5 | sharp/satori/resvg/tw-to-css eager import → 콜드스타트 | 지연 import | 불변 |
-| P-04 | auth-provider.ts | cookieCache 미사용 → 요청마다 세션 DB 조회 | cookieCache (Set-Cookie 추가되므로 소비자 확인) | |
-| P-05 | compose/spotify.ts:137-170, compose/mail.ts:32-40, gmail-provider.ts:36-43, compose/shared.ts:114-131 | 토큰 만료 시각 미사용 → 항상 401 후 refresh; gdrive 매번 refresh | 만료 임박 선제 갱신, 캐시 | 불변 |
-| P-06 | credential-crypto.ts:12 | scrypt 매 요청(14ms) | salt→key 캐시 | 불변 |
-| P-07 | api-token.ts:36, metrics/token.ts:41, compose/calendar.ts:155-157 | lastUsedAt 매 요청 UPDATE | N분 경과 시만 | 불변 |
-| P-08 | service/shared/cache.ts | LRU O(n) | Map 순서 활용 | 불변 |
-| P-09 | compose/mail.ts:218-287, mail-sync.ts:110-153 | 메시지당 3~5쿼리 순차 | 배치 upsert + inArray | 불변 |
-| P-10 | imap-provider.ts:217,191-197,373-375 | source:true 전체 원문, backward 전체 UID 나열, UID 당 STORE | bodyStructure, 범위 계산, join | 불변 |
-| P-11 | gmail-provider.ts:312-368,382-390,184-185 | 메시지당 1요청, 첨부마다 전문 재조회, 라벨 N+1 | batchModify, 메타 전달, 카운트 fetch 제거 | 불변 |
-| P-12 | compose/mail.ts:642-657,609-622,344-357 | 발신자 1만 행 dedupe, markAllRead 전체 로드, 카운트 2회 | GROUP BY, 단일 UPDATE, SUM | 불변 |
-| P-13 | mail-message.ts:427,171-175 | SMTP 전 IMAP 로그인, 그룹마다 provider 생성 | 생략, 계정당 1회 | 불변 |
-| P-14 | compose/blog.ts:16-24,301-338,32,501-516,462-574, post.ts:97-106 | tagsSubquery 전체 집계, message_images N+1, description 전체, 재select, getAll* LIMIT 없음, 존재 확인에 getPostById | 상관 서브쿼리, IN, 페이지네이션 | description 제외는 계약 영향 |
-| P-15 | route/badge.ts:113, route/blog/thumbnail.ts:176-185,88-102, badge.ts:66-83 | CDN 캐시 헤더 없음, 썸네일 매번 폰트 파싱+풀 렌더, 그리드 325 div, 순차 fetch | CDN-Cache-Control, 캐시, 상수화, Promise.all | 헤더 추가 |
-| P-16 | spotify-data.ts:49, spotify-widget.ts:44-59, compose/spotify.ts:131-145, playing.ts | 640px base64 100KB, 2쿼리, 캐시 없음 | 최소 이미지, JOIN, 3-5초 캐시 | SVG 내부 변경 |
-| P-17 | weather-api-key.ts:23-50, kma-api.ts:89-93, route/weather/location.ts:45-48 | 요청마다 DB 4회, base time/TTL 불일치, /locations 캐시 헤더 없음 | Redis INCR, 임계 일치, ETag | 헤더 추가 |
-| P-18 | route/calendar/ics.ts:22-35, caldav.ts:151-184, calendar.ts:243-249 | 폴링마다 전체 재생성, multiget N+1, timeRange 무시, uid 2회 | ETag 304, inArray, 범위 쿼리, or() | ETag 는 계약 확인 |
-| P-19 | compose/drive.ts:255,274,135, drive-folder.ts:38-166 | LIKE '%L1%', getById mediumblob, N+1 | LIKE 'L1%', 컬럼 분리, CTE | 불변 |
-| P-20 | ai-chat.ts:57-60,133-160, ai-attachment.ts:83-87, ai-connection.ts:84-86, session.ts:78 | 직렬 await, R2 직렬, UPDATE 3회, resolveClient 낭비 | Promise.all, 병합 | 불변 |
-| P-21 | require-metrics-token.ts:26-29, log.ts:75-87 | 매 요청 countDocuments 24h, device upsert 직렬 | limit/캐시, bulkWrite | 불변 |
-| P-22 | page/admin/db.ts 토글 6곳, getMessageLikes | select+update, LIMIT 없음 | NOT col 단일문, LIMIT | 불변 |
-| P-23 | lib/external-api.ts | dead code, 4xx 재시도 | 사용 시 정리 | 불변 |
+| P-01 | compose/blog.ts:61-69,274-297, compose/drive.ts:175-183, compose/ai.ts:156-198, compose/logs.ts:37-38, compose/metrics.ts:68-76, page/admin/db.ts 32쌍 + counts() 17개 | count/select 순차 await | Promise.all | 완료(4차) — blog(게시글·방명록)·drive·ai(세션·메시지)·logs·metrics(Mongo count+find) 목록을 `Promise.all` 로, `page/admin/db.ts` 는 목록 함수 전반 + `counts()` 카운트 17종 병렬 |
+| P-02 | db/schema.ts | 인덱스 부재: posts(isPublished,isHide,createdAt), comments(postId,createdAt), messages(userId,deletedAt,createdAt), log_events(createdAt), weather_api_log(createdAt), image_assets(createdAt), mail_sync_logs(accountId,createdAt), resumes(type,updatedAt); 이중 인덱스 calendar_event.uid, subscription.token/icsToken | 추가·제거 후 db:push | 완료(4차) — 인덱스 8종 추가(`idx_mail_sync_logs_account_created` 가 기존 단일 인덱스를 대체) + 중복 4종 제거(calendar_event.uid, subscription token·ics_token·user). **`db:push` 필요**, 적용 시 동점 정렬 순서는 P-14 의 타이브레이크로 고정 |
+| P-03 | compose/shared.ts:3-5 | sharp/satori/resvg/tw-to-css eager import → 콜드스타트 | 지연 import | 보류 — `bun build` 단일 번들 + Vercel 런타임에서만 검증 가능. preview 배포 확인 후 별도 진행 |
+| P-04 | auth-provider.ts | cookieCache 미사용 → 요청마다 세션 DB 조회 | cookieCache (Set-Cookie 추가되므로 소비자 확인) | 보류 — 승인 표 A-9 결정대로 미적용(`Set-Cookie` 표면 변경) |
+| P-05 | compose/spotify.ts:137-170, compose/mail.ts:32-40, gmail-provider.ts:36-43, compose/shared.ts:114-131 | 토큰 만료 시각 미사용 → 항상 401 후 refresh; gdrive 매번 refresh | 만료 임박 선제 갱신, 캐시 | 완료(4차) — Gmail·Spotify 는 `accessTokenExpiresAt` 기준 만료 5분 전 선제 갱신(실패는 삼키고 기존 401 후 갱신 경로 유지), gdrive access token 은 프로세스 내에서 만료 60초 전까지 캐시 |
+| P-06 | credential-crypto.ts:12 | scrypt 매 요청(14ms) | salt→key 캐시 | 완료(4차) — 복호화 경로에 salt→파생키 LRU 500. 암호화는 매번 새 salt 라 캐시하지 않는다 |
+| P-07 | api-token.ts:36, metrics/token.ts:41, compose/calendar.ts:155-157 | lastUsedAt 매 요청 UPDATE | N분 경과 시만 | 완료(4차) — `api_token`·`metrics_token` 의 `lastUsedAt`, 캘린더 구독 `lastAccessedAt` 모두 마지막 갱신 후 5분 경과 시에만 UPDATE(표시 정밀도만 달라짐) |
+| P-08 | service/shared/cache.ts | LRU O(n) | Map 순서 활용 | 완료(4차) — `accessOrder` 배열 제거, `Map` 삽입 순서 재삽입으로 O(1) |
+| P-09 | compose/mail.ts:218-287, mail-sync.ts:110-153 | 메시지당 3~5쿼리 순차 | 배치 upsert + inArray | 부분(4차) — identity `SELECT ... inArray` 1회 → 신규 INSERT → 재조회 → 기존 UPDATE 로 배치화하고 첨부는 일괄 upsert. **다중행 `ON DUPLICATE KEY UPDATE` 는 미적용** |
+| P-10 | imap-provider.ts:217,191-197,373-375 | source:true 전체 원문, backward 전체 UID 나열, UID 당 STORE | bodyStructure, 범위 계산, join | 보류 — IMAP 프로토콜 호출 변경이라 1차 데이터 손실 수정 직후 사용자 결정 대기 |
+| P-11 | gmail-provider.ts:312-368,382-390,184-185 | 메시지당 1요청, 첨부마다 전문 재조회, 라벨 N+1 | batchModify, 메타 전달, 카운트 fetch 제거 | 보류 — Gmail 프로토콜 호출 변경이라 사용자 결정 대기 |
+| P-12 | compose/mail.ts:642-657,609-622,344-357 | 발신자 1만 행 dedupe, markAllRead 전체 로드, 카운트 2회 | GROUP BY, 단일 UPDATE, SUM | 부분(4차) — 폴더 메시지·미읽음 카운트를 `countsByFolder` 단일 쿼리로 통합. 발신자 `GROUP BY` 는 상위 N 의미가 달라져 미적용, `markAllRead` 는 이미 단일 UPDATE |
+| P-13 | mail-message.ts:427,171-175 | SMTP 전 IMAP 로그인, 그룹마다 provider 생성 | 생략, 계정당 1회 | 부분(4차) — 원격 플래그 반영을 계정 단위로 묶어 provider 연결 1회 후 폴더 순회(폴더별 실패는 `captureException`). SMTP 전 IMAP 로그인 생략은 자격 검증 경로 변화로 미적용 |
+| P-14 | compose/blog.ts:16-24,301-338,32,501-516,462-574, post.ts:97-106 | tagsSubquery 전체 집계, message_images N+1, description 전체, 재select, getAll* LIMIT 없음, 존재 확인에 getPostById | 상관 서브쿼리, IN, 페이지네이션 | 부분(4차) — 태그 상관 서브쿼리, `message_images` `inArray` 일괄 조회(+`ORDER BY messageId, imageId`), 카테고리·태그 생성 후 재select 제거, 존재 확인 `getPostIdById`. 회귀 리뷰 권고로 댓글 `desc(commentId)`·방명록 `desc(id)` 타이브레이크 추가. **description 제외(A-10)·`getAll*` LIMIT 은 미적용** |
+| P-15 | route/badge.ts:113, route/blog/thumbnail.ts:176-185,88-102, badge.ts:66-83 | CDN 캐시 헤더 없음, 썸네일 매번 폰트 파싱+풀 렌더, 그리드 325 div, 순차 fetch | CDN-Cache-Control, 캐시, 상수화, Promise.all | 완료(4차) — badge 에 `CDN-Cache-Control` 추가(기존 `Cache-Control` 값 유지)·폰트/아이콘 로드 `Promise.all`, 썸네일 그리드 모듈 상수화 + 렌더 결과 LRU 20·TTL 1시간 캐시(키 = 제목·카테고리·첫 태그) |
+| P-16 | spotify-data.ts:49, spotify-widget.ts:44-59, compose/spotify.ts:131-145, playing.ts | 640px base64 100KB, 2쿼리, 캐시 없음 | 최소 이미지, JOIN, 3-5초 캐시 | 부분(4차) — 계정 조회를 `spotify_accounts` + `account` 단일 JOIN 으로. **앨범아트 축소·3~5초 캐시는 미적용**(SVG 바이트·now-playing 지연 변화) |
+| P-17 | weather-api-key.ts:23-50, kma-api.ts:89-93, route/weather/location.ts:45-48 | 요청마다 DB 4회, base time/TTL 불일치, /locations 캐시 헤더 없음 | Redis INCR, 임계 일치, ETag | 부분(4차) — 키 검증 SELECT 2회 → 1회(상관 서브쿼리 + 사용량 5초 전달), KMA base time/TTL 경계 상수 일치, `/api/weather/locations` `ETag`·`Cache-Control`·`If-None-Match` 304. **Redis INCR 은 한도 의미 변화로 미적용**, weather key `lastUsedAt` UPDATE 는 3차 결정 유지 |
+| P-18 | route/calendar/ics.ts:22-35, caldav.ts:151-184, calendar.ts:243-249 | 폴링마다 전체 재생성, multiget N+1, timeRange 무시, uid 2회 | ETag 304, inArray, 범위 쿼리, or() | 부분(4차) — ICS GET 에 본문 해시 ETag(`DTSTAMP` 제외)·304, CalDAV multiget 을 uid `inArray` 일괄 조회(응답 순서 동일), uid 조회를 `or()` 단일 쿼리로. **`timeRange` 는 계속 무시**(REPORT 결과 변화) |
+| P-19 | compose/drive.ts:255,274,135, drive-folder.ts:38-166 | LIKE '%L1%', getById mediumblob, N+1 | LIKE 'L1%', 컬럼 분리, CTE | 부분(4차) — 폴더 삭제의 트리를 레벨 단위 일괄 조회(`getByParentIds`) + 하위 자산 `inArray` 일괄 조회. **blob 컬럼 분리·breadcrumb 체인·`LIKE 'L1%'` 는 미적용** |
+| P-20 | ai-chat.ts:57-60,133-160, ai-attachment.ts:83-87, ai-connection.ts:84-86, session.ts:78 | 직렬 await, R2 직렬, UPDATE 3회, resolveClient 낭비 | Promise.all, 병합 | 부분(4차) — 전송 준비의 독립 조회 4종을 `Promise.allSettled` 병렬(첫 거부 재던짐), 첨부 R2 다운로드 병렬, 재연결 UPDATE 3회 → `updateOnReconnect` 1회. **`resolveClient` 재사용은 라우트 범위 밖이라 미적용** |
+| P-21 | require-metrics-token.ts:26-29, log.ts:75-87 | 매 요청 countDocuments 24h, device upsert 직렬 | limit/캐시, bulkWrite | 부분(4차) — 디바이스 upsert 를 `bulkWrite` 1회로(`$set`/`$setOnInsert` 규칙 동일). **`countDocuments` 캐시는 일일 한도 정확성 때문에 미적용** |
+| P-22 | page/admin/db.ts 토글 6곳, getMessageLikes | select+update, LIMIT 없음 | NOT col 단일문, LIMIT | 부분(4차) — 토글 6곳(post flag·comment hide·category hide·mail account·spotify widget token·resume visibility)을 `not(column)` 단일 UPDATE 로. **`getMessageLikes` LIMIT 은 렌더 변화로 미적용** |
+| P-23 | lib/external-api.ts | dead code, 4xx 재시도 | 사용 시 정리 | 완료(4차) — 사용처가 없어 `lib/external-api.ts` 와 `tests/lib/external-api.test.ts` 삭제 |
 
 ## 상태 코드 변경이 수반되는 항목 (사용자 개별 승인)
 

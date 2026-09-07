@@ -24,12 +24,13 @@
   - [x] g3. 독립 회귀 리뷰(워크플로 7 리뷰어 중 6 완료, mail-calendar-ai 는 조정자 직접 검토) → 미승인 차이 3건 원복(admin GET 로그아웃 signOut 복원, purge 크론 GET 전용, 대시보드·오버뷰 use('*') 가드 복원). 재검증 tsc 0 · 3198 pass · prettier 통과. 결과: acknowledge 문서
   - [x] g4-1. 코드 커밋 — 도메인별 13개 Conventional Commit(`22d357c` core … `aa3bd28` deps), AI 트레일러 없음
   - [x] g4-2. 문서 갱신 완료 — [history/2026-09-07-audit-batch3.md](./history/2026-09-07-audit-batch3.md) 신규 + domains 10·reference 6·logging·admin/manage-features·deploy·architecture·findings·index 갱신, docs 커밋 후 `fix/audit-batch3-serverless` 푸시
-  - [ ] g4-3. `fix/audit-batch4-performance` 분기(4차 착수 시)
+  - [x] g4-3. docs 커밋 `docs: 3차 수정(서버리스 적합성·공개 rate limit) 반영 및 이력 기록` 후 `fix/audit-batch3-serverless` 푸시 완료, `fix/audit-batch4-performance` 분기 완료(미푸시)
 - [ ] h. 4차 수정 — PERF. 착수 결정·그룹 구성은 acknowledge "4차 배치 착수 결정" 참조. 대상: P-01·P-02·P-05~P-09·P-12·P-13·P-15·P-17~P-23 중 응답 바이트 불변 부분만. 보류: P-03(지연 import, preview 배포 실검증 필요)·P-04(A-9)·P-10·P-11(프로바이더 프로토콜 변경)·P-14 의 description 제외·LIMIT·P-16 이미지 축소·캐시·P-17 Redis INCR·P-18 timeRange·P-21 countDocuments 캐시·P-22 LIMIT
-  - [ ] h1. 워크플로 구현(파일 비겹침 10그룹: blog·drive·ai·logs-metrics·admin·shared·mail·spotify-weather-badge·calendar·schema-index) + 그룹별 검증 + 최종 tsc·test·prettier
-  - [ ] h2. 독립 회귀 리뷰 → 미승인 차이 원복
-  - [ ] h3. 문서 갱신 → 커밋·푸시. **P-02 인덱스는 db:push 대상 추가**
-- [ ] i. 검증 — 단계마다 `bunx tsc --noEmit` · `bun test` · 계약 문서 대조, 소비자별 실동작 확인 체크리스트
+  - [x] h1. 워크플로 구현 완료(2026-09-07, 에이전트 21, 10그룹 전부 검증 ok, 최종 tsc 0 · 3424 pass · prettier 통과, 조정자 재검증 동일). 62 파일 수정 + 신규 테스트 10. 정당한 스킵: P-09 다중행 upsert(max_allowed_packet·VALUES() deprecated)·P-12 발신자 GROUP BY(상위 N 의미 변화)·markAllRead(이미 단일 UPDATE)·P-19 blob 분리(ServiceDb 계약 확산)·breadcrumb 체인·P-21 countDocuments·P-20 resolveClient(route 파일 범위 밖)·P-16 앨범아트·P-15 썸네일 순차(캐시가 더 큰 절감)·P-17 lastUsedAt(3차 결정 유지)
+  - [x] h2. 독립 회귀 리뷰 완료(워크플로 7 리뷰어, 미승인 1건은 재검증에서 반박 → 원복 없음). 조정자 후속: 중복 인덱스 2건 제거, `resetMongo(stale?)` 멱등화, comments·messages 목록 타이브레이크. 재검증 tsc 0 · prettier 통과. 상세: acknowledge "4차 배치 독립 회귀 리뷰 결과와 조정자 후속 조치"
+  - [x] h3. 도메인별 커밋 12건(`704ccd0` blog … `b808236` db) → 문서 갱신 워크플로(작성자 4 + 정합성 검사·수정·재검사, 잔여 5건은 조정자 수정: resume 인덱스·lib 테스트 수·shared-services 줄 참조·history 변경 규모·auth lastUsedAt) → docs 커밋·푸시. **db:push 대상: P-02 인덱스 8종 추가 + 중복 4종 제거**
+- [x] i. 검증 — 배치마다 `bunx tsc --noEmit` 0 · `bun test` 통과(1차 2864 → 2차 3011 → 3차 3198 → 4차 3427) · 소비자별 독립 회귀 리뷰(3차 7·4차 7). 배포 전·후 실동작 확인은 사용자 수행: [quality-assurance/2026-09-07-audit-deploy-verification.md](./quality-assurance/2026-09-07-audit-deploy-verification.md)
+- 후속 결정 대기: P-03 지연 import(preview 검증 후), P-10·P-11(IMAP/Gmail 호출 축소), Rirekisyo K-1/K-2, A-6~A-10 보류 유지
 - 부수: `.claude/settings.json`(gitignored)에 읽기 전용 허용 목록 추가(사용자 요청 "자잘한 조회는 권한 안 묻기")
 - 부수: `tests/route/index.test.ts` 가 `DATABASE_URL` 없는 환경에서 실패(`route/index.ts:101` 의 `getEnv()` 의존). 수정 대상에 포함
 

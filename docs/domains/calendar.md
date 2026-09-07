@@ -1,6 +1,6 @@
 # calendar 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋 완료, 비교 기준 `bab14e8`) 코드 검증. 다루는 코드: `dto/calendar-event.ts`, `dto/calendar-event-mapper.ts`, `dto/calendar-group.ts`, `dto/calendar-subscription.ts`, `route/calendar/*`, `service/domain/calendar/*`, `compose/calendar.ts`, `lib/ics.ts`, `lib/ics-parser.ts`, `lib/xml.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`, `page/well-known.ts`·`page/index.ts`, `lib/error-code.ts`·`lib/error-message.ts`·`lib/error.ts`
 
 ## 개요
 
@@ -46,9 +46,9 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | 테이블 | 핵심 컬럼 | 인덱스 / 관계 |
 |--------|-----------|----------------|
 | `calendar_group` | `id`(PK), `user_id`, `name`, `color`, `sort_order`(기본 0), `is_visible`(기본 true) | `idx_calendar_group_user(user_id)`. `user_id` → `user.id` (cascade) |
-| `calendar_event` | `id`(PK), `user_id`, `uid`(unique), `summary`, `description`, `location`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json), `exdate`(json), `status`(enum, 기본 `CONFIRMED`), `transp`(enum, 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `color`, `group_id`, `sequence`(기본 0), `dtstamp` | `idx_calendar_event_user`, `idx_calendar_event_user_dtstart(user_id,dtstart)`, `idx_calendar_event_uid`, `idx_calendar_event_group`. `group_id` → `calendar_group.id` (set null), `user_id` → `user.id` (cascade) |
+| `calendar_event` | `id`(PK), `user_id`, `uid`(unique), `summary`, `description`, `location`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json), `exdate`(json), `status`(enum, 기본 `CONFIRMED`), `transp`(enum, 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `color`, `group_id`, `sequence`(기본 0), `dtstamp` | `idx_calendar_event_user`, `idx_calendar_event_user_dtstart(user_id,dtstart)`, `idx_calendar_event_group`(4차에서 `idx_calendar_event_uid` 제거 — `uid` 의 unique 제약이 같은 인덱스를 이미 제공한다). `group_id` → `calendar_group.id` (set null), `user_id` → `user.id` (cascade) |
 | `deleted_calendar_event` | `id`(PK), `user_id`, `uid`, `deleted_at`, `sync_token` | `idx_deleted_event_user_sync(user_id,sync_token)`. CalDAV sync-collection 의 삭제 tombstone |
-| `calendar_subscription` | `id`(PK), `user_id`, `token`(unique), `ics_token`(unique), `name`, `is_active`(기본 true), `ctag`(기본 `'0'`), `last_accessed_at` | `idx_subscription_token`, `idx_subscription_ics_token`, `idx_subscription_user`, **`unique(user_id)` = `uq_calendar_subscription_user`**(`db:push` 필요). `user_id` → `user.id` (cascade) |
+| `calendar_subscription` | `id`(PK), `user_id`, `token`(unique), `ics_token`(unique), `name`, `is_active`(기본 true), `ctag`(기본 `'0'`), `last_accessed_at` | **`unique(user_id)` = `uq_calendar_subscription_user`**(`db:push` 필요). 4차에서 중복 인덱스 3종(`idx_subscription_token`·`idx_subscription_ics_token`·`idx_subscription_user`)을 제거했다 — 앞 둘은 `token`·`ics_token` 의 unique 제약이, 마지막은 새 `uq_calendar_subscription_user` 가 같은 컬럼을 이미 인덱싱한다. `user_id` → `user.id` (cascade) |
 | `user.timezone` | `varchar(64)`, 기본 `Asia/Seoul` | 이벤트/CalDAV ICS 의 TZID 근거 |
 
 - `rrule` 은 `RRuleType`(`freq`/`interval`/`count`/`until`(string)/`byDay`/`byMonth`/`byMonthDay`) JSON. DB 저장 시 `until` 은 ISO 문자열, 도메인 타입에서는 `Date` 로 변환된다.
@@ -78,7 +78,7 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 | POST | `/api/calendar/subscription` | 세션 | 구독 생성(있으면 기존 반환) |
 | POST | `/api/calendar/subscription/regenerate` | 세션 | CalDAV `token` 재발급. 구독 행이 없으면 `CALENDAR_SUBSCRIPTION_NOT_FOUND`(404) |
 | POST | `/api/calendar/subscription/regenerate-ics` | 세션 | `icsToken` 재발급. 구독 행이 없으면 `CALENDAR_SUBSCRIPTION_NOT_FOUND`(404) |
-| GET | `/api/calendar/:icsToken` | ics 토큰(path) | 공개 ICS 피드. `.ics` 접미사 허용, `attachment` 다운로드, `no-store` |
+| GET | `/api/calendar/:icsToken` | ics 토큰(path) | 공개 ICS 피드. `.ics` 접미사 허용, `attachment` 다운로드, `no-cache, no-store, must-revalidate`. **약한 `ETag` 를 붙이고 `If-None-Match` 가 맞으면 본문 없이 304**(아래 [ICS 피드](#ics-피드-etag304)) |
 
 ### CalDAV (`/caldav` mount, 구독 토큰 인증)
 
@@ -113,6 +113,13 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 2. compose 쿼리는 **overlap** 조건이다(2026-07-10 수정 — 이전 dtstart-in-range 버그): `(dtstart <= endDate AND dtend >= startDate)` **또는** `(rrule IS NOT NULL AND dtstart <= endDate)` 인 행을 조회.
 3. `expandEventsInRange` 로 후처리한다 — 비반복 이벤트는 overlap(`dtstart <= endDate && dtend >= startDate`)이면 그대로 포함, 반복 이벤트는 `getRecurrenceOccurrences`(rrule.between)의 **각 발생을 개별 인스턴스**(`{...event, dtstart: occurrence, dtend: occurrence + duration}`)로 전개해 포함한다(마스터 1건 반환이 아님).
 
+### ICS 피드 ETag/304
+
+1. `route/calendar/ics.ts` 가 종전대로 구독 토큰 → 이벤트 → `eventsToICS` 로 본문을 만든다(생성 로직·본문 바이트 불변).
+2. 그 본문에서 **`DTSTAMP:` 로 시작하는 줄만 걷어낸 문자열**을 SHA-256 해시하고 앞 32자를 취해 검증자로 쓴다. `DTSTAMP` 는 렌더할 때마다 바뀌므로 제외해야 내용이 그대로일 때 검증자가 안정된다.
+3. 응답 헤더에 `ETag: W/"<해시>"` 를 추가한다. 요청의 `If-None-Match` 가 `*` · `"<해시>"` · `W/"<해시>"` 중 하나와 맞으면(쉼표 목록 각 항목을 trim 해 비교) **본문 없이 304** 를 반환하며, 304 응답에도 같은 `ETag` 와 `Cache-Control` 을 싣는다.
+4. `Cache-Control` 은 이전과 같은 `no-cache, no-store, must-revalidate` 다 — 재검증은 하되 캐시 저장은 여전히 막는다. 200 응답의 본문·`Content-Type`·`Content-Disposition` 도 그대로다.
+
 ### CalDAV 동기(sync-collection)
 
 1. 클라이언트가 `REPORT` 로 `sync-collection`(이전 `sync-token`) 전송.
@@ -120,6 +127,14 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 3. 변경분은 `getetag`, 삭제분은 404 `<D:response>` 로, 마지막에 현재 `sync-token` 을 붙여 207 multistatus 반환.
 4. ctag 는 이벤트 CUD 마다 `incrementCtag`(`Date.now().toString(36)`)로 갱신. 삭제는 `deleted_calendar_event` 에 tombstone 기록.
 5. **삭제는 트랜잭션 1개**다(`compose/calendar.ts` `deleteEventWithTombstone`): tombstone insert → 이벤트 delete → 구독 `ctag` 갱신을 한 트랜잭션에서 수행한다. 이전의 `insertDeletedEvent` → `deleteEventByUid` → `incrementCtag` 3단계는 중간 실패 시 tombstone 만 남거나 ctag 가 뒤처질 수 있었다.
+
+### calendar-multiget 일괄 조회
+
+- `REPORT` 의 `calendar-multiget` 은 요청 href 마다 이벤트를 1건씩 조회하던 것을 **한 번의 `IN` 조회**로 바꿨다(`route/calendar/caldav.ts` → `calendarService.getEventsByUids`).
+- 서비스는 href 에서 뽑은 uid 목록을 중복 제거한 뒤 **`uid` 와 `uid@b-calendar` 두 형태를 모두 담아** `db.getEventsByUids(userId, uids)`(`inArray`)로 조회하고, uid 별로 정확 매칭을 우선(없으면 도메인 접미사 행)해 `Map<uid, CalendarEvent>` 를 만든다.
+- 응답은 **요청 href 순서 그대로** 조립한다. 이벤트가 있으면 `etag` + `calendarData`, 없으면 종전과 같이 `status: 404` 행이다. 207 multistatus 의 바이트 구성은 바뀌지 않는다.
+- 단건 조회(`getEventByUid`)도 쿼리 1회다: compose 가 `or(uid = ?, uid = ?@b-calendar)` 로 두 형태를 한 번에 읽고 정확 매칭을 우선 반환한다(이전에는 정확 매칭 실패 시 `getEventByUidWithDomain` 으로 2차 쿼리를 던졌다). `deleteEvent` 도 이 단일 조회 결과만 쓴다.
+- `calendar-query` 의 `time-range` 는 **여전히 무시**한다 — `getAllEvents` 로 전체 이벤트를 돌려준다(REPORT 결과가 바뀌므로 4차에서 손대지 않았다). `free-busy-query` 만 `time-range` 를 필수로 파싱한다.
 
 ### ICS 업로드(PUT) upsert
 
@@ -188,7 +203,8 @@ CalDAV 응답은 표준 DAV/CalDAV 네임스페이스에 더해 Apple ical 확�
 - **응답 스키마 2종.** `route/calendar/event.ts` 의 `eventToResponse`(ISO `dtstart`/`dtend`)는 GET `/`·POST `/`·PUT `/:uid` 가, `dto/calendar-event-mapper.ts` 의 `toEventResponse`(분리형 `startDate`/`startTime`, `id`=`uid`, `title`)는 GET `/range`·GET `/detail/:uid`·POST `/create`·PATCH `/:uid` 가 사용한다. 엔드포인트별로 필드 모양이 다르다.
 - **범위/월 조회는 서버에서 반복을 전개한다.** `expandEventsInRange`(`service/domain/calendar/calendar.ts:199`)가 `getRecurrenceOccurrences` 의 각 발생을 개별 인스턴스로 만들어 반환한다(마스터 1건이 아님). 그 외 경로(`getAllEvents`·CalDAV ICS 출력)는 마스터 + `RRULE` 그대로다.
 - **`getRecurrenceOccurrences` 는 여전히 `exdate` 를 반영하지 않는다.** `exdate` 는 이제 CalDAV PUT/upsert 에서도 저장되고 ICS `EXDATE` 로 출력되지만, 서버 전개(`expandEventsInRange`)에서 제외 처리는 하지 않는다.
-- **uid 접미사 처리.** 저장 uid 는 `{uuid}@b-calendar` 인데, CalDAV href·조회는 `@` 이전만 사용한다. 서비스는 정확 매칭 실패 시 `getEventByUidWithDomain`(`{uid}@b-calendar`)로 재조회한다.
+- **uid 접미사 처리.** 저장 uid 는 `{uuid}@b-calendar`(`CALENDAR_UID_DOMAIN_SUFFIX`)인데, CalDAV href·조회는 `@` 이전만 사용한다. 단건·일괄 조회 모두 두 형태를 **한 쿼리로 함께 읽고** 정확 매칭을 우선한다(`or(...)` / `inArray(...)`). 별도의 2차 조회 함수(`getEventByUidWithDomain`)는 제거됐다.
+- **구독 `last_accessed_at` 은 5분 단위로만 갱신된다.** CalDAV 토큰 해석 경로인 `getSubscriptionByToken`(`service/domain/calendar/calendar.ts`)이 조회한 행의 `lastAccessedAt` 이 5분보다 최근이면 `updateSubscriptionLastAccessed` 를 호출하지 않는다(값이 없으면 갱신). CalDAV 클라이언트가 초 단위로 폴링해도 매 요청 UPDATE 가 붙지 않는 대신, 어드민·`/manage` 화면의 "마지막 접근" 표시는 최대 5분 오차를 갖는다. 응답에는 이 값이 실리지 않아 계약 영향은 없다.
 - **all-day 는 UTC 자정 고정.** `combineDatetime`·`formatDateTimeICS` 가 `getUTC*` 로 처리 — 시간대 오프셋을 적용하지 않는다. 종일 이벤트의 `RRULE:UNTIL` 만 DATE 형식으로 출력한다.
 - **ETag 는 `updated_at` 기반**이다(`getEventEtag` = `lastModified` 의 base36 + uid 앞 8자). 생성·수정·upsert 가 `updatedAt` 을 DB 기본값에 맡기지 않고 서비스가 계산한 `now` 로 명시 저장하므로, 응답 헤더로 돌려준 ETag 와 이후 조회에서 계산되는 ETag 가 일치한다.
 - **VTIMEZONE 은 DST 존에서 생략된다.** 오프셋이 연중 2개 이상인 존은 정확히 표현할 수 없어 최소 블록(`TZID` 만)으로 나간다 — 클라이언트가 존 이름으로 해석해야 한다.

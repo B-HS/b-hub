@@ -1,6 +1,6 @@
 # Admin Features — 어드민 페이지 기능 맵
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `page/admin/**`, `page/manage/**`(공통 `readPage`·`resolveAdminSession`·`setRevealValue`/`takeRevealValue` 소비), `page/index.ts`, `index.ts`(루트 배선), `lib/sql-utils.ts`, `db/schema.ts`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋분) 코드 검증. 다루는 코드: `page/admin/**`, `page/manage/**`(공통 `readPage`·`resolveAdminSession`·`setRevealValue`/`takeRevealValue` 소비), `page/index.ts`, `index.ts`(루트 배선), `lib/sql-utils.ts`, `db/schema.ts`, `service/shared/api-token.ts`·`service/domain/metrics/token.ts`(Last used 표시 정밀도)
 
 `db/schema.ts` 테이블 50개를 도메인별로 묶어 `page/admin/` 어드민 페이지로 매핑한다. 모든 페이지는 **SSR(Hono JSX) + 폼 POST → 303 리다이렉트** 패턴이다(CSR 없음). 어드민은 대체로 `service/`·`route/` 계층을 거치지 않고 전용 `page/admin/db.ts`(`AdminDb`) 어댑터로 Drizzle 을 직접 조회·변경한다. **예외: Metrics Tokens(§5.5)** 는 `AdminDb` 가 아니라 주입된 `metricsTokenService` 를 통해 조회·발급·폐기한다(로그·디바이스가 MongoDB 라 Drizzle 어댑터 밖).
 
@@ -15,6 +15,7 @@
 
 - **Stat 카드 14개**(`counts()`): Users, Active Sessions(`session`), API Tokens(`apiToken`), Requests (24h)[delta `errors N`], Posts, Comments, Messages, Mail Accounts, Spotify Accounts, Calendar Events, Weather Logs(`weatherApiLog`), Log Errors (24h)[delta `events N`], Resumes, Drive Assets[delta `storageBytes` = `cloudAssets.size_bytes` 합].
     - `requests24h`/`errors24h` = `apiRequestLog` 최근 24h(에러 = `status_code >= 400`). `logErrors24h`/`logEvents24h` = `logEvents` 최근 24h(에러 = `severity >= 40`).
+    - `counts()` 의 집계 쿼리는 **전부 `Promise.all` 로 동시에** 나간다(감사 P-01). 이전에는 한 줄씩 직렬 await 라 대시보드 응답이 쿼리 수만큼 누적됐다. 반환 객체·표시 값은 불변이며, 카드마다 조회 시점이 미세하게 다를 수 있다는 성질도 종전과 같다.
 - **테이블 4개**: 최근 가입 사용자(5), 최근 API 요청(10, `apiRequestLog`), 최근 에러(5, `errorCode` not null), 최근 로그 이벤트 ERROR+(5, `logEvents` `severity >= 40`).
 - 액션 없음(읽기 전용).
 
@@ -289,6 +290,10 @@ GET  /admin                                → dashboard
 ## 16. 데이터 액세스 정책
 
 - 어드민 전용 어댑터 `page/admin/db.ts`(`AdminDb = ReturnType<typeof createAdminDb>`). `getDb()` Drizzle 인스턴스로 `select`/`update`/`delete` 직접 실행, **사용자 범위 필터 없음**(전 사용자 데이터 조회). 계층상 `service/`·`route/` 를 우회하는 유일한 예외.
+- **목록은 count 와 행 select 를 병렬로 실행한다**(감사 P-01). 총건수를 함께 내는 목록 함수는 전부 `const [[{ c }], rows] = await Promise.all([...])` 형태이고(페이지네이션이 없는 `listTags` 등은 종전대로 단일 select), 대시보드 `counts()` 도 마찬가지다(§0). 두 쿼리가 같은 스냅샷이 아니라 조회 중 삽입·삭제가 겹치면 `total`(페이지네이션)과 페이지 행이 미세하게 어긋날 수 있는데, 이는 직렬 실행 때도 있던 성질이다. 렌더 결과·정렬·필터는 불변이다.
+- **토글 액션은 단일 UPDATE 다**(감사 P-22). `togglePostFlag`(`isPublished`/`isHide`/`isNotice`/`isComment`)·`toggleCommentHide`·`toggleCategoryHide`·`toggleMailAccount`·`toggleSpotifyWidgetToken`·`toggleResumeVisibility` 6곳이 "SELECT 로 현재 값을 읽고 → 반전값을 UPDATE" 대신 `set({ flag: not(column) })` 한 문장으로 뒤집는다. 읽고-쓰기 사이의 경합이 사라지고, 대상 행이 없으면 이전의 early return 대신 **0행 UPDATE** 로 끝난다(화면 결과는 종전과 같다 — 어느 쪽이든 변화 없이 303). `updated_at` 갱신 여부는 테이블별로 종전과 동일하다.
+- **`getMessageLikes` 에는 LIMIT 을 붙이지 않았다**: 메시지 상세의 좋아요·북마크 목록은 전건을 그대로 렌더한다(상한을 두면 화면에 보이는 목록이 잘리므로 4차 감사에서 제외).
+- **`Last used` 열은 5분 정밀도다**: API Tokens(§3)·Metrics Tokens(§5.5)의 `last_used_at` 은 직전 갱신에서 5분이 지났을 때만 UPDATE 된다(감사 P-07, `service/shared/api-token.ts`·`service/domain/metrics/token.ts`). 캘린더 구독의 `Last access`(§12)도 같은 규칙이다. Weather 키(§8-1)의 `Last used` 는 매 요청 갱신으로 종전과 같다.
 - **검색어 `q` 는 LIKE 이스케이프를 거친다.** `page/admin/db.ts` 의 `likeContains(term) = '%' + escapeLikePattern(term) + '%'`(`lib/sql-utils.ts`)를 22곳의 `q` 조건이 모두 사용한다. `%`·`_` 를 그대로 넣던 이전 방식에서는 `%` 한 글자로 전체 스캔을 유발하거나 의도와 다른 행이 매칭됐다. 파라미터 바인딩은 종전과 같아 SQL injection 위험은 없었다.
 - 인가는 미들웨어가 아니라 페이지 그룹별 `requireAdminPage` 게이트(`guard.ts`). `middleware/require-admin.ts` 의 `requireAdmin` 은 JSON 에러(`createAppError`)를 던지는 API용 어드민 게이트로 어드민 페이지 게이트와는 별개다(현재 라우터엔 미배선 — 정의·테스트만 존재. `route/blog/*` admin 엔드포인트는 각자 인라인 `requireAdmin` 헬퍼를 씀).
 - 어드민 응답은 HTML 이라 JSON `errorHandler` 대신 `renderForbidden`(403 HTML) 로 권한 거부를 처리한다.
@@ -318,7 +323,7 @@ GET  /admin                                → dashboard
 | `guard.ts` | `requireAdminPage` 게이트, `AdminSessionUser`/`AdminSession`/`AdminGetSession`/`AdminContext` 타입, `renderForbidden`, 요청당 세션 캐시(`resolveAdminSession`·`cacheAdminSession`), 일회성 노출 쿠키(`REVEAL_COOKIE_NAME`·`setRevealValue`·`takeRevealValue`). `/manage` 도 공유. |
 | `csrf.ts` | `createAdminCsrfGuard` — 폼 POST CSRF 토큰 검증(가드, 시크릿 미설정 시 상태 변경 403 fail-closed). `/manage` 도 공유. |
 | `theme.ts` | `ADMIN_THEME_COOKIE`·`THEME_COOKIE_MAX_AGE`·`sanitizeTheme` — 라이트/다크 테마 쿠키. |
-| `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수) + `likeContains`(검색어 LIKE 이스케이프). |
+| `db.ts` | `AdminDb` 어댑터 — 전 도메인 list/get/count/toggle/delete/revoke Drizzle 쿼리(전수) + `likeContains`(검색어 LIKE 이스케이프). 목록은 count/select 병렬(`Promise.all`), 토글은 `not(column)` 단일 UPDATE(§16). |
 | `components.tsx` | 공통 JSX 컴포넌트(§17). |
 | `dashboard.tsx` | `createDashboardRoute` — Stat 14 + 최근 4 테이블. |
 | `styles.ts` | `ADMIN_DESIGN_TOKENS_CSS` + `ADMIN_DESIGN_TOKENS_CACHE_HEADERS`. |

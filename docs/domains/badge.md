@@ -1,6 +1,6 @@
 # 배지(badge) 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `lib/rate-limit.ts`, `compose/shared.ts`, `route/index.ts`, `package.json`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋분) 코드 검증. 다루는 코드: `dto/badge.ts`, `route/badge.ts`, `service/domain/badge/badge.ts`, `service/shared/image-generator.ts`, `service/shared/font-loader.ts`, `service/shared/icon-loader.ts`, `service/shared/cache.ts`, `lib/tailwind-converter.ts`, `lib/url-validator.ts`, `lib/rate-limit.ts`, `compose/shared.ts`, `route/index.ts`, `package.json`
 
 ## 개요
 
@@ -36,7 +36,7 @@
 
 | Method | Path | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/badge/image` | 없음(공개) + rate limit | 쿼리 파라미터로 PNG 배지 생성. `Content-Type: image/png` 반환 |
+| GET | `/api/badge/image` | 없음(공개) + rate limit | 쿼리 파라미터로 PNG 배지 생성. `Content-Type: image/png` 반환. 캐시 헤더는 `Cache-Control` + **`CDN-Cache-Control`** 2종 |
 | GET | `/api/badge/fonts` | 없음(공개) | 사용 가능한 로컬 폰트 목록 + Google Fonts 지원 여부(JSON) |
 
 - 두 엔드포인트 모두 라우트 의존성에 `getSession` 이 없고, `middleware/index.ts` 에도 `/api/badge` 를 막는 인증 게이트가 없다(전역 미들웨어는 `/api/*` CORS·`*` 보안 헤더·로그 캡처·에러 핸들러로 인증 게이트가 아니다). → 공개.
@@ -74,14 +74,14 @@
 1. `route/badge.ts`: `validator('query', badgeImageQuerySchema)` 로 검증 → `css` 문자열을 JSON 파싱 후 화이트리스트로 sanitize → `badgeService.generate(...)` 호출.
 2. `service/domain/badge/badge.ts` `generate`:
    - `generateCacheKey` = 요청 파라미터를 키 정렬한 JSON → `sha256` → 앞 16자리 hex. `cache.get(key)` HIT 시 즉시 `{ buffer, cacheHit: true }` 반환.
-   - `fontLoader.load(font, fontWeight)` 로 폰트 로드(아래 폰트 흐름).
-   - 아이콘: `iconUrl` 이 있으면 `iconLoader.loadFromUrl`, 아니면 `icon` 으로 `iconLoader.loadLocal` → data URL.
+   - **폰트와 아이콘을 `Promise.all` 로 동시에 로드**한다(`service/domain/badge/badge.ts:68-74`, 감사 P-15). 폰트는 `fontLoader.load(font, fontWeight)`(아래 폰트 흐름), 아이콘은 `iconUrl` 이 있으면 `iconLoader.loadFromUrl`, 아니면 `icon` 으로 `iconLoader.loadLocal` → data URL. 선택 규칙(`iconUrl` 우선, 둘 다 없으면 `undefined`)은 종전과 같고, 원격 아이콘 fetch 가 폰트 로드 뒤로 밀리지 않는다.
    - `convertTailwindToCSS(tailwind)` → Tailwind 스타일, `mergeStyles(tailwindStyles, css)` → `computedStyles`(css 가 tailwind 를 덮어씀).
    - 파생값: `fontSize = fontSize || round(height*0.5)`, `iconSize = iconSize || round(fontSize*1.2)`, `gap = round(height*0.08)`(`service/domain/badge/badge.ts:90-92`). `fontSize`·`iconSize` 둘 다 `||` 라 `0`·미지정 모두 auto 로 동작한다.
    - `hono/jsx` 엘리먼트 트리 구성: 컨테이너 `div`(flex, center 정렬, `gap`, `backgroundColor`, `...computedStyles`) 안에 아이콘 `img`(있을 때)와 텍스트 `span`(글자색·크기·굵기·`fontFamily`·`ellipsis`).
    - `imageGenerator.generate(element, { width, height, fonts })` → PNG Buffer. **호출은 try/catch 로 감싸져 있고**, satori/resvg 예외는 `captureException(error)` 후 `createAppError('IMAGE_GENERATE_FAILED')`(500)로 변환된다(`service/domain/badge/badge.ts:142-155`).
    - `cache.set(key, buffer, 24h)` 후 `{ buffer, cacheHit: false }` 반환.
-3. `route/badge.ts`: `Response` 로 PNG 바이트 반환 + 헤더 `Content-Type: image/png`, `X-Cache: HIT|MISS`, `Cache-Control: public, max-age=31536000, immutable`.
+3. `route/badge.ts`: `Response` 로 PNG 바이트 반환 + 헤더 `Content-Type: image/png`, `X-Cache: HIT|MISS`, `Cache-Control: public, max-age=31536000, immutable`, **`CDN-Cache-Control: public, max-age=31536000, immutable`**(둘 다 같은 상수 `BADGE_IMAGE_CACHE_CONTROL`), 그리고 rate limit 헤더 3종.
+   - `CDN-Cache-Control` 은 4차 배치에서 추가됐다(감사 P-15). 기존 `Cache-Control` 값은 그대로 두었고, Vercel 등 CDN 계층이 브라우저 캐시와 별개로 엣지 캐시를 판단하게 하는 헤더 추가일 뿐 본문·상태 코드는 불변이다.
 
 ### 이미지 렌더 (`image-generator.ts`)
 
@@ -135,7 +135,7 @@ bun test tests/dto/badge.test.ts tests/lib/tailwind-converter.test.ts
 
 ## 주의사항 / 함정
 
-- **응답·인메모리 이중 캐시**: 응답 헤더는 `Cache-Control: public, max-age=31536000, immutable`(1년, 파라미터 조합별 URL 이 곧 캐시키). 서버 측은 `createCache` 인메모리 LRU(`compose/shared.ts` 에서 `maxSize: 200`, TTL 24h)로, 배지 서비스가 `cache.set(key, buffer, 24h)` 저장. 인메모리라 프로세스/서버리스 인스턴스별로 독립이며 재시작 시 사라진다.
+- **응답·인메모리 이중 캐시**: 응답 헤더는 `Cache-Control`·`CDN-Cache-Control` 모두 `public, max-age=31536000, immutable`(1년, 파라미터 조합별 URL 이 곧 캐시키). 서버 측은 `createCache` 인메모리 LRU(`compose/shared.ts` 에서 `maxSize: 200`, TTL 24h)로, 배지 서비스가 `cache.set(key, buffer, 24h)` 저장. 인메모리라 프로세스/서버리스 인스턴스별로 독립이며 재시작 시 사라진다.
 - **`fontSize=0` 은 auto**: 서비스가 `request.fontSize || round(height*0.5)` 를 쓰므로 `0` 과 미지정이 동일하게 `round(height*0.5)` 로 폴백한다. 이전에는 `??` 여서 `fontSize=0` 이 그대로 전달돼 글자가 보이지 않는 PNG 가 만들어졌고, 그 결과가 응답 캐시(`max-age=31536000`)와 인메모리 캐시에 그대로 고착됐다.
 - **`css` 는 컨테이너(div)에만 적용**: `css`/`tailwind` 로 병합된 `computedStyles` 는 컨테이너 스타일에 스프레드된다. 텍스트색·글자크기·굵기·`fontFamily` 는 별도 `span` 스타일에 전용 파라미터(`color`/`fontSize`/`fontWeight`/`font`)로 들어가므로, `css` 의 `color` 는 텍스트가 아니라 컨테이너에 적용된다.
 - **스타일 우선순위**: 컨테이너 기본값(width/height/flex/gap/backgroundColor) → `...computedStyles` 순서라, 사용자 `tailwind`/`css` 가 기본값(배경색 등)을 덮어쓸 수 있다. `css` 는 `tailwind` 보다 우선(`mergeStyles(tailwindStyles, css)`).

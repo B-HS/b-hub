@@ -1,6 +1,6 @@
 # 공유 서비스(service/shared) 레퍼런스
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `service/shared/*.ts`(16개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `compose/mail.ts`, `lib/env.ts`, `lib/rate-limit.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 반영) 코드 검증. 다루는 코드: `service/shared/*.ts`(16개), `compose/shared.ts`, `compose/index.ts`, `compose/types.ts`, `compose/drive.ts`, `compose/spotify.ts`, `compose/ai.ts`, `compose/mail.ts`, `lib/env.ts`, `lib/rate-limit.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `service/domain/weather/kma-api.ts`, `package.json`
 
 ## 개요
 
@@ -36,7 +36,8 @@
 
 ## 조립·주입 관계 (compose 근거)
 
-- `composeShared(core)` 가 생성해 반환하는 것: `auth`, `getSession`, `apiTokenService`, `storageService`, `imageProcessor`, `imageGenerator`, `fontLoader`, `badgeService`, `gdriveStorageService`(항상 `null` 플레이스홀더 — 실제 인스턴스는 `initGdriveStorage` 로 지연 생성), `initGdriveStorage`, `getGdriveAccessToken`. (`compose/shared.ts:133-145`)
+- `composeShared(core)` 가 생성해 반환하는 것: `auth`, `getSession`, `apiTokenService`, `storageService`, `imageProcessor`, `imageGenerator`, `fontLoader`, `badgeService`, `gdriveStorageService`(항상 `null` 플레이스홀더 — 실제 인스턴스는 `initGdriveStorage` 로 지연 생성), `initGdriveStorage`, `getGdriveAccessToken`.
+- **`getGdriveAccessToken` 은 프로세스 내 토큰 캐시를 갖는다**(4차 P-05): 교환 응답의 `expires_in` 에서 **만료 60초 전**까지를 유효기간으로 잡아 클로저 변수에 담고, 유효한 캐시가 있으면 refresh token 조회·Google 토큰 교환을 모두 건너뛴다. `expires_in` 이 없거나 여유가 이미 지난 응답은 캐시하지 않고(다음 호출이 다시 교환) 토큰만 반환한다. upload-server 의 `POST /api/drive/assets/:id/gdrive-token` 응답 본문은 불변이다.
 - `compose/index.ts` 의 도메인 주입(스프레드 병합 전):
   - `composeBlog({ ...core, storageService, imageProcessor })` (`compose/index.ts:20`)
   - `composeMail({ ...core, storageService, rateLimitStore })` (`ComposeMailArgs`)
@@ -65,11 +66,12 @@
 ### api-token.ts
 
 - 역할: 개인 API 토큰 CRUD. `create`(발급, 기본 만료 90일) / `validate`(해시 매칭·만료 확인·`lastUsedAt` 갱신) / `revoke` / `listByUser`. `apiToken` 테이블 사용.
+- **`lastUsedAt` 은 5분에 한 번만 쓴다**(4차 P-07): `validate` 는 저장된 `lastUsedAt` 이 없거나 5분 이상 지났을 때만 UPDATE 를 보낸다(그 UPDATE 는 종전처럼 `await`). 매 검증마다 쓰기가 붙던 것이 사라지는 대신, **어드민 화면의 "마지막 사용" 표시 정밀도가 5분 단위**가 된다. 같은 규칙이 `service/domain/metrics/token.ts`(metrics 토큰)와 캘린더 구독 `lastAccessedAt` 에도 적용됐다.
 - 외부 의존: 없음. `lib/token-utils` 의 `generateToken`(랜덤) + `hashToken`(SHA-256 hex) 사용. 토큰은 평문 저장 안 하고 해시만 저장. `hashToken` 재수출.
 - env: 없음(`db` 만).
 - 팩토리 시그니처: `createApiTokenService({ db })`.
 - 주입: `composeShared` → `apiTokenService`(전역).
-- 테스트: `tests/service/shared/api-token.test.ts`.
+- 테스트: `tests/service/shared/api-token.test.ts`, `tests/service/shared/api-token-last-used.test.ts`.
 
 ---
 
@@ -132,12 +134,12 @@
 
 ### cache.ts
 
-- 역할: 인메모리 LRU + TTL 캐시. `set` 시 `maxSize` 도달하면 `accessOrder` 앞에서부터 축출. `get` 은 만료 확인 후 접근순서 갱신.
+- 역할: 인메모리 LRU + TTL 캐시. **접근 순서를 별도 배열이 아니라 `Map` 의 삽입 순서로 표현**한다(4차 P-08) — `get` 은 `delete` 후 재삽입해 최근 사용으로 올리고(만료면 지우고 `null`), `set` 은 기존 키를 지운 뒤 다시 넣으며, 축출은 `store.keys().next().value`(가장 오래된 키)를 지운다. 이전 구현의 `accessOrder` 배열 `indexOf`/`splice`(O(n))가 사라져 히트·미스 모두 O(1) 이다. 동작(만료·LRU 순서·`size`)은 이전과 같다.
 - 팩토리 시그니처: `createCache<T>({ maxSize? = 1000, defaultTtlMs? = 5*60*1000 })`.
 - 주입:
   - `composeShared`: `createCache<Buffer>({ maxSize: 200, defaultTtlMs: 24h })` → badgeService(`badgeCache`).
-  - `composeSpotify`: `createCache<string>({ maxSize: 200, defaultTtlMs: 5분 })` → spotifyWidgetService(`albumArtCache`, `compose/spotify.ts:224`). 상세 [../domains/spotify.md](../domains/spotify.md).
-- 테스트: `tests/service/shared/cache.test.ts`.
+  - `composeSpotify`: `createCache<string>({ maxSize: 200, defaultTtlMs: 5분 })` → spotifyWidgetService(`albumArtCache`, `compose/spotify.ts:290`). 상세 [../domains/spotify.md](../domains/spotify.md).
+- 테스트: `tests/service/shared/cache.test.ts`, `tests/service/shared/cache-lru.test.ts`.
 
 ### redis-cache.ts
 

@@ -49,7 +49,7 @@
 | 성격 | 위치(실물) | 처리 |
 |------|-----------|------|
 | 부트스트랩/설정 검증 | `lib/env.ts`, `compose/mail.ts`(암호화 키), `compose/spotify.ts`, `page/admin/index.ts` | 앱 기동 시 throw, 요청 경로가 아님 |
-| 저수준/프로바이더 | `service/domain/mail/providers/imap-provider.ts`·`gmail-provider.ts`, `service/domain/weather/kma-api.ts`, `lib/external-api.ts`, `lib/hmac-state.ts` | raw `Error`. `withErrorHandling`/`errorHandler` 에 도달하면 `INTERNAL_ERROR`(500) 로 변환되고 **`error.message` 가 `errorDetail` 로 복사되어 로그에 남는다**(→ §6 유출 주의) |
+| 저수준/프로바이더 | `service/domain/mail/providers/imap-provider.ts`·`gmail-provider.ts`, `service/domain/weather/kma-api.ts`, `lib/hmac-state.ts` | raw `Error`. `withErrorHandling`/`errorHandler` 에 도달하면 `INTERNAL_ERROR`(500) 로 변환되고 **`error.message` 가 `errorDetail` 로 복사되어 로그에 남는다**(→ §6 유출 주의) |
 
 ---
 

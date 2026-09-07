@@ -1,6 +1,6 @@
 # metrics 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/metrics/ingest.ts`, `route/metrics/token.ts`, `route/metrics/query.ts`, `service/domain/metrics/token.ts`, `service/domain/metrics/log.ts`, `dto/metrics/token.ts`, `dto/metrics/ingest.ts`, `dto/metrics/query.ts`, `compose/metrics.ts`, `compose/types.ts`, `compose/index.ts`, `middleware/require-metrics-token.ts`, `db/schema.ts`(`metrics_token`), `db/mongo.ts`, `route/index.ts`, `index.ts`, `page/admin/pages/metrics.tsx`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋분) 코드 검증. 다루는 코드: `route/metrics/ingest.ts`, `route/metrics/token.ts`, `route/metrics/query.ts`, `service/domain/metrics/token.ts`, `service/domain/metrics/log.ts`, `dto/metrics/token.ts`, `dto/metrics/ingest.ts`, `dto/metrics/query.ts`, `compose/metrics.ts`, `compose/types.ts`, `compose/index.ts`, `middleware/require-metrics-token.ts`, `db/schema.ts`(`metrics_token`), `db/mongo.ts`, `route/index.ts`, `index.ts`, `page/admin/pages/metrics.tsx`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -31,17 +31,17 @@
 | `route/metrics/token.ts` | HTTP 경계 — `createMetricsTokenRoute`. 토큰 GET/POST/DELETE, 전부 `requireMetricsToken` **admin scope**. POST 응답 `{ id, token }`(평문 1회) |
 | `route/metrics/query.ts` | HTTP 경계 — `createMetricsQueryRoute`. GET `/devices`·`/logs`(`paginatedResponse`)·`/series`, 전부 admin scope. series 는 디바이스 미존재 시 404 |
 | `route/metrics/archive.ts` | HTTP 경계 — `createMetricsArchiveRoute`. GET+POST `/archive`, `verifyCronAuth`(cron 인증). `archiveOldLogs` 호출 → 아카이브 요약 |
-| `service/domain/metrics/token.ts` | 도메인 로직 — `createMetricsTokenService`(create·validate·checkRateLimit·revoke·listAll), `MetricsTokenServiceDb`. 토큰은 `hashToken`(sha256) 저장, `expiresInDays`→`expiresAt`, validate 시 폐기·만료면 null·`lastUsedAt` fire-and-forget 갱신. rate limit = rolling 24h Mongo 이벤트 수 < `dailyLimit` |
-| `service/domain/metrics/log.ts` | 도메인 로직 — `createMetricsLogService`(ingest·list·listDevices·getDevice·series), `MetricsLogServiceDb`. online 판정 = `now - lastSeenAt < max(3×intervalSec, 5분)`. ingest 는 `receivedAt` 서버시각 + 디바이스별 최신 이벤트로 upsert |
+| `service/domain/metrics/token.ts` | 도메인 로직 — `createMetricsTokenService`(create·validate·checkRateLimit·revoke·listAll), `MetricsTokenServiceDb`. 토큰은 `hashToken`(sha256) 저장, `expiresInDays`→`expiresAt`, validate 시 폐기·만료면 null·`lastUsedAt` fire-and-forget 갱신(**직전 갱신이 5분 이상 지났을 때만** — `LAST_USED_UPDATE_INTERVAL_MS`). rate limit = rolling 24h Mongo 이벤트 수 < `dailyLimit` |
+| `service/domain/metrics/log.ts` | 도메인 로직 — `createMetricsLogService`(ingest·list·listDevices·getDevice·series), `MetricsLogServiceDb`. online 판정 = `now - lastSeenAt < max(3×intervalSec, 5분)`. ingest 는 `receivedAt` 서버시각 + 디바이스별 최신 이벤트를 모아 `upsertDevices`(복수) 1회 호출. 인계 타입 `MetricsDeviceUpsert` |
 | `dto/metrics/token.ts` | Zod — `METRICS_TOKEN_SCOPE`(client/admin), `metricsTokenCreateSchema`(alias 1~100·scope enum def client·expiresInDays 1~3650 opt·dailyLimit opt), `metricsTokenResponseSchema` |
 | `dto/metrics/ingest.ts` | Zod — `METRICS_PAYLOAD_MAX_BYTES`(65536)·`METRICS_BATCH_MAX`(50), `metricsIngestSchema`(deviceId 1~64 필수·메타 opt·intervalSec opt·payload record), `metricsIngestBatchSchema`(events min 1) |
 | `dto/metrics/query.ts` | Zod — `metricsLogListQuerySchema`(deviceId/tokenId/from/to/limit≤200 def50/offset), `metricsSeriesQuerySchema`(deviceId 필수·field dot-path regex·from/to·limit≤2000 def500), 응답 스키마 2종 |
-| `compose/metrics.ts` | DI — `composeMetrics`가 `MONGODB_URI` 없으면 `{}` 반환. `tokenDb` 는 Drizzle(단 `countEventsSince` 는 Mongo 카운트), `logDb` 는 Mongo 구현 |
+| `compose/metrics.ts` | DI — `composeMetrics`가 `MONGODB_URI` 없으면 `{}` 반환. `tokenDb` 는 Drizzle(단 `countEventsSince` 는 Mongo 카운트), `logDb` 는 Mongo 구현. `buildSeriesPipeline`·`buildDeviceUpsertOperations`(디바이스 upsert `bulkWrite` 오퍼레이션 생성) export |
 | `compose/types.ts` | `ComposeMetricsArgs = ComposeCoreArgs`(`{ db, env }`) |
 | `compose/index.ts` | `const metrics = composeMetrics(core)` + return 객체에 `...metrics` 스프레드 병합 |
 | `middleware/require-metrics-token.ts` | 토큰 인증 — `Authorization: Bearer` 또는 `X-Metrics-Token` 헤더. validate 실패 401, admin 요구인데 client 토큰이면 403, `checkRateLimit:true` 옵션 시 429. 통과 시 `metricsTokenId`/`metricsTokenAlias` 컨텍스트 세팅 |
 | `db/schema.ts` | `metrics_token`(`MetricsToken`/`NewMetricsToken`) 테이블 정의 |
-| `db/mongo.ts` | `mongodb` v6 싱글턴 `getMongo(uri)`(+`resetMongo`·`closeMongo`·`isMongoClientClosed`·`ensureMetricsIndexes`), `MetricsLogDoc`·`MetricsDeviceDoc`. 서버리스용 옵션(serverSelection/connect 8s, maxPoolSize 5) |
+| `db/mongo.ts` | `mongodb` v6 싱글턴 `getMongo(uri)`(+`resetMongo(stale?)`·`closeMongo`·`isMongoClientClosed`·`ensureMetricsIndexes`), `MetricsLogDoc`·`MetricsDeviceDoc`. 서버리스용 옵션(serverSelection/connect 8s, maxPoolSize 5) |
 | `lib/cron-auth.ts` | `verifyCronAuth(c, secret)` — Bearer/`x-cron-secret` == secret 검증. metrics archive + drive lifecycle cron 공용 |
 | `route/index.ts` | `/metrics/ingest`·`/metrics/tokens`·`/metrics`(query)·`/metrics`(archive)로 마운트(`stub` 래핑, 더 구체적인 접두사 먼저) |
 | `page/admin/pages/metrics.tsx` | 어드민 SSR — 토큰 목록/발급/폐기(`/admin/metrics/tokens`). 미구성 시 안내 렌더 |
@@ -67,7 +67,9 @@
 
 - **수집**: 클라이언트가 `Authorization: Bearer <token>` 또는 `X-Metrics-Token` 으로 POST `/api/metrics/ingest`(단건)·`/api/metrics/ingest/batch`(≤50) → `requireMetricsToken`(client scope 검증 + rolling 24h rate limit) → **본문 상한 검사**(`bodyLimit` — 단건 128KB `METRICS_PAYLOAD_TOO_LARGE`, 배치 4MB `METRICS_BATCH_TOO_LARGE`. 둘 다 `errorResponse` 봉투로 413) → DTO 검증 → payload 크기 검사(`Buffer.byteLength(JSON.stringify(payload))` >64KB 413) → `metricsLogService.ingest` 가 `receivedAt` 서버시각으로 `metrics_logs` insert + 디바이스별 최신 이벤트로 `metrics_devices` upsert.
     - 본문 상한은 DTO 파싱 **이전**에 걸리므로, 거대한 본문이 메모리에 전부 올라오기 전에 끊긴다. 기존 64KB payload 상한은 그대로 남아 있어 정상 클라이언트(dashboard·ESP32)에는 변화가 없다.
-- **디바이스 메타 보존**: `upsertDevice` 는 null 메타를 `$set` 이 아니라 `$setOnInsert` 로 보내 **기존 메타를 null 로 덮지 않는다**(간헐적으로 메타 없는 이벤트가 와도 최초 등록값 유지).
+- **디바이스 메타 보존**: 디바이스 upsert 는 null 메타를 `$set` 이 아니라 `$setOnInsert` 로 보내 **기존 메타를 null 로 덮지 않는다**(간헐적으로 메타 없는 이벤트가 와도 최초 등록값 유지).
+- **디바이스 upsert 는 배치 1회다**(감사 P-21): 서비스가 배치 안 디바이스별 최신 이벤트를 모아 `upsertDevices(rows)` 를 한 번 부르고, compose 가 `buildDeviceUpsertOperations` 로 각 행을 `updateOne`(`upsert: true`) 오퍼레이션으로 바꿔 **`devices.bulkWrite(operations)`** 한 번에 보낸다. 이전에는 디바이스 수만큼 `updateOne` 을 직렬로 await 했다. 행별 `$set`/`$setOnInsert` 구성은 종전과 동일하고, 빈 배열이면 Mongo 를 부르지 않는다.
+- **로그 목록 조회는 count 와 select 를 병렬로** 돈다(감사 P-01): `listLogs` 가 `countDocuments` 와 `find(...).toArray()` 를 `Promise.all` 로 실행한다(각각 `runMongo` 로 감싼 채). 응답(`paginatedResponse`)은 불변이다.
 - **조회·시계열**: admin scope 토큰으로 GET `/api/metrics/devices`(online = `now-lastSeenAt < max(3×intervalSec, 5분)`), `/api/metrics/logs`(페이지네이션), `/api/metrics/series`(aggregate: `payload.<field>` 가 number 인 문서만 → 최신순 limit → `{t,v}` 매핑 후 시간 오름차순 reverse).
 - **series 파이프라인은 `buildSeriesPipeline`(`compose/metrics.ts:37-46`)이 만든다.** `$match`(deviceId + `payload.<field>` 가 number + `receivedAt` 범위) → `$sort receivedAt:-1` → `$limit` → `$project { t, v }` 4단계다. `v` 표현식은 `buildSeriesValueExpression` 이 dot-path 를 재귀 분해해 만든다.
   - 경로 세그먼트가 **전부 비숫자면** 단순 `$payload.a.b` 문자열 경로다.
@@ -82,9 +84,11 @@
 ## 주의사항 / 함정
 
 - **닫힌 Mongo 클라이언트 자가치유**: Vercel 인스턴스 freeze/thaw 로 클라이언트가 닫히면(`MongoTopologyClosedError`/`MongoNotConnectedError`) 모듈 캐시 싱글턴이 죽은 채 남아 전 요청 500 이 된다(2026-07-22 프로덕션 실사고). `compose/metrics.ts` 의 `runMongo` 가 이를 감지해 `resetMongo` 후 1회 재시도한다 — Mongo 호출을 새로 추가할 땐 반드시 `runMongo` 로 감싼다.
+    - **재연결은 인스턴스 대조로 멱등화돼 있다**: `runMongo` 는 자기가 실제로 쓴 인스턴스를 `resetMongo(stale)` 에 넘기고, `resetMongo` 는 **현재 싱글턴이 그 인스턴스일 때만** 교체·종료한다. 병렬로 도는 두 호출(예: `listLogs` 의 count/select)이 같은 죽은 클라이언트로 동시에 실패해도, 뒤늦은 쪽이 앞선 재연결로 새로 만들어진 클라이언트를 닫지 않는다(4차 배치 조정자 보강 — [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md), `tests/db/mongo.test.ts`).
 - **`mongodb` 는 v6(6.20.x)에 고정**(`package.json`). `mongodb` 7.x 의 bson 이 Bun 1.3.0 미구현 `node:v8` `startupSnapshot.isBuildingSnapshot` 을 호출해 **모듈 로드 자체가 크래시**(`NotImplementedError`)한다. v6 은 핑·인덱스 생성이 정상 동작함을 실검증했다. 업그레이드 전 반드시 Bun 지원 여부를 확인한다.
 - **MongoDB DB 명은 코드 상수 `metrics` 로 고정**이라 `MONGODB_URI` 의 path 세그먼트는 무시된다(`db/mongo.ts` `MONGO_DB_NAME`).
-- **rate limit 카운트는 MySQL 이 아니라 Mongo 기준**: `MetricsTokenServiceDb.countEventsSince` 만 `compose/metrics.ts` 에서 `mongo.logs.countDocuments` 로 구현된다(나머지 token DB 는 Drizzle). 토큰 메타와 카운트 소스가 저장소를 넘나든다.
+- **rate limit 카운트는 MySQL 이 아니라 Mongo 기준**: `MetricsTokenServiceDb.countEventsSince` 만 `compose/metrics.ts` 에서 `mongo.logs.countDocuments` 로 구현된다(나머지 token DB 는 Drizzle). 토큰 메타와 카운트 소스가 저장소를 넘나든다. 이 `countDocuments` 는 **캐시하지 않는다** — 4차 감사에서 캐시 후보였으나 일일 한도 판정의 정확성을 우선해 제외했다.
+- **`last_used_at` 은 5분 단위로만 갱신된다**(감사 P-07): `validate` 가 직전 `lastUsedAt` 로부터 5분이 지났을 때만 `touchLastUsed` 를 띄운다(여전히 fire-and-forget, 실패는 `captureException`). 어드민 Metrics Tokens 화면의 "Last used" 는 최대 5분 뒤처져 보일 수 있다. `api_token` 도 같은 규칙이다([../admin-features.md](../admin-features.md) §16).
 - **다운 푸시 알림 없음(의도)**: 온라인/오프라인은 `/api/metrics/devices` 조회 시점에만 계산된다. 디바이스가 죽어도 서버가 능동적으로 알리지 않는다 — 하트비트 감시 크론+Discord 알림은 사용자 결정으로 제거됐다(2026-07-22, `docs/PROCESS.md` 참조). 재도입 시 과거 구현은 히스토리의 `feat(metrics)` 최초 커밋(`route/metrics/heartbeat.ts`·`checkHeartbeats`)을 참고한다.
 
 ## 관련 문서

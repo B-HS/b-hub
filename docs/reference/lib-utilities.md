@@ -1,8 +1,8 @@
 # lib/ 유틸리티 전수 인벤토리
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/cron-auth.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/external-api.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 반영) 코드 검증. 다루는 코드: `lib/api-response.ts`, `lib/cron-auth.ts`, `lib/db-helper.ts`, `lib/discord.ts`, `lib/env.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/hmac-state.ts`, `lib/credential-crypto.ts`, `lib/hono-types.ts`, `lib/ics-parser.ts`, `lib/ics.ts`, `lib/jwt-decode.ts`, `lib/log-service-name.ts`, `lib/mail-thread.ts`, `lib/mail-utils.ts`, `lib/pagination.ts`, `lib/privacy-policy.ts`, `lib/rate-limit.ts`, `lib/sensitive-filter.ts`, `lib/sentry.ts`, `lib/sql-utils.ts`, `lib/tailwind-converter.ts`, `lib/terms-of-service.ts`, `lib/token-utils.ts`, `lib/url-validator.ts`, `lib/with-auth.ts`, `lib/with-error-handling.ts`, `lib/with-rate-limit.ts`, `lib/with-spotify-auth.ts`, `lib/xml.ts`, `tests/lib/`
 
-`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 34개, 대응 테스트는 `tests/lib/` 29개.
+`lib/` 은 도메인·HTTP 프레임워크와 무관한 순수 유틸리티 + 횡단 코어(에러 체계·응답 헬퍼·HOF)를 모으는 레이어다. `lib/` 안에는 배럴(`index.ts`)이 없고 모든 소비자는 파일을 **직접 상대경로 import** 한다. 파일 33개, 대응 테스트는 `tests/lib/` 30개. (4차 배치 P-23 에서 미사용 `lib/external-api.ts` 와 `tests/lib/external-api.test.ts` 를 삭제했고, 같은 배치에서 `tests/lib/credential-crypto-cache.test.ts` 가 추가됐다.)
 
 이 문서는 **"무엇이 이미 있는지"의 인벤토리**만 소유한다. 사용 패턴(에러 throw·응답 봉투·HOF 합성 규칙)은 [../architecture.md](../architecture.md) 와 [../hono-reference.md](../hono-reference.md) 가 소유하므로 여기서 재서술하지 않고 링크한다. 환경변수 전수 목록은 [env.md](./env.md), 공유 서비스는 [shared-services.md](./shared-services.md), 엔드포인트는 [api-endpoints.md](./api-endpoints.md) 가 소유한다.
 
@@ -14,12 +14,13 @@
 
 코드 검증 중 확인된 **현존 중복·미사용**(정리하거나 재사용해야 할 대상):
 
-- `lib/external-api.ts`(`fetchWithRetry`) — 비-test 코드에서 import 없음. `service/domain/weather/kma-api.ts` 가 동명 `fetchWithRetry` 를 **로컬로 재구현**(별개 시그니처)해서 쓴다. 새 외부 API 호출은 이 중복을 먼저 정리/통합할지 판단한다.
 - `lib/pagination.ts`(`paginationQuerySchema` 등) — 비-test 코드에서 import 없음. `dto/common.ts` 에 **바이트 동일한** `paginationQuerySchema` 가 따로 정의돼 있다.
 - `lib/db-helper.ts` 중 `batchInsert`·`chunkArray` — 비-test 코드에서 import 없음(테스트 전용). 같은 파일의 `isDuplicateKeyError` 는 런타임에서 쓰인다(아래 표).
 - `lib/sensitive-filter.ts`(`isSensitiveKey`, `filterSensitiveData`) — 비-test 코드에서 import 없음(테스트 전용).
 
 위 항목들은 `tests/lib/` 테스트만 존재하고 런타임 경로에서 안 쓰인다(`lib/db-helper.ts` 는 `isDuplicateKeyError` 만 예외). 유사 기능이 필요하면 새로 만들지 말고 이 파일들을 재사용하거나 중복을 통합한다.
+
+**삭제된 항목**: `lib/external-api.ts`(`fetchWithRetry`·`fetchBatch`)는 4차 배치(P-23)에서 테스트와 함께 삭제됐다 — 비-test 소비처가 0이었고 `service/domain/weather/kma-api.ts` 가 동명 `fetchWithRetry` 를 로컬로 재구현해 쓰고 있었다. **재시도·타임아웃이 필요한 새 외부 GET 은 이 파일을 되살리지 말고**, `kma-api.ts`(백오프·negative cache·single-flight)나 `service/domain/spotify/spotify-provider.ts`(401 갱신·429 `Retry-After`)의 기존 패턴을 참조해 도메인 클라이언트에 구현한다([../guidelines/external-api-integration.md](../guidelines/external-api-integration.md) §1).
 
 ---
 
@@ -44,7 +45,7 @@
 | `lib/mask-sensitive-path.ts` | `maskSensitivePath` | 로그 캡처용 URL 토큰 세그먼트 마스킹(`/caldav/`·`/api/spotify/playing/`·`/api/calendar/` 토큰 경로 → `[REDACTED]`, calendar 비-토큰 세그먼트 events/groups/subscription 은 보존) | `middleware/log-capture.ts` | `mask-sensitive-path.test.ts` |
 | `lib/hmac-state.ts` | `createOAuthState`, `verifyOAuthState`, `parseStatePayload`, `hmacSign/Verify`, `base64url*` | HMAC 서명 OAuth state + base64url | `service/domain/{mail,spotify}/*-oauth-connect.ts` | `hmac-state.test.ts` |
 | `lib/token-utils.ts` | `generateToken`, `hashToken` | 32바이트 랜덤 토큰 생성 + SHA-256 해시 | `service/domain/{logs,spotify,weather}/*`, `service/shared/api-token.ts` | `token-utils.test.ts` |
-| `lib/credential-crypto.ts` | `createCredentialCrypto` | AES-256-GCM(v2 scrypt) 자격증명 암복호화(공용) | `service/domain/mail/mail-crypto.ts`(위임), `compose/ai.ts` | `credential-crypto.test.ts` |
+| `lib/credential-crypto.ts` | `createCredentialCrypto` | AES-256-GCM(v2 scrypt) 자격증명 암복호화(공용). **복호화 경로만 salt 별 파생키 LRU 캐시**(인스턴스당 500, 4차 P-06) | `service/domain/mail/mail-crypto.ts`(위임), `compose/ai.ts` | `credential-crypto.test.ts`, `credential-crypto-cache.test.ts` |
 | `lib/jwt-decode.ts` | `decodeJwtPayloadUnverified`, `getJwtExpiryMs` | **서명 미검증** JWT payload 디코드 + exp 추출(codex 토큰 만료·account_id 판단) | `service/domain/ai/ai-provider-factory.ts` | `jwt-decode.test.ts` |
 | `lib/url-validator.ts` | `isPrivateAddress`, `isPublicUrl`, `isPublicUrlResolved`, `isAllowedRedirect`, `AddressLookup` | SSRF 가드(https·사설/예약 IP 차단 + DNS 해석 검증) + 오픈리다이렉트 가드 | `route/{mail,spotify}/account.ts`, `service/*-oauth-connect.ts`, `service/shared/icon-loader.ts` | `url-validator.test.ts` |
 | `lib/rate-limit.ts` | `createRateLimiter`, `RateLimitStore`(타입) | 고정 윈도우 리미터. 인메모리 Map 기본 + 선택적 공유 스토어 주입, cleanup 타이머 `unref` | `compose/{ai,mail}.ts`, `route/index.ts`(공개 경로) | `rate-limit.test.ts` |
@@ -56,7 +57,6 @@
 | `lib/xml.ts` | `buildMultistatus`, `parsePropfind`, `parseReport`, `buildCalendarDataResponse` | CalDAV XML 빌드/파싱(`fast-xml-parser`) | `route/calendar/caldav.ts` | `xml.test.ts` |
 | `lib/tailwind-converter.ts` | `convertTailwindToCSS`, `mergeStyles` | Tailwind 클래스→CSS 객체(`tw-to-css`) + 스타일 병합 | `compose/shared.ts` (배지) | `tailwind-converter.test.ts` |
 | `lib/pagination.ts` | `paginationQuerySchema`, `calcOffset`, `calcTotalPages`, `buildPagination` | 페이지네이션 스키마·계산 헬퍼 | (비-test 미사용 — 중복: `dto/common.ts`) | `pagination.test.ts` |
-| `lib/external-api.ts` | `fetchWithRetry`, `fetchBatch` | 재시도·타임아웃 fetch, 배치 fetch | (비-test 미사용 — weather 로컬 재구현) | `external-api.test.ts` |
 | `lib/db-helper.ts` | `batchInsert`, `chunkArray`, `isDuplicateKeyError` | 배열 배치 삽입·청크 분할 + MySQL unique 위반 판별 | `compose/mail.ts`, `compose/drive.ts`(`isDuplicateKeyError` 만. 나머지 2개는 비-test 미사용) | `db-helper.test.ts`, `tests/compose/{mail,drive}.test.ts` |
 | `lib/sensitive-filter.ts` | `isSensitiveKey`, `filterSensitiveData` | 민감 키 값 `[REDACTED]` 마스킹 | (비-test 미사용) | `sensitive-filter.test.ts` |
 | `lib/privacy-policy.ts` | `PRIVACY_POLICY` | 개인정보처리방침 정적 콘텐츠 상수 | `page/policy.tsx` | `tests/page/policy.test.ts` |
@@ -216,8 +216,6 @@
 - `batchInsert(items,inserter,size=100)`, `chunkArray(items,size)`: 비-test 미사용. 테스트: `db-helper.test.ts`.
 
 ### 미사용/중복 (테스트 전용)
-
-**`lib/external-api.ts`** — `fetchWithRetry(url,opts)`(재시도 3·타임아웃 10s·선형 백오프 `retryDelay*attempt`), `fetchBatch(ids,fetcher,size=10,delay=100)`. 비-test 미사용(weather 로컬 재구현 존재). 테스트: `external-api.test.ts`.
 
 **`lib/pagination.ts`** — `paginationQuerySchema`(page/limit), `calcOffset`, `calcTotalPages`, `buildPagination`. 비-test 미사용(`dto/common.ts` 에 동일 스키마 중복). 테스트: `pagination.test.ts`.
 

@@ -1,6 +1,6 @@
 # 테스트 (Testing)
 
-> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증. 다루는 코드: `bunfig.toml`, `package.json`, `tsconfig.json`, `tests/**`(dto·lib·middleware·page·route·service), `tests/page/admin/helpers.ts`, 대표 테스트 `tests/route/blog/post.test.ts`·`tests/page/admin/blog.test.ts`·`tests/service/domain/mail/mail-sync.test.ts`·`tests/dto/blog/post.test.ts`·`tests/middleware/require-auth.test.ts`·`tests/service/domain/weather/kma-api.test.ts`·`tests/lib/with-error-handling.test.ts`·`tests/service/domain/mail/providers/imap-provider.test.ts`·`tests/service/domain/ai/providers/anthropic-provider.test.ts`
+> 기준: 2026-07-02 (chore/deps-update @ `ed87433`) 코드 검증 + 2026-09-07 (fix/audit-batch4-performance) 스위트 규모 재측정(§3). 다루는 코드: `bunfig.toml`, `package.json`, `tsconfig.json`, `tests/**`(dto·lib·middleware·page·route·service), `tests/page/admin/helpers.ts`, 대표 테스트 `tests/route/blog/post.test.ts`·`tests/page/admin/blog.test.ts`·`tests/service/domain/mail/mail-sync.test.ts`·`tests/dto/blog/post.test.ts`·`tests/middleware/require-auth.test.ts`·`tests/service/domain/weather/kma-api.test.ts`·`tests/lib/with-error-handling.test.ts`·`tests/service/domain/mail/providers/imap-provider.test.ts`·`tests/service/domain/ai/providers/anthropic-provider.test.ts`
 
 ## 개요
 
@@ -25,7 +25,9 @@
 | `tests/route/` | `route/` | HTTP 엔드포인트 — 상태코드 + JSON 응답 봉투(`success`/`data`/`pagination`/`error`) | 35 |
 | `tests/service/` | `service/domain/*`·`service/shared/*` | 도메인 서비스 로직(ServiceDb mock) + 횡단 서비스(storage·cache·image 등) | 57 |
 
-합계 182개 `*.test.ts` 파일. `tests/page/admin/helpers.ts` 는 테스트가 아니라 어드민 페이지 테스트용 공용 mock 헬퍼다.
+위 표의 폴더별 파일 수는 **2026-07-02 기준(합계 182개)** 이다. 이후 전수 감사 수정 배치(1~4차)로 스위트가 늘어 **현재 합계는 253개 `*.test.ts`** 이며(§3), 최상위 폴더도 위 6개 외에 `tests/compose/`(compose 의 ServiceDb Drizzle 구현 검증)·`tests/db/`(`db/index.ts`·`db/mongo.ts`·`db/schema.ts`)가 추가됐다. 폴더별 내역이 필요하면 `bun test` 출력으로 다시 센다.
+
+`tests/page/admin/helpers.ts` 는 테스트가 아니라 어드민 페이지 테스트용 공용 mock 헬퍼다.
 
 ---
 
@@ -44,16 +46,15 @@
 
 ## 3. 현재 상태 (실행 결과)
 
-`bun test` 를 `~/b-hub` 에서 1회 실행한 결과(2026-07-02):
+`bun test` 를 `~/b-hub` 에서 1회 실행한 결과:
 
-| 항목 | 값 |
-|------|-----|
-| pass | 2269 |
-| fail | 0 |
-| expect() calls | 5510 |
-| 파일 | 182 |
-| 소요 | 23.37s |
-| exit code | 0 |
+| 항목 | 2026-09-07 (`fix/audit-batch4-performance`) | 2026-07-02 (`chore/deps-update`) |
+|------|-----|-----|
+| pass | **3427** | 2269 |
+| fail | **0** | 0 |
+| 파일 | **253** | 182 |
+| expect() calls | (미측정) | 5510 |
+| 소요 | (미측정) | 23.37s |
 
 - 콘솔에 찍히는 `[mail] attachment download failed ...`, `[prepare] quota=... `, `Gmail API error 500/404/403` 등의 로그는 **테스트 실패가 아니다.** 에러 경로(다운로드 실패·쿼터 초과·API 오류)를 의도적으로 트리거하는 케이스에서 SUT 자체 로깅이 출력된 것이며, 해당 테스트는 통과한다(0 fail).
 

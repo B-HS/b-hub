@@ -1,6 +1,6 @@
 # 로그(logs) 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/logs/purge.ts`, `route/logs/device-key.ts`, `lib/cron-auth.ts`, `service/domain/logs/log-event.ts`, `service/domain/logs/device-key.ts`, `dto/logs/log-event.ts`, `dto/logs/device-key.ts`, `compose/logs.ts`, `compose/types.ts`, `middleware/require-device-key.ts`, `middleware/log-capture.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `route/index.ts`, `index.ts`, `middleware/index.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋분) 코드 검증. 다루는 코드: `route/logs/log-event.ts`, `route/logs/purge.ts`, `route/logs/device-key.ts`, `lib/cron-auth.ts`, `service/domain/logs/log-event.ts`, `service/domain/logs/device-key.ts`, `dto/logs/log-event.ts`, `dto/logs/device-key.ts`, `compose/logs.ts`, `compose/types.ts`, `middleware/require-device-key.ts`, `middleware/log-capture.ts`, `lib/log-service-name.ts`, `lib/discord.ts`, `lib/token-utils.ts`, `route/index.ts`, `index.ts`, `middleware/index.ts`, `db/schema.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`
 
 ## 개요
 
@@ -18,7 +18,7 @@
 | `service/domain/logs/device-key.ts` | 도메인 로직 — `resolveDeviceIdentity`(키 식별자 = `device_id ?? 'key:<id>'`) + `createDeviceKeyService`(create/validate/checkRateLimit/revoke/listAll). 토큰은 `hashToken`(sha256) 저장, 24h 내 `log_events` 카운트로 `daily_limit` 레이트리밋 |
 | `dto/logs/log-event.ts` | Zod 스키마 — `logEventIngestSchema`·`logEventBatchSchema`·`logEventResolveSchema`·`logEventListQuerySchema`·`logEventResponseSchema`, `SEVERITY` 상수(DEBUG10~FATAL50), 이름/숫자 severity 변환 |
 | `dto/logs/device-key.ts` | Zod 스키마 — `deviceKeyCreateSchema`(deviceId/label optional), `deviceKeyResponseSchema` |
-| `compose/logs.ts` | DI — `composeLogs`가 `LogEventServiceDb`를 Drizzle(`schema.logEvents`·`weatherApiLog`·`mailSyncLogs`·`mailSyncSessions`)로 인라인 구현하고 `deviceKeyService`(Drizzle `db` 직접 주입)까지 조립. `DISCORD_WEBHOOK_URL` 있으면 `service:errorCode` 키 60초 throttle `alerter` 주입(키 상한 500, 만료 키는 prune) |
+| `compose/logs.ts` | DI — `composeLogs`가 `LogEventServiceDb`를 Drizzle(`schema.logEvents`·`weatherApiLog`·`mailSyncLogs`·`mailSyncSessions`)로 인라인 구현하고 `deviceKeyService`(Drizzle `db` 직접 주입)까지 조립. `listEvents` 는 **count 와 목록 select 를 `Promise.all` 로 동시에** 실행한다(감사 P-01, 응답 불변). `DISCORD_WEBHOOK_URL` 있으면 `service:errorCode` 키 60초 throttle `alerter` 주입(키 상한 500, 만료 키는 prune) |
 | `compose/types.ts` | `ComposeLogsArgs = ComposeCoreArgs`(`{ db, env }`) |
 | `middleware/require-device-key.ts` | 디바이스 인증 — `X-Device-Key` 헤더 검증 + 레이트리밋. 실패 시 `LOG_DEVICE_KEY_INVALID`(401)·`LOG_DEVICE_KEY_RATE_LIMIT`(429) |
 | `middleware/log-capture.ts` | 서버 자동 캡처 — `app.use('*')` post-response 미들웨어. `status >= 400`(단 `/api/logs` skip)이면 `captureServerError` 를 **응답 전 `await`**(실패는 `captureException`) |
@@ -52,7 +52,7 @@
     - **저장되는 `device_id` 는 키에서 강제**된다. 미들웨어가 `resolveDeviceIdentity`(키의 `device_id`, 없으면 `key:<키 id>`)를 컨텍스트 `deviceKeyDeviceId` 에 넣고, 라우트가 단건·배치 모두 그 값으로 요청 본문의 `deviceId` 를 덮어쓴다. 레이트리밋 집계도 같은 값 기준이라 본문으로 한도를 우회할 수 없다.
     - 배치 크기 사전 검사(50건 초과 → `LOG_BATCH_TOO_LARGE`)는 종전과 같다.
 - **서버 자동 캡처**: 전역 `logCapture` 미들웨어가 `status >= 400`(`/api/logs` 경로는 skip)이면 `serviceNameFromPath`·`severityFromStatus`·`errorCodeFromStatus`로 도출해 `logEventService.captureServerError`를 **응답 반환 전에 `await`** 한다 → `log_events` insert(`source='server'`). 서버리스에서 응답 후 실행이 끊겨 오류 로그가 유실되던 경로를 막는다(insert 실패만 `captureException` 으로 흡수).
-- **어드민 조회·해소**: 관리자가 GET `/api/logs`로 필터 조회, PATCH `/api/logs/:id/resolve`로 해소, POST `/api/logs/purge`로 리텐션 정리하며, 디바이스 키는 `/api/logs/device-keys` 어드민 API로 발급/폐기한다.
+- **어드민 조회·해소**: 관리자가 GET `/api/logs`로 필터 조회, PATCH `/api/logs/:id/resolve`로 해소, POST `/api/logs/purge`로 리텐션 정리하며, 디바이스 키는 `/api/logs/device-keys` 어드민 API로 발급/폐기한다. 목록 조회의 총건수 count 와 행 select 는 같은 `where` 로 **병렬 실행**된다(`compose/logs.ts` `listEvents`) — 두 쿼리가 같은 스냅샷이 아니므로 조회 중 삽입·삭제가 겹치면 `total` 과 페이지 행이 미세하게 어긋날 수 있다(직렬 실행 때도 존재하던 성질).
 - **크론 정리**: Vercel Cron 이 매일 04:40(UTC) `GET /api/logs/purge` 를 호출한다. 크론은 GET 만 받으므로 어드민 POST 경로와 충돌하지 않는다(`Authorization` 헤더를 실은 admin POST 가 크론 분기로 흡수되던 문제 때문에 GET 전용으로 좁혔다 — [../acknowledge/2026-09-06-consumer-repos-and-compat.md](../acknowledge/2026-09-06-consumer-repos-and-compat.md)).
 
 두 수집·캡처 경로 공통으로 severity ≥ 40이면 Discord 알림이 나간다. **알림은 응답을 기다리지 않는다**(fire-and-forget — 로그 수집 응답에 웹훅 왕복을 얹지 않기 위함). 자동 캡처·중복 방지·throttle·예산·리텐션 정책 상세는 [../logging.md](../logging.md).

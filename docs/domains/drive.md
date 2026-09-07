@@ -1,6 +1,6 @@
 # 드라이브(Drive) 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋 완료, 비교 기준 `bab14e8`) 코드 검증. 다루는 코드: `dto/drive/*`, `route/drive/*`, `route/index.ts`, `index.ts`, `service/domain/drive/*`, `service/shared/storage.ts`, `service/shared/gdrive-storage.ts`, `service/shared/storage-lifecycle.ts`, `compose/drive.ts`, `compose/shared.ts`, `compose/types.ts`, `db/schema.ts`, `lib/cron-auth.ts`, `lib/error-code.ts`, `lib/error-message.ts`, `lib/error.ts`, `lib/env.ts`, `vercel.json`
 
 ## 개요
 
@@ -26,7 +26,7 @@
 | `route/drive/folder.ts` | 폴더 HTTP 라우트 (`createDriveFolderRoute`) — 생성/목록/상세/수정/삭제 |
 | `route/drive/lifecycle.ts` | 스토리지 lifecycle 라우트 (`createDriveLifecycleRoute`) — evict-r2/evict-local/auto-promote, cron 시크릿 인증 |
 | `service/domain/drive/drive-asset.ts` | 자산 도메인 로직 (`createDriveAssetService`) — 검증(크기/MIME/매직바이트/차단 확장자), 해시 중복, 쿼터, 썸네일, 티어별 URL/다운로드 |
-| `service/domain/drive/drive-folder.ts` | 폴더 도메인 로직 (`createDriveFolderService`) — breadcrumb, 순환참조 가드, 재귀 삭제 |
+| `service/domain/drive/drive-folder.ts` | 폴더 도메인 로직 (`createDriveFolderService`) — breadcrumb, 순환참조 가드, 하위 트리 일괄 삭제(`collectFolderIdsInDeleteOrder`) |
 | `service/shared/storage.ts` | L1(R2) 스토리지 서비스 (`createStorageService`) — upload/del/list/getUrl/getPresignedUrl/getObject/getObjectStream |
 | `service/shared/gdrive-storage.ts` | L3(Google Drive) 서비스 (`createGdriveStorageService`) — download/del, access token 캐싱 |
 | `service/shared/storage-lifecycle.ts` | 티어 lifecycle 서비스 (`createStorageLifecycleService`) — evictR2Stale/evictLocalFifo/autoPromote |
@@ -140,12 +140,15 @@ mount: `index.ts`가 `app.route('/api', api)`, `route/index.ts`가 자산을 `/d
 ### 4. 폴더 (`createDriveFolderService`)
 
 - 생성/수정 시 같은 부모 안 이름 중복은 `DRIVE_FOLDER_NAME_DUPLICATE`. 이동 시 자기 자신/자손으로의 이동은 `isDescendant`(최대 깊이 50) 검사로 `DRIVE_FOLDER_CIRCULAR_REF`.
-- 상세는 부모 체인을 거슬러 `breadcrumb`(최대 깊이 50) 구성.
-- 삭제(`remove`)는 **재귀**: 하위 폴더를 먼저 재귀 삭제하고, 각 폴더의 자산을 티어별 실물 삭제(`deleteAssetFromTiers`) 후 DB에서 제거.
+- 상세는 부모 체인을 거슬러 `breadcrumb`(최대 깊이 50) 구성 — **부모 1건씩 `getById` 로 거슬러 올라가는 방식 그대로**다(깊이만큼 쿼리, 재귀 CTE 로 바꾸지 않았다).
+- 삭제(`remove`)는 **깊이 단위 일괄 조회 + 자식 우선 순서**다(`drive-folder.ts` 의 `collectFolderIdsInDeleteOrder`).
+    1. 루트에서 시작해 현재 깊이의 폴더 id 를 한꺼번에 `getByParentIds(userId, frontier)`(= `parent_id IN (...)`)로 조회하며 다음 깊이로 내려간다. 방문한 id 는 `Set` 으로 걸러 부모 순환이 있어도 무한 루프에 빠지지 않는다. 폴더 조회 횟수가 폴더 수 N 번에서 **트리 깊이 만큼**으로 줄었다.
+    2. 트리의 자산은 `getAssetsByFolderIds(folderIds)`(= `folder_id IN (...)`) **1회**로 모아 폴더별로 나눈다(폴더 수만큼 조회하던 것을 대체).
+    3. 삭제 순회는 여전히 자식 → 부모 순서이고, 폴더마다 자산 실물 삭제(`deleteAssetFromTiers`, 실패는 `captureException` 후 진행) → 자산 행 삭제 → 폴더 행 삭제 순서도 그대로다.
 
 ### 5. 스토리지 lifecycle (`createStorageLifecycleService`, cron)
 
-- `evictR2Stale`(evict-r2 cron): 후보는 `getStaleL1Assets`(`compose/drive.ts`)가 뽑는다 — `storage_tiers LIKE '%L1%'` + **`gdrive_file_id` NOT NULL**(L3 사본 보유) + (`last_viewed_at < cutoff` **또는** `last_viewed_at IS NULL AND created_at < cutoff`), 최대 500건. `cutoff = now - evictionDays(30일)`. 서비스는 각 후보에서 `L1`을 뺀 티어 문자열이 **빈 문자열이면 건너뛴다**(유일 티어 가드 — 마지막 사본을 지우지 않는다). 통과분만 R2 오브젝트를 삭제하고 `storage_tiers` 갱신 + `evict_l1` 로그 기록.
+- `evictR2Stale`(evict-r2 cron): 후보는 `getStaleL1Assets`(`compose/drive.ts`)가 뽑는다 — `storage_tiers LIKE '%L1%'` + **`gdrive_file_id` NOT NULL**(L3 사본 보유) + (`last_viewed_at < cutoff` **또는** `last_viewed_at IS NULL AND created_at < cutoff`), 최대 500건. 이 `LIKE '%L1%'` 는 인덱스를 못 타지만 **접두 `LIKE 'L1%'` 로 바꾸지 않았다** — `storage_tiers` CSV 에서 `L1` 이 항상 맨 앞에 온다는 보장이 없어 후보 집합이 달라지기 때문이다(4차 미적용). `cutoff = now - evictionDays(30일)`. 서비스는 각 후보에서 `L1`을 뺀 티어 문자열이 **빈 문자열이면 건너뛴다**(유일 티어 가드 — 마지막 사본을 지우지 않는다). 통과분만 R2 오브젝트를 삭제하고 `storage_tiers` 갱신 + `evict_l1` 로그 기록.
 - `autoPromote`(auto-promote cron): 후보는 **L1 미보유** + `gdrive_file_id` 있음 + `access_count >= 5` + `size_bytes <= 100MB` + **`last_viewed_at >= now - evictionDays(30일)`**(`viewedAfter` 인자로 전달 — 오래 전에만 조회된 자산은 승격하지 않는다), 최대 50건. L3에서 내려받아 R2에 재업로드하고 `L1` 티어 추가, `promote_l1` 로그 기록.
 - `evictLocalFifo`(evict-local): 현재 `return 0` **stub**(L2 미구현).
 
@@ -199,7 +202,7 @@ lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `
 | `tests/route/drive/asset.test.ts` | 12 |
 | `tests/route/drive/folder.test.ts` | 10 |
 | `tests/service/domain/drive/drive-asset.test.ts` | 49 |
-| `tests/service/domain/drive/drive-folder.test.ts` | 27 |
+| `tests/service/domain/drive/drive-folder.test.ts` | 31 (4차에 "재귀 삭제 배치 조회" 3건 추가) |
 | `tests/service/shared/storage-lifecycle.test.ts` | 7 |
 | `tests/service/shared/gdrive-storage.test.ts` | 6 |
 | `tests/service/shared/storage.test.ts` | 7 |
@@ -218,11 +221,12 @@ lifecycle 파라미터는 `compose/drive.ts`에서 주입: `evictionDays: 30`, `
 - **cron 스케줄**(`vercel.json`): `evict-r2`=`0 3 * * *`, `auto-promote`=`0 5 * * *`(UTC 매일 03:00·05:00). `evict-local`은 라우트만 있고 cron 미등록. lifecycle 라우트 3개는 `route.on(['GET','POST'], ...)`(`route/drive/lifecycle.ts:12`)로 **GET·POST 모두 수신**한다(Vercel cron 은 GET 으로 호출). 세 메서드 모두 `verifyCronAuth`로 `UPLOAD_SERVER_SECRET`을 상수 시간 검증한다.
 - **자산 ID는 숫자, 폴더 ID는 UUID 문자열**: `driveAssetParamSchema`는 `z.coerce.number().int().positive()`, `driveFolderParamSchema`는 `z.string()`. 스키마상 `cloud_assets.id`는 `int` autoincrement, `drive_folders.id`는 varchar36.
 - **폴더 참조 무결성은 앱 로직**: `cloud_assets.folder_id`·`drive_folders.parent_id`에는 DB FK가 없다. 순환참조 가드·재귀 삭제·소유자 검증 등은 서비스 코드에서만 강제된다(깊이 상한 50).
+- **자산 목록은 데이터·총 개수를 병렬 조회**한다: `getAssetList`(`compose/drive.ts`)가 정렬·`limit`/`offset` 이 붙은 select 와 같은 `where` 의 `COUNT(*)` 를 `Promise.all` 로 함께 실행한다. 응답(`paginatedResponse`)의 필드·값은 불변이다. 다만 select 는 여전히 `db.select()` 전체 컬럼이라 **`thumbnail_blob`(`mediumblob`)이 목록에도 실려 온다** — 컬럼 분리는 4차에서 적용하지 않았다.
 - **stale 임시행 숨김**: 목록 쿼리(`compose/drive.ts`)는 `preparing`/`failed` 상태이면서 생성 10분 초과인 행을 결과에서 제외한다. 조건은 raw `sql` 대신 drizzle 연산자 조합(`or(notInArray(uploadStatus, ['preparing','failed']), gte(createdAt, staleThreshold))`)이다 — raw `sql` 템플릿에 JS `Date` 를 넣으면 프로세스 타임존에 따라 다른 리터럴이 만들어지던 문제(E-09)를 없앴다. `folderId=root`는 `folder_id IS NULL`로 해석, `mimeType` 필터는 접두 `LIKE`.
 - **실물 삭제 실패는 더 이상 무음이 아니다**: 자산 삭제(`removeAsset`)·폴더 재귀 삭제·티어 정리(`cleanupUploadedTiers`)의 스토리지 예외를 `captureException` 으로 보고한다(행 삭제는 그대로 진행). 자산 삭제 순서는 **실물 정리 → DB 행 삭제**라, 행 삭제가 실패하는 드문 경우 실물만 사라진 행이 남을 수 있다.
 - **중복 제거는 사용자 단위**: `uq_cloud_assets_user_hash`(user_id, file_hash) unique. 같은 파일이라도 다른 사용자면 별도 저장.
 - **쿼터 기본값 이원화**: 실제 쿼터는 `getUserQuotaBytes`(=`user.storage_quota_bytes`, 조회 실패 시 10MB fallback)로만 계산된다. 서비스 deps의 `defaultQuotaBytes`·`uploadServerSecret`은 `drive-asset` 서비스 본문에서 사용되지 않는다(쿼터/토큰 검증은 각각 DB 컬럼·행 `upload_token`으로 처리).
-- **삭제/eviction은 best-effort**: R2/gdrive 실물 삭제 및 티어 이동 루프는 `try/catch`로 실패를 삼킨다(DB 정합성 우선). 삭제 시 DB 행을 먼저 지우고 실물을 지운다.
+- **삭제/eviction은 best-effort**: R2/gdrive 실물 삭제 및 티어 이동 루프는 `try/catch`로 실패를 삼킨다(DB 정합성 우선). 삭제 순서는 위 "실물 삭제 실패는 더 이상 무음이 아니다" 항목 참조.
 
 ## 관련 문서
 

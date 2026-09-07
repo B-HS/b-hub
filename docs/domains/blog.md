@@ -1,6 +1,6 @@
 # blog 도메인
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 커밋 완료, 비교 기준 `bab14e8`) 코드 검증. 다루는 코드: `route/blog/*`, `service/domain/blog/*`, `compose/blog.ts`, `dto/blog/*`, 썸네일이 쓰는 `service/shared/image-generator.ts`·`font-loader.ts`·`service/shared/cache.ts`, (blog 미배선 공유) `service/shared/markdown.ts`·`image-processor.ts`, `db/schema.ts`, `route/index.ts`, `index.ts`
 
 ## 개요
 
@@ -69,7 +69,7 @@
 |--------|------|------|------|
 | GET | `/api/blog/posts` | 없음(admin 세션이면 필터 해제) | 게시글 목록. `paginatedResponse`. 쿼리: `page`/`limit`/`keyword`/`categoryId`/`tagId`/`isPublished`/`isHide`/`isNotice`. **비admin 요청은 서버가 `isPublished=true`·`isHide=false` 를 강제**해 쿼리로 넘어온 값을 덮어쓴다(`route/blog/post.ts:29-31`) |
 | GET | `/api/blog/posts/:id` | 없음(admin 세션이면 비공개도 조회) | 게시글 상세. 조회 시 `views` +1. **비admin 요청은 미발행(`isPublished=false`)·숨김(`isHide=true`) 글이면 `BLOG_POST_NOT_FOUND`(404)**(`route/blog/post.ts:56-58`, `service/domain/blog/post.ts:80-86`) |
-| GET | `/api/blog/posts/:id/thumbnail` | 없음 | 1200×630 OG PNG 생성(satori+resvg, Noto Sans KR). `Cache-Control: public, max-age=2592000, immutable`. `getByIdWithoutView` 를 쓰므로 **조회수를 올리지 않는다** |
+| GET | `/api/blog/posts/:id/thumbnail` | 없음 | 1200×630 OG PNG 생성(satori+resvg, Noto Sans KR). `Cache-Control: public, max-age=2592000, immutable`. `getByIdWithoutView` 를 쓰므로 **조회수를 올리지 않는다**. 렌더 결과는 프로세스 내 LRU 캐시(20건·1시간)에 담긴다(아래 [썸네일](#썸네일-og-이미지)) |
 | POST | `/api/blog/posts` | admin | 게시글 생성(태그 연결 트랜잭션) |
 | PUT | `/api/blog/posts/:id` | admin | 게시글 수정(`tagIds` 전달 시 재설정) |
 
@@ -127,19 +127,25 @@
 ## 핵심 흐름
 
 ### 게시글 목록/상세
-- `createPostRoute` → 먼저 `deps.getSession(c)` 로 admin 여부를 판정한다. 비admin이면 `{ ...query, isPublished: true, isHide: false }` 로 덮어써 `postService.list()` 를 호출한다(`route/blog/post.ts:29-31`) → `compose/blog.ts` `getPostList`. Drizzle 서브쿼리로 태그를 `JSON_ARRAYAGG` 집계, `categories` 조인, 동적 조건(keyword `LIKE`, category/tag/isPublished/isHide/isNotice) 후 `created_at`·`postId` desc 정렬 + `limit/offset`. 별도 count 쿼리로 total 산출.
+- `createPostRoute` → 먼저 `deps.getSession(c)` 로 admin 여부를 판정한다. 비admin이면 `{ ...query, isPublished: true, isHide: false }` 로 덮어써 `postService.list()` 를 호출한다(`route/blog/post.ts:29-31`) → `compose/blog.ts` `getPostList`. `categories` 조인 + 동적 조건(keyword `LIKE`, category/tag/isPublished/isHide/isNotice) 후 `created_at`·`postId` desc 정렬 + `limit/offset`.
+- **태그는 상관 서브쿼리로 뽑는다**: `createPostTagsJsonExpression()`(`compose/blog.ts` 상단)이 select 목록 안에서 `(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('tagId', …, 'tag', …)), JSON_ARRAY()) FROM post_tags LEFT JOIN tags … WHERE post_tags.postId = posts.postId)` 를 만든다. 이전에는 `post_tags` 전체를 `GROUP BY` 로 집계한 파생 테이블을 만들어 LEFT JOIN 했다 — 페이지 크기와 무관하게 전 태그를 집계하던 비용이 사라졌다. 목록·상세가 같은 표현식을 쓰므로 `tags` 필드 모양(빈 배열 포함)은 그대로다.
+- **목록과 total 은 병렬 실행**한다: 정렬·페이지네이션이 붙은 목록 쿼리와 `COUNT(*)` 쿼리를 `Promise.all` 로 함께 던진다(같은 조건 배열을 공유). 응답 필드·값은 불변이다.
 - 상세: `postService.getById(id, { publicOnly: session?.user.role !== 'admin' })`(`route/blog/post.ts:56-57`). 서비스는 행을 읽은 뒤 `publicOnly` 이고 `!isPublished || isHide` 면 `null` 을 반환하며, 이때 `incrementViews` 도 실행하지 않는다(`service/domain/blog/post.ts:80-86`). `null` 이면 라우트가 `BLOG_POST_NOT_FOUND` throw.
 - 조회수 없는 읽기: `postService.getByIdWithoutView(id)`(`service/domain/blog/post.ts:88`)는 `getPostById` 만 호출한다. 썸네일 라우트 전용 경로다.
 
 ### 게시글 생성/수정/삭제
 - `create`/`update` 는 admin 게이팅. `insertPost`/`updatePost` 는 `db.transaction` 안에서 `posts` upsert + `post_tags` 재설정(`tagIds` 전달 시 기존 삭제 후 재삽입).
-- `deletePost`(`compose/blog.ts:157-165`)도 `db.transaction` 이다. `comments` 를 `postId` 로 먼저 지운 뒤 `posts` 를 지운다. `comments.postId` 가 `posts.postId` 를 FK 로 참조(cascade 없음)하므로, 댓글이 달린 글을 지울 때 FK 제약 위반으로 500 이 나던 경로가 제거됐다. `post_tags` 는 `ON DELETE CASCADE` 라 별도 삭제가 없다.
+- **존재 확인은 경량 쿼리로 한다**: `postService.update`·`delete` 의 선행 검사가 `getPostById`(카테고리 조인 + 태그 서브쿼리 + `description` 본문)가 아니라 `getPostIdById`(`posts.postId` 1열, `LIMIT 1`)를 호출한다(`service/domain/blog/post.ts`·`compose/blog.ts`). 없으면 종전과 같이 `null` → 라우트가 `BLOG_POST_NOT_FOUND`.
+- `deletePost`(`compose/blog.ts`)도 `db.transaction` 이다. `comments` 를 `postId` 로 먼저 지운 뒤 `posts` 를 지운다. `comments.postId` 가 `posts.postId` 를 FK 로 참조(cascade 없음)하므로, 댓글이 달린 글을 지울 때 FK 제약 위반으로 500 이 나던 경로가 제거됐다. `post_tags` 는 `ON DELETE CASCADE` 라 별도 삭제가 없다.
 
 ### 댓글 작성 게이트
 - `commentService.create` 는 insert 전에 `getPostCommentFlag(postId)`(`compose/blog.ts` — `posts.is_comment` 1열만 조회)로 대상 글을 확인한다. 행이 없으면 `{ success: false, reason: 'post_not_found' }`, `isComment=false` 면 `{ success: false, reason: 'comment_disabled' }` 를 돌려주고, 라우트가 각각 `BLOG_POST_NOT_FOUND`(404)·`FORBIDDEN`(403)으로 변환한다(`route/blog/comment.ts`). 성공 시 응답은 종전과 같은 `{ commentId }` 다. 이전에는 존재하지 않는 글이나 댓글 비허용 글에도 댓글이 그대로 저장됐다.
 
 ### 댓글 소유권
 - `commentService.update`/`delete` 는 `getCommentById` 로 존재 확인 후 `existing.userId !== userId` 면 `{ success: false, reason: 'not_owner' }` 반환 → 라우트가 `BLOG_COMMENT_NOT_FOUND` 로 변환. admin 라우트의 `adminDelete`/`adminUpdateHide` 는 소유권 무시.
+
+### 카테고리·태그 생성
+- `createCategory`/`createTag`(`compose/blog.ts`)는 INSERT 후 방금 넣은 행을 다시 SELECT 하지 않고, `$returningId()` 로 받은 PK 와 입력값으로 응답 객체를 조립한다(`{ categoryId, category, isHide: false }` · `{ tagId, tag }`). 두 테이블 모두 DB 기본값으로 채워지는 다른 컬럼이 없어 응답 바이트는 종전과 같다.
 
 ### 이미지 업로드 3단계 (b-hub ↔ upload-server)
 1. `POST /api/blog/images/prepare`(admin) → `blogImageService.prepare(userId)` 가 `assetId`(uuid)·`s3Key = <assetId>.webp` 를 만들고 `HMAC-SHA256(UPLOAD_SERVER_SECRET)` 로 `uploadToken` 서명(TTL 10분). `uploadUrl = UPLOAD_SERVER_URL` 반환. **`UPLOAD_SERVER_SECRET` 이 비어 있으면 `prepare`·`complete` 둘 다 `SERVICE_NOT_CONFIGURED`(503)** 로 실패한다(`requireTokenSecret`) — 빈 시크릿으로 서명·검증해 아무 토큰이나 통과하는 것을 막는다.
@@ -149,11 +155,15 @@
 - complete 요청의 `width`/`height` 는 `int().nonnegative().nullable()` 이며 **`0` 은 `null` 로 변환**된다(`dto/blog/image.ts:16-27`). upload-server 는 sharp 메타데이터 추출에 실패하면 `0` 을 보내는데, 이전 `positive()` 스키마에서는 그 요청 전체가 400 으로 떨어져 업로드가 실패했다. `sizeBytes` 는 여전히 `int().positive()` 다.
 
 ### 썸네일 OG 이미지
-- `createThumbnailRoute` → `postService.getByIdWithoutView(id)`(`route/blog/thumbnail.ts:44`)로 제목/카테고리/첫 태그를 얻어 정적 그리드 배경 위에 satori(JSX→SVG) + resvg(SVG→PNG)로 1200×630 PNG 생성. 폰트는 `fontLoader.load('Noto Sans KR', 400/700)`. **조회수는 올리지 않는다.**
+- `createThumbnailRoute` → `postService.getByIdWithoutView(id)`(`route/blog/thumbnail.ts`)로 제목/카테고리/첫 태그를 얻어 정적 그리드 배경 위에 satori(JSX→SVG) + resvg(SVG→PNG)로 1200×630 PNG 생성. 폰트는 `fontLoader.load('Noto Sans KR', 400/700)`. **조회수는 올리지 않는다.**
+- **렌더 결과 캐시**: 라우트 팩토리가 `createCache<Buffer>({ maxSize: 20, defaultTtlMs: 1시간 })`(`service/shared/cache.ts`)를 1개 만들어 렌더된 PNG 를 담는다. 캐시 키는 **제목·카테고리·첫 태그**를 JSON 직렬화한 뒤 SHA-256 해시의 앞 16자다(게시글 id 가 아니다). 히트면 satori/resvg 를 돌리지 않고 같은 헤더(`Content-Type: image/png` + `Cache-Control: public, max-age=2592000, immutable`)로 바로 응답한다. 저장은 **폰트가 1개 이상 로드된 렌더에만** 한다(전량 실패한 폴백 렌더는 캐시하지 않는다).
+- 그리드 배경(`GRID_ELEMENT`)과 캔버스 크기·`Cache-Control` 문자열은 모듈 상수로 끌어올려 요청마다 다시 만들지 않는다. 산출 PNG 는 동일하다.
 - 썸네일 라우트는 공개 필터를 걸지 않는다(`getByIdWithoutView` 에는 `publicOnly` 옵션이 없다). id 를 아는 요청은 미발행 글의 제목·카테고리가 담긴 OG 이미지를 받을 수 있다.
 
 ### 메시지 피드
-- `getMessagesByUserId`: `deleted_at IS NULL` 메시지를 페이지네이션 조회 후 메시지별로 `message_images`→`image_assets` 조인해 이미지 배열 구성. 응답은 `{ content, totalElements, totalPages, prev, next }`. 프로필은 `follows` 서브쿼리로 팔로워/팔로잉 수 계산.
+- `getMessagesByUserId`: `deleted_at IS NULL` 메시지를 페이지네이션 조회한다. **목록과 `COUNT(*)` 는 `Promise.all` 병렬**이고, 정렬은 `created_at` desc + `id` desc(2차 키)다.
+- **이미지는 메시지별 N+1 이 아니라 한 번의 `IN` 조회**로 가져온다: 조회된 메시지 id 목록으로 `message_images`→`image_assets` 를 `inArray` 조인해 `ORDER BY messageId, imageId` 로 받고, 메모리에서 `messageId` 별 배열로 묶는다(메시지가 0건이면 쿼리를 보내지 않는다). 이미지 순서는 이전의 메시지별 조회(`WHERE message_id = ?` 무정렬)와 달리 `imageId` 오름차순으로 결정적으로 고정된다. 응답 필드(`id`/`url`/`mimeType`/`width`/`height`)와 URL 조립 방식은 그대로다.
+- 응답은 `{ content, totalElements, totalPages, prev, next }`. 프로필은 `follows` 서브쿼리로 팔로워/팔로잉 수 계산.
 
 ## 환경변수
 
@@ -188,8 +198,9 @@
 실행: `bun test <경로>` (전체: `bun test`).
 
 - DTO: `tests/dto/blog/post.test.ts`, `comment.test.ts`, `category.test.ts`, `tag.test.ts`, `message.test.ts`, `image.test.ts`
-- 라우트: `tests/route/blog/post.test.ts`, `comment.test.ts`, `category.test.ts`, `tag.test.ts`, `message.test.ts`, `image.test.ts`, `admin.test.ts` (thumbnail 전용 테스트는 없음)
+- 라우트: `tests/route/blog/post.test.ts`, `comment.test.ts`, `category.test.ts`, `tag.test.ts`, `message.test.ts`, `image.test.ts`, `admin.test.ts`, `thumbnail.test.ts`(렌더 캐시 히트·폰트 실패 시 미캐시)
 - 서비스: `tests/service/domain/blog/post.test.ts`, `comment.test.ts`, `message.test.ts`, `blog-image.test.ts`
+- compose(쿼리 형태·병렬성): `tests/compose/blog.test.ts` — 목록/카운트 병렬, 태그 상관 서브쿼리, 존재 확인 경량 쿼리, 메시지 이미지 일괄 조회, 카테고리·태그 생성 응답
 - 공유(참고): `tests/service/shared/markdown.test.ts`, `image-processor.test.ts`, `image-generator.test.ts`, `font-loader.test.ts`
 - SSR 어드민(참고): `tests/page/admin/blog.test.ts`
 
@@ -197,8 +208,11 @@
 
 - **공개 가시성은 서버가 강제한다**: 목록·상세 모두 admin 세션이 없으면 `isPublished=true`·`isHide=false` 로 좁혀진다(위 [핵심 흐름](#게시글-목록상세)). 클라이언트가 `?isPublished=false` 를 보내도 비admin이면 무시되고, 미발행 글의 id 로 상세를 요청하면 404 다. admin 판정은 세션 쿠키 기반이라 bblog 편집 화면처럼 admin 쿠키가 전달되는 경로는 그대로 초안을 본다. 예외는 `/:id/thumbnail` 로, 이 라우트만 공개 필터가 없다.
 - **조회수 증가 부작용**: `getById` 는 (공개 필터를 통과한 경우) 호출마다 `views` 를 +1 한다. 중복 방지 로직은 없다. 썸네일 라우트는 `getByIdWithoutView` 로 분리돼 조회수에 영향을 주지 않는다.
-- **admin JSON 의 `postsCount` 는 항상 0**: `GET /api/blog/admin/users` 의 `postsCount` 는 `sql<number>\`0\`` 리터럴이다(`compose/blog.ts:534`). `posts` 테이블에 작성자 컬럼이 없어(`db/schema.ts:126-140` — `categoryId`·`title`·`description`·플래그만) 사용자별 게시글 수를 셀 수 없다. 필드를 없애면 응답 계약이 바뀌므로 값 0 을 유지한다(감사 E-13, 보류).
+- **admin JSON 의 `postsCount` 는 항상 0**: `GET /api/blog/admin/users` 의 `postsCount` 는 `sql<number>\`0\`` 리터럴이다(`compose/blog.ts` 의 `adminDb.getAllUsers`). `posts` 테이블에 작성자 컬럼이 없어(`db/schema.ts:126-140` — `categoryId`·`title`·`description`·플래그만) 사용자별 게시글 수를 셀 수 없다. 필드를 없애면 응답 계약이 바뀌므로 값 0 을 유지한다(감사 E-13, 보류).
 - **댓글 숨김 = 본문 마스킹**: `getCommentsByPostId` 는 `isHide` 댓글의 `comment` 를 빈 문자열로 바꿔 내려준다(로우 자체는 유지).
+- **동점 정렬은 id 로 고정된다**: 댓글 목록은 `created_at` desc + `commentId` desc, 메시지 피드는 `created_at` desc + `id` desc 다(`compose/blog.ts`). `posts(isPublished, isHide, created_at)`·`comments(postId, created_at)`·`messages(userId, deleted_at, created_at)` 인덱스가 추가되면서 같은 초에 저장된 행이 filesort 대신 인덱스 순으로 나올 수 있어, 2차 키로 순서를 결정적으로 고정했다(동점이 아닌 행의 순서는 불변). 인덱스 자체는 [../reference/db-schema.md](../reference/db-schema.md) 참조.
+- **피드 이미지 순서는 `imageId` 기준**이다: 일괄 조회의 정렬이 `messageId, imageId` 라 UUID 사전순으로 나온다. `message_images.order` 컬럼은 저장만 되고 조회 정렬에는 여전히 쓰이지 않는다(이전 메시지별 조회는 정렬 자체가 없어 순서가 미정의였다).
+- **썸네일 캐시 키에 폰트 가용성이 없다**: 키는 제목·카테고리·첫 태그뿐이라, 두 웨이트 중 하나만 로드된 렌더도 최대 1시간(LRU 20) 재사용될 수 있다. 폰트가 전량 실패한 렌더만 캐시에서 제외된다. 서로 다른 게시글이라도 제목·카테고리·첫 태그가 모두 같으면 같은 캐시 항목을 공유한다(이미지에 게시글 id 가 그려지지 않으므로 결과는 동일하다).
 - **마크다운 미배선**: `service/shared/markdown.ts`(마크다운→HTML + `<script>`/이벤트핸들러/위험 href sanitize)는 자체 테스트 외에 compose/route/page 어디에도 import 되지 않는다(grep 확인). 게시글 `description` 은 raw text 로 저장·반환되며, HTML 렌더링은 프론트 책임이다. 서버에서 마크다운/삭제소독을 태우려면 이 서비스를 compose 에 배선해야 한다.
 - **imageProcessor 미사용**: `composeBlog` 는 `imageProcessor`(sharp)를 인자로 받지만 본문에서 호출하지 않는다. webp 변환은 `deploy/upload-server` 에서 일어난다.
 - **메시지 작성은 트랜잭션**: `insertMessage`(`compose/blog.ts`)가 `messages` INSERT 와 `message_images` INSERT 를 한 트랜잭션으로 묶고, 두 행의 `created_at`/`updated_at` 에 같은 `now` 를 쓴다. 이미지 연결이 실패하면 메시지도 남지 않는다.

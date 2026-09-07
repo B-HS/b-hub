@@ -1,6 +1,6 @@
 # 배포·운영(Deploy & Ops)
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `lib/cron-auth.ts`, `db/index.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/logs/purge.ts`, `route/metrics/archive.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `service/shared/redis-client.ts`, `service/shared/rate-limit-store.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/index.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 반영) 코드 검증. 다루는 코드: `vercel.json`, `api/index.js`, `package.json`, `index.ts`, `bunfig.toml`, `drizzle.config.ts`, `.gitignore`, `lib/env.ts`, `lib/cron-auth.ts`, `db/index.ts`, `route/drive/lifecycle.ts`, `route/drive/asset.ts`, `route/logs/purge.ts`, `route/metrics/archive.ts`, `route/blog/image.ts`, `service/domain/blog/blog-image.ts`, `service/shared/redis-client.ts`, `service/shared/rate-limit-store.ts`, `compose/blog.ts`, `compose/drive.ts`, `compose/index.ts`, `deploy/caldav-proxy/*`, `deploy/upload-server/*`
 
 ## 개요
 
@@ -49,6 +49,13 @@
 - 네 경로 모두 `verifyCronAuth` 로 보호된다: `Authorization: Bearer <secret>` 또는 `x-cron-secret: <secret>` 헤더가 `UPLOAD_SERVER_SECRET` 와 일치해야 하며, 아니면 `UNAUTHORIZED`. drive·metrics 는 `compose` → `route/index.ts` 로 시크릿을 주입받고, logs purge 는 주입값이 없으면 `getEnv().UPLOAD_SERVER_SECRET` 으로 폴백한다. 비교는 `lib/cron-auth.ts` 의 `isSecretMatch`(sha256 + `timingSafeEqual`) 상수 시간 비교다.
 - Vercel 크론은 `Authorization: Bearer $CRON_SECRET` 를 붙여 호출하므로, **Vercel 의 `CRON_SECRET` 값을 `UPLOAD_SERVER_SECRET` 와 동일하게** 설정해야 크론 인증이 통과한다. (스토리지 계층 의미·`evictR2Stale`/`autoPromote` 로직은 [domains/drive.md](./domains/drive.md).)
 
+### 4차(성능) 배치가 배포에 주는 영향
+
+- `GET /api/badge/image` 200 응답에 **`CDN-Cache-Control`** 이 붙는다(값은 기존 `Cache-Control` 과 동일한 `public, max-age=31536000, immutable`). Vercel 엣지 캐시가 이 헤더를 우선 해석하므로 배지 PNG 의 CDN 보관 기간이 명시적으로 고정된다. 브라우저용 `Cache-Control` 은 그대로다.
+- `GET /api/weather/locations`·`GET /api/calendar/:icsToken` 이 `ETag` 를 내보내고 `If-None-Match` 일치 시 **304**(본문 없음)를 반환한다. 두 경로 모두 성공 200 본문은 불변이다.
+- `deploy/upload-server` 는 4차에서 변경이 없다(재빌드 불필요). 다만 hub 의 `POST /api/drive/assets/:id/gdrive-token` 은 이제 Google access token 을 **프로세스 내에서 만료 60초 전까지 캐시**해 응답하므로, 같은 함수 인스턴스가 연속 업로드를 처리하면 Google 토큰 교환 왕복이 줄어든다(응답 본문 불변).
+- 인덱스 `db:push` 는 위 §3 의 순서 주의를 따른다.
+
 ### 진입점(`index.ts`) 노출
 
 - 포트: `port: process.env.PORT || 9999` (Vercel 에서는 플랫폼이 관리, 로컬 기본 9999).
@@ -70,12 +77,13 @@
 ## 3. DB 반영
 
 - 스키마 반영은 마이그레이션 파일이 아니라 `bun run db:push`(`drizzle-kit push`)로 `db/schema.ts` 를 대상 DB 에 직접 반영한다.
-- **미반영 대기 중인 변경 2건**(전수 감사 배치에서 추가된 제약. 배포 전 `db:push` 필요):
+- **미반영 대기 중인 변경 3건**(전수 감사 배치에서 추가된 제약·인덱스. 배포 전 `db:push` 필요):
 
-| 대상 | 제약 | 도입 | 주의 |
+| 대상 | 변경 | 도입 | 주의 |
 |------|------|------|------|
 | `mail_messages` | unique `(account_id, folder_id, remote_message_id)`(제약명 `uq_mail_messages_account_remote` 유지) | 1차 배치(D-05) | push 전에는 폴더 스코프 upsert 가 기대대로 동작하지 않는다([domains/mail.md](./domains/mail.md)) |
 | `calendar_subscription` | unique `uq_calendar_subscription_user`(`user_id`) | 3차 배치(R-25) | push 전에 `user_id` 중복 행이 남아 있으면 제약 생성이 실패한다 — 먼저 정리할 것([domains/calendar.md](./domains/calendar.md)) |
+| 8테이블 | 인덱스 **8종 추가 + 중복 4종 제거**(목록: [reference/db-schema.md](./reference/db-schema.md) "미반영 대기 중인 제약·인덱스") | 4차 배치(P-02) | 인덱스만 바뀌므로 응답 계약은 불변이다. **적용 후 동점 정렬 순서가 바뀔 수 있다** — `comments`(postId, created_at)·`messages`(userId, deleted_at, created_at) 목록이 filesort 대신 인덱스 순 스캔이 되어 같은 초에 저장된 행의 상대 순서가 달라진다. 코드에는 이미 `commentId` desc·`id` desc 타이브레이크를 넣어 결정적으로 고정했으므로, **인덱스 push 는 4차 코드가 배포된 뒤에** 한다 |
 - **마이그레이션 파일 없음**: `drizzle.config.ts` 의 `out: './drizzle'` 은 `.gitignore` 에 포함되어 커밋되지 않는다. `db:generate` 는 `db:push` 전 DDL 미리보기·검증 용도([guidelines/db-schema-change.md](./guidelines/db-schema-change.md)), `db:studio` 는 브라우징 용도다.
 - `drizzle.config.ts`: `schema: './db/schema.ts'`, `dialect: 'mysql'`, `dbCredentials.url: DATABASE_URL`. `db:push` 실행 시 `DATABASE_URL` 필요.
 - 명령 표 상세는 [architecture.md](./architecture.md) §8.

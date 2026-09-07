@@ -6,6 +6,7 @@
 
 | 파일 | 기간 | 요약 |
 |------|------|------|
+| [2026-09-07-audit-batch4.md](./2026-09-07-audit-batch4.md) | 2026-09-07 | 전수 감사 4차 수정 배치 — P-01·P-02·P-05~P-09·P-12~P-23 의 응답 불변 범위(쿼리 병렬화·인덱스·배치 upsert·토큰 선제 갱신·캐시). 워크플로 10그룹 + 회귀 리뷰 7(원복 없음, 조정자 보강 3건). tsc 0 · 3427 pass. 브랜치 `fix/audit-batch4-performance`. **`db:push` 대상 3번째**(인덱스 8종 추가·중복 4종 제거), 헤더 추가 3곳(badge `CDN-Cache-Control` · weather `/locations` ETag · ICS ETag) |
 | [2026-09-07-audit-batch3.md](./2026-09-07-audit-batch3.md) | 2026-09-07 | 전수 감사 3차 수정 배치 — R-01~R-04·R-06·R-09~R-16·R-18~R-21·R-23~R-31 + S-16·S-17 + E-09. 서버리스 적합성(응답 전 await · rate limit 공유 스토어 · DB 풀 · Sentry 부트스트랩)과 공개 경로 rate limit. tsc 0 · 3198 pass. 브랜치 `fix/audit-batch3-serverless`. **`db:push` 대상 추가**(calendar_subscription user unique), 크론 4번째(`/api/logs/purge`) |
 | [2026-09-07-audit-batch2.md](./2026-09-07-audit-batch2.md) | 2026-09-07 | 전수 감사 2차 수정 배치 — E-01~E-08·E-10~E-12·E-14~E-21·E-23~E-25·E-28 + 승인 A-1~A-5 + C-01·C-04·C-10·C-11. 워크플로 27 에이전트 · 비겹침 10그룹. tsc 0 · 3010 pass. 브랜치 `fix/audit-batch2-immediate-errors`. 상태 코드 변경 3종(mail 409 · drive 409/413 · spotify 502/404) |
 | [2026-09-06-audit-batch1.md](./2026-09-06-audit-batch1.md) | 2026-09-06 | 전수 감사 1차 수정 배치 — D-01~D-22 · S-01~S-15 · C-15 + E-22/26/27/29/30 반영(계약 불변 범위). 워크플로 26+13 에이전트 + 회귀 리뷰 7. tsc 0 · 2864 pass. **`db:push` 필요**(mail_messages unique 3열) |

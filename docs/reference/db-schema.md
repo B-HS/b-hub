@@ -1,6 +1,6 @@
 # DB 스키마 전수 레퍼런스
 
-> 기준: 2026-09-07 (fix/audit-batch3-serverless @ 워킹트리 미커밋 변경) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
+> 기준: 2026-09-07 (fix/audit-batch4-performance @ 4차 배치 반영) 코드 검증. 다루는 코드: `db/schema.ts`, `db/index.ts`, `drizzle.config.ts`, `compose/*`, `service/shared/api-token.ts`, `service/domain/weather/weather-api-key.ts`, `service/domain/logs/device-key.ts`, `middleware/request-logger.ts`, `service/shared/auth-provider.ts`, `page/admin/db.ts`, `.gitignore`
 
 ## 개요
 
@@ -39,14 +39,30 @@
 - `out` 디렉터리 `drizzle/` 와 `drizzle-kit generate` 산출물은 `.gitignore` 됨(로컬 DDL 확인용). `db:studio`(`drizzle-kit studio`)로 브라우징 가능.
 - 절차 상세: [../guidelines/db-schema-change.md](../guidelines/db-schema-change.md). db:push 규칙은 [../memory/stack-and-invariants.md](../memory/stack-and-invariants.md), 명령 표는 [../architecture.md](../architecture.md).
 
-### 미반영 대기 중인 제약 2건
+### 미반영 대기 중인 제약·인덱스 3건
 
-전수 감사 수정 배치에서 `db/schema.ts` 에 추가됐으나 **아직 `db:push` 되지 않은** 것들이다. 배포 전에 반영해야 한다.
+전수 감사 수정 배치에서 `db/schema.ts` 에 추가·삭제됐으나 **아직 `db:push` 되지 않은** 것들이다. 배포 전에 반영해야 한다.
 
-| 테이블 | 제약 | 도입 배치 | 주의 |
+| 테이블 | 변경 | 도입 배치 | 주의 |
 |--------|------|-----------|------|
 | `mail_messages` | unique(`account_id`, `folder_id`, `remote_message_id`) — 제약명 `uq_mail_messages_account_remote` 유지 | 1차(D-05) | 실제 DB 는 아직 2열 unique. push 전에는 폴더 스코프 upsert 가 기대대로 동작하지 않는다 |
 | `calendar_subscription` | unique(`user_id`) — `uq_calendar_subscription_user` | 3차(R-25) | push 전에 `user_id` 중복 행이 남아 있으면 제약 생성이 실패한다 — 먼저 정리할 것 |
+| 8테이블 | **인덱스 8종 추가 + 중복 인덱스 4종 제거**(아래 표) | 4차(P-02) | 인덱스만 바뀌므로 응답 계약은 불변이다. 다만 `comments`·`messages` 목록이 filesort 대신 인덱스 순 스캔이 되어 **같은 초에 저장된 행의 상대 순서**가 바뀔 수 있어, `compose/blog.ts` 의 두 목록에 `desc(commentId)`·`desc(id)` 타이브레이크를 함께 넣었다 |
+
+#### 4차 P-02 인덱스 변경 내역
+
+| 테이블 | 추가 | 제거 |
+|--------|------|------|
+| `posts` | `idx_posts_published_hide_created`(`isPublished`,`isHide`,`created_at`) | — |
+| `comments` | `idx_comments_post_created`(`postId`,`created_at`) | — |
+| `messages` | `idx_messages_user_deleted_created`(`userId`,`deleted_at`,`created_at`) | — |
+| `image_assets` | `idx_image_assets_created`(`created_at`) | — |
+| `weather_api_log` | `idx_weather_api_log_created`(`created_at`) | — |
+| `mail_sync_logs` | `idx_mail_sync_logs_account_created`(`account_id`,`created_at`) | `idx_mail_sync_logs_account`(새 복합 인덱스의 접두라 대체) |
+| `resumes` | `idx_resumes_type_updated`(`type`,`updated_at`) | — |
+| `log_events` | `idx_log_events_created`(`created_at`) | — |
+| `calendar_event` | — | `idx_calendar_event_uid`(`uid` 단일 unique 와 중복) |
+| `calendar_subscription` | — | `idx_subscription_token`·`idx_subscription_ics_token`(각 컬럼 unique 와 중복), `idx_subscription_user`(3차의 `uq_calendar_subscription_user` 와 동일 컬럼) |
 
 ## 도메인별 그룹
 
@@ -84,14 +100,14 @@
 
 | 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
 |------|------|------|------|------|------|
-| `posts` | `posts` | `postId`(PK int), `categoryId`, `title`, `description`, `views`, `isPublished`/`isHide`/`isNotice`/`isComment` (11) | — | `categoryId → categories.categoryId` (onDelete 미지정) | `compose/blog.ts` |
-| `comments` | `comments` | `commentId`(PK), `postId`, `userId`, `comment`, `isHide` (7) | — | `postId → posts.postId`; `userId → user.id` (cascade) | `compose/blog.ts` |
+| `posts` | `posts` | `postId`(PK int), `categoryId`, `title`, `description`, `views`, `isPublished`/`isHide`/`isNotice`/`isComment` (11) | `idx_posts_published_hide_created`(isPublished,isHide,created_at) — **`db:push` 미반영** | `categoryId → categories.categoryId` (onDelete 미지정) | `compose/blog.ts` |
+| `comments` | `comments` | `commentId`(PK), `postId`, `userId`, `comment`, `isHide` (7) | `idx_comments_post_created`(postId,created_at) — **`db:push` 미반영** | `postId → posts.postId`; `userId → user.id` (cascade) | `compose/blog.ts` |
 | `tags` | `tags` | `tagId`(PK), `tag` (2) | — | — | `compose/blog.ts` |
 | `categories` | `categories` | `categoryId`(PK), `category`, `isHide` (3) | — | — | `compose/blog.ts` |
 | `post_tags` | `postTags` | `postId`, `tagId` (PK 없음) (2) | unique(`postId`,`tagId`) | `postId → posts.postId` (cascade), `tagId → tags.tagId` (cascade) | `compose/blog.ts` |
 | `images` | `images` | `imageId`(PK), `userId`, `fileName`, `url`, `mimeType`, `fileSize`, `width`/`height` (11) | — | `userId → user.id` (cascade) | **쿼리 경로 없음(레거시)** — `schema.images` 참조처 0. 이미지 저장은 `image_assets` 사용 |
-| `image_assets` | `imageAssets` | `id`(PK varchar36), `r2_key`, `bucket`, `mime_type`, `size_bytes`, `checksum`, `uploaded_by` (11) | `r2_key` unique | `uploaded_by → user.id` (set null) | `compose/blog.ts`(메시지 첨부 이미지) |
-| `messages` | `messages` | `id`(PK varchar36), `userId`, `body`, `replyToId`·`retweetOfId`(소프트 self-ref), `deletedAt`(소프트 삭제) (8) | — | `userId → user.id` (cascade) | `compose/blog.ts`(마이크로블로그) |
+| `image_assets` | `imageAssets` | `id`(PK varchar36), `r2_key`, `bucket`, `mime_type`, `size_bytes`, `checksum`, `uploaded_by` (11) | `r2_key` unique; `idx_image_assets_created`(created_at) — **`db:push` 미반영** | `uploaded_by → user.id` (set null) | `compose/blog.ts`(메시지 첨부 이미지) |
+| `messages` | `messages` | `id`(PK varchar36), `userId`, `body`, `replyToId`·`retweetOfId`(소프트 self-ref), `deletedAt`(소프트 삭제) (8) | `idx_messages_user_deleted_created`(userId,deleted_at,created_at) — **`db:push` 미반영** | `userId → user.id` (cascade) | `compose/blog.ts`(마이크로블로그) |
 | `message_images` | `messageImages` | `messageId`, `imageId`, `order` (PK 없음) (4) | unique(`messageId`,`imageId`) | `messageId → messages.id` (cascade), `imageId → image_assets.id` (cascade) | `compose/blog.ts` |
 | `message_likes` | `messageLikes` | `messageId`, `userId` (PK 없음) (3) | unique(`messageId`,`userId`) | 둘 다 cascade(→`messages.id`, `user.id`) | **정의·어드민 조회만**(`page/admin/db.ts`), CRUD 경로 없음 |
 | `message_bookmarks` | `messageBookmarks` | `messageId`, `userId` (PK 없음) (3) | unique(`messageId`,`userId`) | 둘 다 cascade | **정의·어드민 조회만**, CRUD 경로 없음 |
@@ -105,7 +121,7 @@
 | `weather_ultra` | `weatherUltra` | `id`(PK), 격자·시각 + `fcst_date`/`fcst_time`/`fcst_value`, `category` (10) | `idx_weather_ultra_grid` | — | 동상(정의·미기록) |
 | `weather_short` | `weatherShort` | `weather_ultra` 와 동일 컬럼 구성 (10) | `idx_weather_short_grid` | — | 동상(정의·미기록) |
 | `weather_api_key` | `weatherApiKey` | `id`(PK), `user_id`, `token`(64), `daily_limit`(기본 100), `expires_at`, `last_used_at` (8) | `token` unique; `idx_weather_api_key_user` | `user_id → user.id` (cascade) | `service/domain/weather/weather-api-key.ts` |
-| `weather_api_log` | `weatherApiLog` | `id`(PK), `key_id`, `user_id`, `endpoint`, `nx`/`ny`(항상 null 기록), `status_code` (12) | `idx_weather_api_log_user`(user_id), `idx_weather_api_log_key_created`(key_id,created_at) | `key_id → weather_api_key.id` (set null), `user_id → user.id` (set null) | `service/domain/weather/weather-api-key.ts` |
+| `weather_api_log` | `weatherApiLog` | `id`(PK), `key_id`, `user_id`, `endpoint`, `nx`/`ny`(항상 null 기록), `status_code` (12) | `idx_weather_api_log_user`(user_id), `idx_weather_api_log_key_created`(key_id,created_at), `idx_weather_api_log_created`(created_at) — 마지막 1종 **`db:push` 미반영** | `key_id → weather_api_key.id` (set null), `user_id → user.id` (set null) | `service/domain/weather/weather-api-key.ts` |
 
 ## mail (7)
 
@@ -117,7 +133,7 @@
 | `mail_folders` | `mailFolders` | `id`(PK), `account_id`, `remote_folder_id`, `name`, `type`(기본 `custom`), `parent_id`(소프트 self), `uid_validity`, `sync_cursor` (12) | uq(`account_id`,`remote_folder_id`); `idx_mail_folders_account` | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
 | `mail_messages` | `mailMessages` | `id`(PK), `account_id`, `folder_id`, `remote_message_id`, `message_id_header`, `thread_id`, `in_reply_to`, `references_header`, `from/to/cc/bcc`(json), `body_html`/`body_text`(longtext), `is_read`/`is_starred`/`is_draft`/`has_attachments`, `uid` (25) | uq(`account_id`,`folder_id`,`remote_message_id`)(제약명 `uq_mail_messages_account_remote` 유지 — **`db:push` 미반영 상태**, 실제 DB 는 아직 2열); 인덱스 6개(`folder`, `sent_at`, `thread`, `account_read`, `account_folder_received`, `account_received`) + **스키마 밖 FULLTEXT** `ft_mail_messages_subject_body`(`subject`,`body_text`) `WITH PARSER ngram` — drizzle 0.45.2 미표현이라 `db/schema.ts` 에 없고 `scripts/mail-fulltext-index.ts`(raw DDL, 멱등)로 적용, `db:push` 미관리 | `account_id`·`folder_id` cascade | `compose/mail.ts` |
 | `mail_attachments` | `mailAttachments` | `id`(PK), `message_id`, `remote_attachment_id`, `filename`, `mime_type`, `size_bytes`, `content_id`, `is_inline`, `r2_key` (10) | uq(`message_id`,`remote_attachment_id`); `idx_mail_attachments_message` | `message_id → mail_messages.id` (cascade) | `compose/mail.ts` |
-| `mail_sync_logs` | `mailSyncLogs` | `id`(PK), `account_id`, `sync_type`, `status`, `folder_id`(제약 없음), `messages_added`/`updated`/`deleted`, `duration_ms`, `error_message` (13) | `idx_mail_sync_logs_account` | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
+| `mail_sync_logs` | `mailSyncLogs` | `id`(PK), `account_id`, `sync_type`, `status`, `folder_id`(제약 없음), `messages_added`/`updated`/`deleted`, `duration_ms`, `error_message` (13) | `idx_mail_sync_logs_account_created`(account_id,created_at) — 4차에서 단일 `idx_mail_sync_logs_account` 를 대체, **`db:push` 미반영** | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
 | `mail_sync_sessions` | `mailSyncSessions` | `id`(PK), `account_id`, `folder_id`(제약 없음), `sync_type`, `status`, `total_estimate`, `synced_count`, `cursor` (12) | `idx_mail_sync_sessions_account_status`(account_id,status) | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
 | `mail_uploads` | `mailUploads` | `id`(PK), `user_id`, `filename`, `mime_type`, `size_bytes`, `r2_key`, `is_inline` (8) | `r2_key` unique; `idx_mail_uploads_user` | `user_id → user.id` (cascade) | `compose/mail.ts` |
 
@@ -133,7 +149,7 @@
 
 | 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
 |------|------|------|------|------|------|
-| `resumes` | `resumes` | `id`(PK), `user_id`, `type`, `title`, `data`(json), `is_public` (8) | `idx_resumes_user` | `user_id → user.id` (cascade) | `compose/resume.ts` |
+| `resumes` | `resumes` | `id`(PK), `user_id`, `type`, `title`, `data`(json), `is_public` (8) | `idx_resumes_user`, `idx_resumes_type_updated`(type,updated_at) — 뒤 1종 **`db:push` 미반영** | `user_id → user.id` (cascade) | `compose/resume.ts` |
 
 ## calendar (4)
 
@@ -142,9 +158,9 @@
 | 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
 |------|------|------|------|------|------|
 | `calendar_group` | `calendarGroup` | `id`(PK varchar36), `user_id`, `name`, `color`, `sort_order`(기본 0), `is_visible`(기본 true) (8) | `idx_calendar_group_user` | `user_id → user.id` (cascade) | `compose/calendar.ts` |
-| `calendar_event` | `calendarEvent` | `id`(PK varchar36), `user_id`, `uid`, `summary`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json `RRuleType`), `exdate`(json), `status`(enum 기본 `CONFIRMED`), `transp`(enum 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `group_id`, `sequence`, `dtstamp` (21) | `uid` unique; 인덱스 4개(`user`, `user_dtstart`, `uid`, `group`) | `user_id → user.id` (cascade), `group_id → calendar_group.id` (set null) | `compose/calendar.ts` |
+| `calendar_event` | `calendarEvent` | `id`(PK varchar36), `user_id`, `uid`, `summary`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json `RRuleType`), `exdate`(json), `status`(enum 기본 `CONFIRMED`), `transp`(enum 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `group_id`, `sequence`, `dtstamp` (21) | `uid` unique; 인덱스 3개(`user`, `user_dtstart`, `group`) — 4차에서 `uid` 단일 인덱스를 제거(같은 컬럼 unique 와 중복), **`db:push` 미반영** | `user_id → user.id` (cascade), `group_id → calendar_group.id` (set null) | `compose/calendar.ts` |
 | `deleted_calendar_event` | `deletedCalendarEvent` | `id`(PK), `user_id`, `uid`, `deleted_at`, `sync_token` (5) | `idx_deleted_event_user_sync`(user_id,sync_token) | `user_id → user.id` (cascade) | `compose/calendar.ts` (CalDAV sync-collection tombstone) |
-| `calendar_subscription` | `calendarSubscription` | `id`(PK), `user_id`, `token`(64), `ics_token`(64), `name`, `is_active`, `ctag`(기본 `'0'`), `last_accessed_at` (10) | `token`·`ics_token` unique; **`user_id` unique(`uq_calendar_subscription_user`) — `db:push` 필요**; 인덱스 3개(`token`, `ics_token`, `user`) | `user_id → user.id` (cascade) | `compose/calendar.ts` |
+| `calendar_subscription` | `calendarSubscription` | `id`(PK), `user_id`, `token`(64), `ics_token`(64), `name`, `is_active`, `ctag`(기본 `'0'`), `last_accessed_at` (10) | `token`·`ics_token` unique; **`user_id` unique(`uq_calendar_subscription_user`) — `db:push` 필요**. 별도 인덱스 없음 — 4차에서 `idx_subscription_token`·`idx_subscription_ics_token`(각 unique 와 중복)·`idx_subscription_user`(위 unique 와 동일 컬럼) 3종을 제거했다(**`db:push` 미반영**) | `user_id → user.id` (cascade) | `compose/calendar.ts` |
 
 ## drive (3)
 
@@ -160,7 +176,7 @@
 
 | 물리 테이블 | TS export | 핵심 컬럼 (총) | 인덱스·유니크 | FK·관계 | Drizzle 소유·사용 |
 |------|------|------|------|------|------|
-| `log_events` | `logEvents` | `id`(PK bigint), `service`, `error_code`, `severity`(smallint 기본 20), `category`, `device_id`, `firmware_version`, `source`, `correlation_id`, `session_id`, `occurred_at`/`resolved_at`(datetime fsp3), `details`(json), `ingest_ip` (17) | 인덱스 4개(`service_created`, `device_created`, `code_resolved`, `severity_created`) | 없음(user FK 없음) | `compose/logs.ts`; rate-limit 카운트 읽기: `service/domain/logs/device-key.ts` |
+| `log_events` | `logEvents` | `id`(PK bigint), `service`, `error_code`, `severity`(smallint 기본 20), `category`, `device_id`, `firmware_version`, `source`, `correlation_id`, `session_id`, `occurred_at`/`resolved_at`(datetime fsp3), `details`(json), `ingest_ip` (17) | 인덱스 5개(`service_created`, `device_created`, `code_resolved`, `severity_created`, `created`) — `idx_log_events_created` 는 4차 추가분으로 **`db:push` 미반영** | 없음(user FK 없음) | `compose/logs.ts`; rate-limit 카운트 읽기: `service/domain/logs/device-key.ts` |
 | `device_key` | `deviceKey` | `id`(PK), `token`(64), `device_id`, `label`, `daily_limit`(기본 2000), `last_used_at`, `revoked_at` (8) | `token` unique; `idx_device_key_device`(device_id) | 없음 | `service/domain/logs/device-key.ts` |
 
 ## ai (6)
