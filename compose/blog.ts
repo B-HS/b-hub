@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, like, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, like, notInArray, sql } from 'drizzle-orm'
 import * as schema from '../db/schema'
 import { escapeLikePattern } from '../lib/sql-utils'
 import { createPostService } from '../service/domain/blog/post'
@@ -7,21 +7,16 @@ import { createMessageService } from '../service/domain/blog/message'
 import { createBlogImageService } from '../service/domain/blog/blog-image'
 import type { ComposeBlogArgs } from './types'
 
+const createPostTagsJsonExpression = () =>
+    sql<
+        { tagId: number; tag: string }[]
+    >`(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('tagId', ${schema.tags.tagId}, 'tag', ${schema.tags.tag})), JSON_ARRAY()) FROM ${schema.postTags} LEFT JOIN ${schema.tags} ON ${schema.postTags.tagId} = ${schema.tags.tagId} WHERE ${schema.postTags.postId} = ${schema.posts.postId})`
+
 export const composeBlog = ({ db, env, storageService, imageProcessor }: ComposeBlogArgs) => {
     const postService = createPostService({
         db: {
             getPostList: async (params) => {
-                const { posts, categories, postTags, tags } = schema
-
-                const tagsSubquery = db
-                    .select({
-                        postId: postTags.postId,
-                        tags: sql<string>`JSON_ARRAYAGG(JSON_OBJECT('tagId', ${tags.tagId}, 'tag', ${tags.tag}))`.as('tags'),
-                    })
-                    .from(postTags)
-                    .leftJoin(tags, eq(postTags.tagId, tags.tagId))
-                    .groupBy(postTags.postId)
-                    .as('post_tags_agg')
+                const { posts, categories, postTags } = schema
 
                 let query = db
                     .select({
@@ -37,11 +32,10 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                         isHide: posts.isHide,
                         isNotice: posts.isNotice,
                         isComment: posts.isComment,
-                        tags: sql<{ tagId: number; tag: string }[]>`COALESCE(${tagsSubquery.tags}, JSON_ARRAY())`,
+                        tags: createPostTagsJsonExpression(),
                     })
                     .from(posts)
                     .leftJoin(categories, eq(posts.categoryId, categories.categoryId))
-                    .leftJoin(tagsSubquery, eq(posts.postId, tagsSubquery.postId))
                     .$dynamic()
 
                 const conditions = []
@@ -58,7 +52,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
 
                 if (conditions.length > 0) query = query.where(and(...conditions))
 
-                const data = await query.orderBy(desc(posts.createdAt), desc(posts.postId)).limit(params.limit).offset(params.offset)
+                const listQuery = query.orderBy(desc(posts.createdAt), desc(posts.postId)).limit(params.limit).offset(params.offset)
 
                 let countQuery = db
                     .select({ count: sql<number>`COUNT(*)` })
@@ -66,22 +60,14 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                     .$dynamic()
                 if (params.tagId) countQuery = countQuery.leftJoin(postTags, eq(posts.postId, postTags.postId))
                 if (conditions.length > 0) countQuery = countQuery.where(and(...conditions))
-                const [{ count }] = await countQuery
+
+                const [data, [{ count }]] = await Promise.all([listQuery, countQuery])
 
                 return { data, total: count }
             },
 
             getPostById: async (id) => {
-                const { posts, categories, postTags, tags } = schema
-                const tagsSubquery = db
-                    .select({
-                        postId: postTags.postId,
-                        tags: sql<string>`JSON_ARRAYAGG(JSON_OBJECT('tagId', ${tags.tagId}, 'tag', ${tags.tag}))`.as('tags'),
-                    })
-                    .from(postTags)
-                    .leftJoin(tags, eq(postTags.tagId, tags.tagId))
-                    .groupBy(postTags.postId)
-                    .as('post_tags_agg')
+                const { posts, categories } = schema
 
                 const [post] = await db
                     .select({
@@ -97,14 +83,18 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                         isHide: posts.isHide,
                         isNotice: posts.isNotice,
                         isComment: posts.isComment,
-                        tags: sql<{ tagId: number; tag: string }[]>`COALESCE(${tagsSubquery.tags}, JSON_ARRAY())`,
+                        tags: createPostTagsJsonExpression(),
                     })
                     .from(posts)
                     .leftJoin(categories, eq(posts.categoryId, categories.categoryId))
-                    .leftJoin(tagsSubquery, eq(posts.postId, tagsSubquery.postId))
                     .where(eq(posts.postId, id))
                     .limit(1)
 
+                return post ?? null
+            },
+
+            getPostIdById: async (id) => {
+                const [post] = await db.select({ postId: schema.posts.postId }).from(schema.posts).where(eq(schema.posts.postId, id)).limit(1)
                 return post ?? null
             },
 
@@ -200,7 +190,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                     .from(comments)
                     .leftJoin(user, eq(comments.userId, user.id))
                     .where(eq(comments.postId, postId))
-                    .orderBy(desc(comments.createdAt))
+                    .orderBy(desc(comments.createdAt), desc(comments.commentId))
 
                 return data.map((c) => ({
                     ...c,
@@ -284,7 +274,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                 const { messages, user, messageImages, imageAssets } = schema
                 const offset = (page - 1) * size
 
-                const data = await db
+                const listQuery = db
                     .select({
                         id: messages.id,
                         userId: messages.userId,
@@ -300,55 +290,69 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
                     .from(messages)
                     .leftJoin(user, eq(messages.userId, user.id))
                     .where(and(eq(messages.userId, userId), isNull(messages.deletedAt)))
-                    .orderBy(desc(messages.createdAt))
+                    .orderBy(desc(messages.createdAt), desc(messages.id))
                     .limit(size)
                     .offset(offset)
 
-                const [{ total }] = await db
+                const countQuery = db
                     .select({ total: sql<number>`COUNT(*)` })
                     .from(messages)
                     .where(and(eq(messages.userId, userId), isNull(messages.deletedAt)))
 
+                const [data, [{ total }]] = await Promise.all([listQuery, countQuery])
+
                 const totalPages = Math.ceil(total / size)
 
-                const content = await Promise.all(
-                    data.map(async (msg) => {
-                        const imgs = await db
-                            .select({
-                                id: imageAssets.id,
-                                r2Key: imageAssets.r2Key,
-                                mimeType: imageAssets.mimeType,
-                                width: imageAssets.width,
-                                height: imageAssets.height,
-                            })
-                            .from(messageImages)
-                            .leftJoin(imageAssets, eq(messageImages.imageId, imageAssets.id))
-                            .where(eq(messageImages.messageId, msg.id))
+                const messageIds = data.map((msg) => msg.id)
+                const imageRows =
+                    messageIds.length === 0
+                        ? []
+                        : await db
+                              .select({
+                                  messageId: messageImages.messageId,
+                                  id: imageAssets.id,
+                                  r2Key: imageAssets.r2Key,
+                                  mimeType: imageAssets.mimeType,
+                                  width: imageAssets.width,
+                                  height: imageAssets.height,
+                              })
+                              .from(messageImages)
+                              .leftJoin(imageAssets, eq(messageImages.imageId, imageAssets.id))
+                              .where(inArray(messageImages.messageId, messageIds))
+                              .orderBy(messageImages.messageId, messageImages.imageId)
 
-                        return {
-                            id: msg.id,
-                            userId: msg.userId,
-                            body: msg.body,
-                            replyToId: msg.replyToId,
-                            retweetOfId: msg.retweetOfId,
-                            createdAt: msg.createdAt,
-                            updatedAt: msg.updatedAt,
-                            deletedAt: msg.deletedAt,
-                            images: imgs.map((i) => ({
-                                id: i.id!,
-                                url: `https://blogimg.gumyo.net/${i.r2Key}`,
-                                mimeType: i.mimeType!,
-                                width: i.width,
-                                height: i.height,
-                            })),
-                            user: {
-                                id: msg.userId,
-                                name: msg.userName ?? '',
-                                image: msg.userImage,
-                            },
-                        }
-                    }),
-                )
+                const imagesByMessageId = new Map<
+                    string,
+                    { id: string; url: string; mimeType: string; width: number | null; height: number | null }[]
+                >()
+                for (const row of imageRows) {
+                    const images = imagesByMessageId.get(row.messageId) ?? []
+                    images.push({
+                        id: row.id!,
+                        url: `https://blogimg.gumyo.net/${row.r2Key}`,
+                        mimeType: row.mimeType!,
+                        width: row.width,
+                        height: row.height,
+                    })
+                    imagesByMessageId.set(row.messageId, images)
+                }
+
+                const content = data.map((msg) => ({
+                    id: msg.id,
+                    userId: msg.userId,
+                    body: msg.body,
+                    replyToId: msg.replyToId,
+                    retweetOfId: msg.retweetOfId,
+                    createdAt: msg.createdAt,
+                    updatedAt: msg.updatedAt,
+                    deletedAt: msg.deletedAt,
+                    images: imagesByMessageId.get(msg.id) ?? [],
+                    user: {
+                        id: msg.userId,
+                        name: msg.userName ?? '',
+                        image: msg.userImage,
+                    },
+                }))
 
                 return {
                     content,
@@ -513,8 +517,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
         },
         createCategory: async (category: string) => {
             const [result] = await db.insert(schema.categories).values({ category, isHide: false }).$returningId()
-            const [newCategory] = await db.select().from(schema.categories).where(eq(schema.categories.categoryId, result.categoryId))
-            return newCategory
+            return { categoryId: result.categoryId, category, isHide: false }
         },
     }
 
@@ -524,8 +527,7 @@ export const composeBlog = ({ db, env, storageService, imageProcessor }: Compose
         },
         createTag: async (tag: string) => {
             const [result] = await db.insert(schema.tags).values({ tag }).$returningId()
-            const [newTag] = await db.select().from(schema.tags).where(eq(schema.tags.tagId, result.tagId))
-            return newTag
+            return { tagId: result.tagId, tag }
         },
     }
 

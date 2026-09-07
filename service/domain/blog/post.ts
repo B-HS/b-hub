@@ -28,6 +28,7 @@ type PostServiceDb = {
         isNotice?: boolean
     }) => Promise<{ data: PostDetail[]; total: number }>
     getPostById: (id: number) => Promise<PostDetail | null>
+    getPostIdById: (id: number) => Promise<{ postId: number } | null>
     insertPost: (data: {
         title: string
         description: string
@@ -98,13 +99,13 @@ export const createPostService = (deps: PostServiceDeps) => ({
     },
 
     update: async (postId: number, input: PostUpdateInput) => {
-        const existing = await deps.db.getPostById(postId)
+        const existing = await deps.db.getPostIdById(postId)
         if (!existing) return null
         return deps.db.updatePost(postId, input)
     },
 
     delete: async (postId: number) => {
-        const existing = await deps.db.getPostById(postId)
+        const existing = await deps.db.getPostIdById(postId)
         if (!existing) return null
         return deps.db.deletePost(postId)
     },

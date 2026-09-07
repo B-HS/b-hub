@@ -20,6 +20,7 @@ const mockPostDetail = {
 const createMockDb = () => ({
     getPostList: mock(() => Promise.resolve({ data: [mockPostDetail], total: 1 })),
     getPostById: mock((id: number) => Promise.resolve(id === 1 ? mockPostDetail : null)),
+    getPostIdById: mock((id: number) => Promise.resolve(id === 1 ? { postId: 1 } : null)),
     insertPost: mock(() => Promise.resolve({ postId: 2 })),
     updatePost: mock(() => Promise.resolve({ postId: 1 })),
     deletePost: mock(() => Promise.resolve({ postId: 1 })),
@@ -292,6 +293,28 @@ describe('createPostService', () => {
         const result = await service.getById(1)
         expect(result).not.toBeNull()
         expect(db.incrementViews).toHaveBeenCalledWith(1)
+    })
+
+    test('update는 존재 확인에 전체 조회 대신 id 조회만 사용한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.update(1, { title: 'Updated' })
+
+        expect(db.getPostIdById).toHaveBeenCalledWith(1)
+        expect(db.getPostById).not.toHaveBeenCalled()
+        expect(db.updatePost).toHaveBeenCalledWith(1, { title: 'Updated' })
+    })
+
+    test('delete는 존재 확인에 전체 조회 대신 id 조회만 사용한다', async () => {
+        const db = createMockDb()
+        const service = createPostService({ db })
+
+        await service.delete(1)
+
+        expect(db.getPostIdById).toHaveBeenCalledWith(1)
+        expect(db.getPostById).not.toHaveBeenCalled()
+        expect(db.deletePost).toHaveBeenCalledWith(1)
     })
 
     test('publicOnly라도 공개 게시글은 반환하고 조회수를 올린다', async () => {

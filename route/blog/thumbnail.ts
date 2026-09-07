@@ -1,7 +1,9 @@
+import { createHash } from 'crypto'
 import { Hono } from 'hono'
 import { describeRoute } from 'hono-openapi'
 import { withErrorHandling } from '../../lib/with-error-handling'
 import { createAppError } from '../../lib/error'
+import { createCache } from '../../service/shared/cache'
 import type { PostService } from '../../service/domain/blog/post'
 import type { ImageGenerator } from '../../service/shared/image-generator'
 import type { FontLoader } from '../../service/shared/font-loader'
@@ -27,8 +29,54 @@ const generateGridOpacity = (rows: number, cols: number) =>
 
 const GRID_OPACITY = generateGridOpacity(GRID_ROWS, GRID_COLS)
 
+const GRID_ELEMENT = {
+    type: 'div',
+    props: {
+        style: {
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+        },
+        children: GRID_OPACITY.map((row) => ({
+            type: 'div',
+            props: {
+                style: { display: 'flex', height: `${GRID_CELL_HEIGHT}px` },
+                children: row.map((opacity) => ({
+                    type: 'div',
+                    props: {
+                        style: {
+                            width: `${GRID_CELL_WIDTH}px`,
+                            background: `rgba(255, 255, 255, ${opacity})`,
+                        },
+                    },
+                })),
+            },
+        })),
+    },
+}
+
+const THUMBNAIL_WIDTH = 1200
+const THUMBNAIL_HEIGHT = 630
+const THUMBNAIL_CACHE_CONTROL = 'public, max-age=2592000, immutable'
+const THUMBNAIL_CACHE_MAX_SIZE = 20
+const THUMBNAIL_CACHE_TTL_MS = 60 * 60 * 1000
+const THUMBNAIL_CACHE_KEY_LENGTH = 16
+
+const pngResponse = (buffer: Buffer) =>
+    new Response(new Uint8Array(buffer), {
+        headers: {
+            'Content-Type': 'image/png',
+            'Cache-Control': THUMBNAIL_CACHE_CONTROL,
+        },
+    })
+
 export const createThumbnailRoute = (deps: ThumbnailRouteDeps) => {
     const route = new Hono()
+    const renderedCache = createCache<Buffer>({ maxSize: THUMBNAIL_CACHE_MAX_SIZE, defaultTtlMs: THUMBNAIL_CACHE_TTL_MS })
 
     route.get(
         '/:id/thumbnail',
@@ -47,6 +95,13 @@ export const createThumbnailRoute = (deps: ThumbnailRouteDeps) => {
             const title = post.title
             const category = post.categoryName
             const tag = post.tags[0]?.tag
+
+            const cacheKey = createHash('sha256')
+                .update(JSON.stringify([title, category, tag ?? null]))
+                .digest('hex')
+                .slice(0, THUMBNAIL_CACHE_KEY_LENGTH)
+            const cached = renderedCache.get(cacheKey)
+            if (cached) return pngResponse(cached)
 
             const [fontRegular, fontBold] = await Promise.all([deps.fontLoader.load('Noto Sans KR', 400), deps.fontLoader.load('Noto Sans KR', 700)])
 
@@ -71,37 +126,9 @@ export const createThumbnailRoute = (deps: ThumbnailRouteDeps) => {
             const element = {
                 type: 'div',
                 props: {
-                    style: { width: 1200, height: 630, position: 'relative', background: '#0a0a0a', display: 'flex' },
+                    style: { width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT, position: 'relative', background: '#0a0a0a', display: 'flex' },
                     children: [
-                        {
-                            type: 'div',
-                            props: {
-                                style: {
-                                    position: 'absolute',
-                                    top: 0,
-                                    left: 0,
-                                    width: '100%',
-                                    height: '100%',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                },
-                                children: GRID_OPACITY.map((row) => ({
-                                    type: 'div',
-                                    props: {
-                                        style: { display: 'flex', height: `${GRID_CELL_HEIGHT}px` },
-                                        children: row.map((opacity) => ({
-                                            type: 'div',
-                                            props: {
-                                                style: {
-                                                    width: `${GRID_CELL_WIDTH}px`,
-                                                    background: `rgba(255, 255, 255, ${opacity})`,
-                                                },
-                                            },
-                                        })),
-                                    },
-                                })),
-                            },
-                        },
+                        GRID_ELEMENT,
                         {
                             type: 'div',
                             props: {
@@ -174,17 +201,14 @@ export const createThumbnailRoute = (deps: ThumbnailRouteDeps) => {
             }
 
             const pngBuffer = await deps.imageGenerator.generate(element as never, {
-                width: 1200,
-                height: 630,
+                width: THUMBNAIL_WIDTH,
+                height: THUMBNAIL_HEIGHT,
                 fonts,
             })
 
-            return new Response(pngBuffer, {
-                headers: {
-                    'Content-Type': 'image/png',
-                    'Cache-Control': 'public, max-age=2592000, immutable',
-                },
-            })
+            if (fonts.length > 0) renderedCache.set(cacheKey, pngBuffer)
+
+            return pngResponse(pngBuffer)
         }),
     )
 
