@@ -36,8 +36,8 @@
 
 | 구분 | 내용 |
 |------|------|
-| 추가 8종 | `idx_posts_published_hide_created`(posts: isPublished·isHide·created_at) · `idx_comments_post_created` · `idx_messages_user_deleted_created` · `idx_log_events_created` · `idx_weather_api_log_created` · `idx_image_assets_created` · `idx_mail_sync_logs_account_created`(기존 단일 `idx_mail_sync_logs_account` 를 대체) · `idx_resumes_type_updated` |
-| 제거 4종 | `idx_calendar_event_uid`(uid 단독), `idx_subscription_token`·`idx_subscription_ics_token`(각각 컬럼 unique 와 중복), `idx_subscription_user`(3차의 `uq_calendar_subscription_user` 와 같은 컬럼) |
+| 추가 8종 | `idx_posts_published_hide_created`(posts: isPublished·isHide·created_at) · `idx_comments_post_created` · `idx_messages_user_deleted_created` · `idx_log_events_created` · `idx_weather_api_log_created` · `idx_image_assets_created` · `idx_mail_sync_logs_account_created`(기존 단일 `idx_mail_sync_logs_account` 는 FK 인덱스라 함께 유지) · `idx_resumes_type_updated` |
+| 제거 3종 | `idx_calendar_event_uid`(uid 단독), `idx_subscription_token`·`idx_subscription_ics_token`(각각 컬럼 unique 와 중복). `idx_subscription_user` 는 3차의 `uq_calendar_subscription_user` 와 겹치지만 FK 컬럼이라 유지(아래 보강 3) |
 
 ### 도메인별
 
@@ -61,7 +61,7 @@
 
 1. **Mongo 재연결 경합 보강** — cross-cutting 이 `GET /api/metrics/logs` 의 count/select 병렬화로 두 호출이 같은 stale 클라이언트에서 실패하면 `resetMongo` 가 두 번 불려 두 번째가 새 클라이언트를 닫을 수 있다고 지적했다. 승인 항목(P-01) 범위이고 실제 도달이 어렵다고 재검증됐으나 비용이 낮아, `db/mongo.ts` 의 `resetMongo(stale?)` 를 "넘긴 인스턴스가 현재 인스턴스일 때만 교체" 로 바꾸고 `compose/metrics.ts` 의 `runMongo` 가 자기가 쓴 인스턴스를 넘기도록 했다.
 2. **동점 순서 타이브레이크** — P-02 인덱스가 적용되면 `comments`·`messages` 목록이 filesort 대신 인덱스 순 스캔이 되어 같은 초에 저장된 행의 상대 순서가 바뀔 수 있다. HEAD 도 동점 순서는 미정의였으므로 `compose/blog.ts` 의 두 목록에 `desc(commentId)`·`desc(id)` 를 추가해 결정적으로 고정했다(동점이 아닌 행의 순서는 불변).
-3. **중복 인덱스 2건 추가 제거** — schema-index 그룹이 보고만 한 `idx_subscription_user`·`idx_mail_sync_logs_account` 를 조정자가 제거했다(각각 3차의 user unique, 새 복합 인덱스의 접두와 중복).
+3. **중복 인덱스 2건은 유지로 확정** — schema-index 그룹이 보고만 한 `idx_subscription_user`·`idx_mail_sync_logs_account` 를 조정자가 제거했으나, 프로덕션 push 가 `ER_DROP_INDEX_FK`(FK 컬럼의 유일한 인덱스를 새 인덱스 생성 전에 삭제)로 중단돼 두 인덱스를 스키마에 되돌렸다. 그 실패 push 는 `idx_calendar_event_uid`·`idx_subscription_token`·`idx_subscription_ics_token` 과 옛 `uq_mail_messages_account_remote` 까지 지운 뒤 멈췄으므로, 재실행으로 새 unique·인덱스 생성을 완주해야 한다.
 
 ## 스킵 항목과 사유
 
@@ -108,7 +108,7 @@
 - **`bun run db:push` 대상이 3건**이다.
   1. 1차 — `mail_messages` unique 3열(`uq_mail_messages_account_remote`, D-05)
   2. 3차 — `calendar_subscription.user_id` unique(`uq_calendar_subscription_user`, R-25). push 전에 `calendar_subscription` 의 `user_id` 중복 행을 먼저 정리해야 unique 생성이 성공한다
-  3. 4차 — P-02 인덱스 **8종 추가 + 중복 4종 제거**(위 [스키마 인덱스](#스키마-인덱스-p-02) 표). push 전까지 인덱스는 DB 에 없고, 적용 후에는 목록 정렬 계획이 바뀐다(동점 순서는 위 타이브레이크로 고정돼 있다)
+  3. 4차 — P-02 인덱스 **8종 추가 + 중복 3종 제거**(위 [스키마 인덱스](#스키마-인덱스-p-02) 표). push 전까지 인덱스는 DB 에 없고, 적용 후에는 목록 정렬 계획이 바뀐다(동점 순서는 위 타이브레이크로 고정돼 있다)
 - 인덱스 추가는 대상 테이블(`posts`·`comments`·`messages`·`log_events`·`weather_api_log`·`image_assets`·`mail_sync_logs`·`resumes`)에 락·쓰기 지연을 만들 수 있으므로 트래픽이 적은 시간대에 적용한다.
 - 코드 배포와 `db:push` 순서는 무관하다(인덱스 유무와 무관하게 동작한다). 다만 인덱스 적용 전에는 P-02 의 성능 효과가 없다.
 - `deploy/` 하위 Docker 서비스(caldav-proxy·upload-server)는 이번 배치에서 변경이 없어 재빌드가 필요 없다.
@@ -140,7 +140,7 @@ acknowledge 의 "2026-09-07 4차 배치 독립 회귀 리뷰 결과와 조정자
 | [../domains/metrics.md](../domains/metrics.md) | 디바이스 upsert `bulkWrite`, 로그 목록 count/select 병렬, `resetMongo(stale)` |
 | [../domains/logs.md](../domains/logs.md) | 로그 이벤트 목록 count/select 병렬 |
 | [../admin-features.md](../admin-features.md) | 목록·대시보드 카운트 병렬, 토글 단일 UPDATE |
-| [../reference/db-schema.md](../reference/db-schema.md) | 인덱스 8종 추가·중복 4종 제거, `db:push` 대기 3건 |
+| [../reference/db-schema.md](../reference/db-schema.md) | 인덱스 8종 추가·중복 3종 제거, `db:push` 대기 3건 |
 | [../reference/api-endpoints.md](../reference/api-endpoints.md) | badge `CDN-Cache-Control`, `/api/weather/locations` 304, ICS 304 |
 | [../reference/consumer-contracts.md](../reference/consumer-contracts.md) | 헤더 추가 3곳에 "4차 반영" 표기 |
 | [../reference/lib-utilities.md](../reference/lib-utilities.md) | `external-api.ts` 삭제, `credential-crypto` 파생키 캐시 |

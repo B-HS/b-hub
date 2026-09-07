@@ -47,7 +47,7 @@
 |--------|------|-----------|------|
 | `mail_messages` | unique(`account_id`, `folder_id`, `remote_message_id`) — 제약명 `uq_mail_messages_account_remote` 유지 | 1차(D-05) | 실제 DB 는 아직 2열 unique. push 전에는 폴더 스코프 upsert 가 기대대로 동작하지 않는다 |
 | `calendar_subscription` | unique(`user_id`) — `uq_calendar_subscription_user` | 3차(R-25) | push 전에 `user_id` 중복 행이 남아 있으면 제약 생성이 실패한다 — 먼저 정리할 것 |
-| 8테이블 | **인덱스 8종 추가 + 중복 인덱스 4종 제거**(아래 표) | 4차(P-02) | 인덱스만 바뀌므로 응답 계약은 불변이다. 다만 `comments`·`messages` 목록이 filesort 대신 인덱스 순 스캔이 되어 **같은 초에 저장된 행의 상대 순서**가 바뀔 수 있어, `compose/blog.ts` 의 두 목록에 `desc(commentId)`·`desc(id)` 타이브레이크를 함께 넣었다 |
+| 8테이블 | **인덱스 8종 추가 + 중복 인덱스 3종 제거**(아래 표) | 4차(P-02) | 인덱스만 바뀌므로 응답 계약은 불변이다. 다만 `comments`·`messages` 목록이 filesort 대신 인덱스 순 스캔이 되어 **같은 초에 저장된 행의 상대 순서**가 바뀔 수 있어, `compose/blog.ts` 의 두 목록에 `desc(commentId)`·`desc(id)` 타이브레이크를 함께 넣었다 |
 
 #### 4차 P-02 인덱스 변경 내역
 
@@ -58,11 +58,11 @@
 | `messages` | `idx_messages_user_deleted_created`(`userId`,`deleted_at`,`created_at`) | — |
 | `image_assets` | `idx_image_assets_created`(`created_at`) | — |
 | `weather_api_log` | `idx_weather_api_log_created`(`created_at`) | — |
-| `mail_sync_logs` | `idx_mail_sync_logs_account_created`(`account_id`,`created_at`) | `idx_mail_sync_logs_account`(새 복합 인덱스의 접두라 대체) |
+| `mail_sync_logs` | `idx_mail_sync_logs_account_created`(`account_id`,`created_at`) | — (`idx_mail_sync_logs_account` 는 FK 인덱스라 유지) |
 | `resumes` | `idx_resumes_type_updated`(`type`,`updated_at`) | — |
 | `log_events` | `idx_log_events_created`(`created_at`) | — |
 | `calendar_event` | — | `idx_calendar_event_uid`(`uid` 단일 unique 와 중복) |
-| `calendar_subscription` | — | `idx_subscription_token`·`idx_subscription_ics_token`(각 컬럼 unique 와 중복), `idx_subscription_user`(3차의 `uq_calendar_subscription_user` 와 동일 컬럼) |
+| `calendar_subscription` | — | `idx_subscription_token`·`idx_subscription_ics_token`(각 컬럼 unique 와 중복). `idx_subscription_user` 는 `uq_calendar_subscription_user` 와 동일 컬럼이지만 FK 인덱스라 유지 |
 
 ## 도메인별 그룹
 
@@ -133,7 +133,7 @@
 | `mail_folders` | `mailFolders` | `id`(PK), `account_id`, `remote_folder_id`, `name`, `type`(기본 `custom`), `parent_id`(소프트 self), `uid_validity`, `sync_cursor` (12) | uq(`account_id`,`remote_folder_id`); `idx_mail_folders_account` | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
 | `mail_messages` | `mailMessages` | `id`(PK), `account_id`, `folder_id`, `remote_message_id`, `message_id_header`, `thread_id`, `in_reply_to`, `references_header`, `from/to/cc/bcc`(json), `body_html`/`body_text`(longtext), `is_read`/`is_starred`/`is_draft`/`has_attachments`, `uid` (25) | uq(`account_id`,`folder_id`,`remote_message_id`)(제약명 `uq_mail_messages_account_remote` 유지 — **`db:push` 미반영 상태**, 실제 DB 는 아직 2열); 인덱스 6개(`folder`, `sent_at`, `thread`, `account_read`, `account_folder_received`, `account_received`) + **스키마 밖 FULLTEXT** `ft_mail_messages_subject_body`(`subject`,`body_text`) `WITH PARSER ngram` — drizzle 0.45.2 미표현이라 `db/schema.ts` 에 없고 `scripts/mail-fulltext-index.ts`(raw DDL, 멱등)로 적용, `db:push` 미관리 | `account_id`·`folder_id` cascade | `compose/mail.ts` |
 | `mail_attachments` | `mailAttachments` | `id`(PK), `message_id`, `remote_attachment_id`, `filename`, `mime_type`, `size_bytes`, `content_id`, `is_inline`, `r2_key` (10) | uq(`message_id`,`remote_attachment_id`); `idx_mail_attachments_message` | `message_id → mail_messages.id` (cascade) | `compose/mail.ts` |
-| `mail_sync_logs` | `mailSyncLogs` | `id`(PK), `account_id`, `sync_type`, `status`, `folder_id`(제약 없음), `messages_added`/`updated`/`deleted`, `duration_ms`, `error_message` (13) | `idx_mail_sync_logs_account_created`(account_id,created_at) — 4차에서 단일 `idx_mail_sync_logs_account` 를 대체, **`db:push` 미반영** | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
+| `mail_sync_logs` | `mailSyncLogs` | `id`(PK), `account_id`, `sync_type`, `status`, `folder_id`(제약 없음), `messages_added`/`updated`/`deleted`, `duration_ms`, `error_message` (13) | `idx_mail_sync_logs_account`(account_id, FK 인덱스) + `idx_mail_sync_logs_account_created`(account_id,created_at) — 4차 추가, **`db:push` 미반영** | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
 | `mail_sync_sessions` | `mailSyncSessions` | `id`(PK), `account_id`, `folder_id`(제약 없음), `sync_type`, `status`, `total_estimate`, `synced_count`, `cursor` (12) | `idx_mail_sync_sessions_account_status`(account_id,status) | `account_id → mail_accounts.id` (cascade) | `compose/mail.ts` |
 | `mail_uploads` | `mailUploads` | `id`(PK), `user_id`, `filename`, `mime_type`, `size_bytes`, `r2_key`, `is_inline` (8) | `r2_key` unique; `idx_mail_uploads_user` | `user_id → user.id` (cascade) | `compose/mail.ts` |
 
@@ -160,7 +160,7 @@
 | `calendar_group` | `calendarGroup` | `id`(PK varchar36), `user_id`, `name`, `color`, `sort_order`(기본 0), `is_visible`(기본 true) (8) | `idx_calendar_group_user` | `user_id → user.id` (cascade) | `compose/calendar.ts` |
 | `calendar_event` | `calendarEvent` | `id`(PK varchar36), `user_id`, `uid`, `summary`, `dtstart`/`dtend`(datetime), `is_all_day`, `rrule`(json `RRuleType`), `exdate`(json), `status`(enum 기본 `CONFIRMED`), `transp`(enum 기본 `OPAQUE`), `priority`(tinyint), `categories`(json), `group_id`, `sequence`, `dtstamp` (21) | `uid` unique; 인덱스 3개(`user`, `user_dtstart`, `group`) — 4차에서 `uid` 단일 인덱스를 제거(같은 컬럼 unique 와 중복), **`db:push` 미반영** | `user_id → user.id` (cascade), `group_id → calendar_group.id` (set null) | `compose/calendar.ts` |
 | `deleted_calendar_event` | `deletedCalendarEvent` | `id`(PK), `user_id`, `uid`, `deleted_at`, `sync_token` (5) | `idx_deleted_event_user_sync`(user_id,sync_token) | `user_id → user.id` (cascade) | `compose/calendar.ts` (CalDAV sync-collection tombstone) |
-| `calendar_subscription` | `calendarSubscription` | `id`(PK), `user_id`, `token`(64), `ics_token`(64), `name`, `is_active`, `ctag`(기본 `'0'`), `last_accessed_at` (10) | `token`·`ics_token` unique; **`user_id` unique(`uq_calendar_subscription_user`) — `db:push` 필요**. 별도 인덱스 없음 — 4차에서 `idx_subscription_token`·`idx_subscription_ics_token`(각 unique 와 중복)·`idx_subscription_user`(위 unique 와 동일 컬럼) 3종을 제거했다(**`db:push` 미반영**) | `user_id → user.id` (cascade) | `compose/calendar.ts` |
+| `calendar_subscription` | `calendarSubscription` | `id`(PK), `user_id`, `token`(64), `ics_token`(64), `name`, `is_active`, `ctag`(기본 `'0'`), `last_accessed_at` (10) | `token`·`ics_token` unique; **`user_id` unique(`uq_calendar_subscription_user`) — `db:push` 필요**. `idx_subscription_user`(FK 인덱스, 유지) — 4차에서 `idx_subscription_token`·`idx_subscription_ics_token`(각 unique 와 중복) 2종을 제거했다(**`db:push` 미반영**) | `user_id → user.id` (cascade) | `compose/calendar.ts` |
 
 ## drive (3)
 

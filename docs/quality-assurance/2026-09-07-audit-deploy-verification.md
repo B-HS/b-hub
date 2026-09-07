@@ -9,7 +9,7 @@
 - [ ] **스키마 반영** — `bun run db:push` 를 프로덕션 DB 에 실행한다. 대기 중인 변경 3건이 한 번에 적용된다.
   - `mail_messages` unique → `(account_id, folder_id, remote_message_id)` (1차 F-7). 적용 전 같은 계정·폴더에 `remote_message_id` 중복 행이 있으면 push 가 실패한다. 실패하면 중복 행을 먼저 정리한다(가장 낮은 id 만 남김).
   - `calendar_subscription.user_id` unique (3차 R-25). 사용자당 구독 행이 2개 이상이면 실패한다.
-  - 조회용 인덱스 8종 추가 + 중복 인덱스 4종 제거 (4차 P-02). 큰 테이블(`log_events`·`weather_api_log`·`mail_sync_logs`)은 인덱스 생성에 수십 초가 걸릴 수 있다.
+  - 조회용 인덱스 8종 추가 + 중복 인덱스 3종 제거 (4차 P-02). FK 컬럼의 단일 인덱스(`idx_subscription_user`·`idx_mail_sync_logs_account`)는 유지한다. 큰 테이블(`log_events`·`weather_api_log`·`mail_sync_logs`)은 인덱스 생성에 수십 초가 걸릴 수 있다.
   - 기대: `drizzle-kit push` 가 오류 없이 끝나고, 이후 `bun run db:push` 재실행 시 "No changes detected".
 - [ ] **환경변수 확인** (Vercel 프로젝트 설정)
   - `UPLOAD_SERVER_SECRET` — upload-server 콜백 인증(1차 S-01)과 크론 시크릿 폴백(`/api/drive/lifecycle/*`·`/api/metrics/archive`·`/api/logs/purge`)에 쓰인다. 미설정이면 콜백은 503, 크론은 401 로 fail-closed.

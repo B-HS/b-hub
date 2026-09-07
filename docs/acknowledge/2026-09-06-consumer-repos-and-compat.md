@@ -153,7 +153,7 @@
 
 - cross-cutting 이 지적한 `GET /api/metrics/logs` 의 count/select 병렬화 + Mongo 재연결 경합(두 호출이 같은 stale 클라이언트로 실패해 `resetMongo` 를 두 번 부르면 두 번째가 새 클라이언트를 닫을 수 있음)은 승인 항목(P-01) 범위이고 실제 도달이 어렵다고 재검증됐다. 다만 보강 비용이 거의 없어 조정자가 `db/mongo.ts` 의 `resetMongo(stale?)` 를 "넘긴 인스턴스가 현재 인스턴스일 때만 교체" 로 바꾸고 `compose/metrics.ts` 의 `runMongo` 가 자기가 쓴 인스턴스를 넘기도록 했다(`tests/db/mongo.test.ts`).
 - bblog 리뷰어 권고 반영: P-02 인덱스가 적용되면 `comments`(postId, created_at)·`messages`(userId, deleted_at, created_at) 목록이 filesort 대신 인덱스 순 스캔이 되어 같은 초에 저장된 행의 상대 순서가 바뀔 수 있다. HEAD 도 동점 순서는 미정의였으므로 `compose/blog.ts` 의 두 목록에 `desc(commentId)`·`desc(id)` 타이브레이크를 추가해 결정적으로 고정했다(동점이 아닌 행의 순서는 불변).
-- schema-index 그룹이 보고만 한 중복 인덱스 2건을 조정자가 제거했다: `idx_subscription_user`(3차의 `uq_calendar_subscription_user` 와 같은 컬럼), `idx_mail_sync_logs_account`(새 복합 인덱스 `idx_mail_sync_logs_account_created` 가 대체). **db:push 대상은 P-02 인덱스 8종 추가(그중 `idx_mail_sync_logs_account_created` 는 단일 컬럼 인덱스를 대체) + 중복 4종 제거**(`idx_calendar_event_uid`·`idx_subscription_token`·`idx_subscription_ics_token` 은 워크플로가, `idx_subscription_user` 는 조정자가 제거).
+- schema-index 그룹이 보고만 한 중복 인덱스 2건(`idx_subscription_user`·`idx_mail_sync_logs_account`)은 조정자가 제거했다가 **프로덕션 push 실측 후 유지로 되돌렸다.** 두 컬럼 모두 FK 라 MySQL 이 인덱스를 요구하는데, drizzle-kit push 는 새 unique·복합 인덱스 CREATE 보다 DROP INDEX 를 먼저 실행해 `ER_DROP_INDEX_FK` 로 중단됐다(2026-09-07). **db:push 대상은 P-02 인덱스 8종 추가 + 중복 3종 제거**(`idx_calendar_event_uid`·`idx_subscription_token`·`idx_subscription_ics_token`).
 
 리뷰가 승인으로 분류했으나 운영상 인지할 사항:
 - 썸네일 렌더 캐시(LRU 20·1시간)의 키는 제목·카테고리·첫 태그라 게시글 수정 시 갱신되지만, 폰트 가용성은 키에 없어 두 웨이트 중 하나만 로드된 렌더가 최대 1시간 캐시될 수 있다(전량 실패 시엔 캐시하지 않음).
@@ -161,4 +161,9 @@
 - mail 메시지 upsert 가 건별에서 배치(identity SELECT 1회 → 신규 INSERT → 재조회 → 기존 UPDATE)로 바뀌었고, 원격 플래그 반영은 계정당 1회 연결 후 폴더를 순회한다. added/updated 집계·identityScope·moveMessages 규칙은 그대로다.
 - Gmail·Spotify access token 은 만료 5분 전이면 선제 갱신하며, 선제 갱신 실패는 삼키고 기존 401 후 갱신 경로로 떨어진다(최종 오류 매핑 동일). gdrive access token 은 프로세스 내에서 만료 60초 전까지 캐시된다.
 - P-03(지연 import)은 preview 배포 검증 전이라 미적용, P-10·P-11(IMAP/Gmail 프로토콜 호출 축소)은 사용자 결정 대기.
+
+## 2026-09-07 배포 준비 확인 (사용자 보고 기준)
+
+- Vercel Production 환경변수는 코드가 읽는 항목 전부 존재(`DATABASE_URL`·R2 4종·`UPLOAD_SERVER_SECRET`/`URL`·`KMA_API_KEY`·`MONGODB_URI`·`AI_ENCRYPTION_KEY`·`MAIL_ENCRYPTION_KEY`·`REDIS_URL`·OAuth 3쌍·`BETTER_AUTH_SECRET`·`TRUSTED_ORIGINS`·`BASE_URL`·`GDRIVE_ROOT_FOLDER_ID`·`R2_CUSTOME_DOMAIN`·`CRON_SECRET`). `SENTRY_DSN`·`DISCORD_WEBHOOK_URL` 은 선택이라 사용자 결정으로 보류. `GDRIVE_SERVICE_ACCOUNT_KEY`·`GDRIVE_OWNER_EMAIL` 은 코드 미사용(삭제 가능).
+- **Vercel 크론은 사용자가 비활성화한 상태다(2026-09-07).** 따라서 drive evict-r2·auto-promote, metrics archive, logs purge 가 돌지 않아 R2 L1 정리·Mongo 핫 보관 아카이브·`log_events`/`weather_api_log`/`mail_sync_logs` 보존 삭제가 누적된다. 다시 켤 때는 Vercel 이 보내는 `CRON_SECRET` 과 코드가 비교하는 `UPLOAD_SERVER_SECRET` 값이 같아야 하거나, 코드가 `CRON_SECRET` 을 직접 읽도록 수정(A안)해야 한다.
 - 워크플로 에이전트의 도구 규칙: 파일 읽기는 Read·검색은 Grep·Glob, Bash 는 `bun test <경로>`·`bunx prettier --write <파일>`·`bunx tsc --noEmit`·`git diff HEAD -- <경로>`·`git status --short` 만(권한 프롬프트 방지, 2026-09-07 확정 원인은 전역 `blockReadsOutsideWorkingDirectories`).
