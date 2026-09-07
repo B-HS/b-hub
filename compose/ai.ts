@@ -81,8 +81,11 @@ export const composeAi = ({ db, env, storageService, logEventService, rateLimitS
             const [res] = await db.insert(schema.aiProviders).values(data).$returningId()
             return { id: res.id }
         },
-        updateCredentials: async (id: number, encryptedCredentials: string, authType: string) => {
-            await db.update(schema.aiProviders).set({ credentials: encryptedCredentials, authType }).where(eq(schema.aiProviders.id, id))
+        updateOnReconnect: async (
+            id: number,
+            data: { credentials: string; authType: string; status: string; statusDetail: string | null; displayName?: string | null },
+        ) => {
+            await db.update(schema.aiProviders).set(data).where(eq(schema.aiProviders.id, id))
         },
         updateStatus: async (id: number, status: string, statusDetail: string | null) => {
             await db.update(schema.aiProviders).set({ status, statusDetail }).where(eq(schema.aiProviders.id, id))
@@ -164,17 +167,19 @@ export const composeAi = ({ db, env, storageService, logEventService, rateLimitS
             const conds = [eq(schema.aiSessions.userId, userId)]
             if (filter.featureKey) conds.push(eq(schema.aiSessions.featureKey, filter.featureKey))
             const where = and(...conds)
-            const [{ total }] = await db
-                .select({ total: sql<number>`count(*)` })
-                .from(schema.aiSessions)
-                .where(where)
-            const rows = await db
-                .select()
-                .from(schema.aiSessions)
-                .where(where)
-                .orderBy(desc(schema.aiSessions.lastMessageAt), desc(schema.aiSessions.createdAt))
-                .limit(filter.limit)
-                .offset((filter.page - 1) * filter.limit)
+            const [[{ total }], rows] = await Promise.all([
+                db
+                    .select({ total: sql<number>`count(*)` })
+                    .from(schema.aiSessions)
+                    .where(where),
+                db
+                    .select()
+                    .from(schema.aiSessions)
+                    .where(where)
+                    .orderBy(desc(schema.aiSessions.lastMessageAt), desc(schema.aiSessions.createdAt))
+                    .limit(filter.limit)
+                    .offset((filter.page - 1) * filter.limit),
+            ])
             return { rows, total: Number(total) }
         },
         getById: async (id: string) => {
@@ -195,17 +200,19 @@ export const composeAi = ({ db, env, storageService, logEventService, rateLimitS
         },
         listMessages: async (sessionId: string, filter: { page: number; limit: number }) => {
             const where = eq(schema.aiMessages.sessionId, sessionId)
-            const [{ total }] = await db
-                .select({ total: sql<number>`count(*)` })
-                .from(schema.aiMessages)
-                .where(where)
-            const rows = await db
-                .select()
-                .from(schema.aiMessages)
-                .where(where)
-                .orderBy(schema.aiMessages.createdAt, schema.aiMessages.id)
-                .limit(filter.limit)
-                .offset((filter.page - 1) * filter.limit)
+            const [[{ total }], rows] = await Promise.all([
+                db
+                    .select({ total: sql<number>`count(*)` })
+                    .from(schema.aiMessages)
+                    .where(where),
+                db
+                    .select()
+                    .from(schema.aiMessages)
+                    .where(where)
+                    .orderBy(schema.aiMessages.createdAt, schema.aiMessages.id)
+                    .limit(filter.limit)
+                    .offset((filter.page - 1) * filter.limit),
+            ])
             return { rows, total: Number(total) }
         },
         listRecentMessages: async (sessionId: string, limit: number) => {

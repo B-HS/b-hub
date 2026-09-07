@@ -21,7 +21,10 @@ export type AiConnectionServiceDb = {
     getById: (id: number) => Promise<AiProvider | null>
     listByUser: (userId: string) => Promise<AiProvider[]>
     insert: (data: AiConnectionInsert) => Promise<{ id: number }>
-    updateCredentials: (id: number, encryptedCredentials: string, authType: string) => Promise<void>
+    updateOnReconnect: (
+        id: number,
+        data: { credentials: string; authType: string; status: string; statusDetail: string | null; displayName?: string | null },
+    ) => Promise<void>
     updateStatus: (id: number, status: string, statusDetail: string | null) => Promise<void>
     updateDisplayName: (id: number, displayName: string | null) => Promise<void>
     touchUsed: (id: number) => Promise<void>
@@ -81,9 +84,13 @@ export const createAiConnectionService = ({ db, crypto, factory }: AiConnectionD
 
         const existing = await db.getByUserAndProvider(userId, input.provider)
         if (existing) {
-            await db.updateCredentials(existing.id, encrypted, authType)
-            await db.updateStatus(existing.id, 'active', null)
-            if (input.displayName !== undefined) await db.updateDisplayName(existing.id, input.displayName ?? null)
+            await db.updateOnReconnect(existing.id, {
+                credentials: encrypted,
+                authType,
+                status: 'active',
+                statusDetail: null,
+                ...(input.displayName !== undefined ? { displayName: input.displayName ?? null } : {}),
+            })
             return getOwned(userId, existing.id)
         }
 

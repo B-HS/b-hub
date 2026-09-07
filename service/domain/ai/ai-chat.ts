@@ -3,7 +3,7 @@ import type { AiConnectionService } from './ai-connection'
 import type { AiPromptService } from './ai-prompt'
 import type { AiSessionService } from './ai-session'
 import type { AiAttachmentService } from './ai-attachment'
-import type { AiChatMessage, AiCompletionResult, AiStreamEvent } from './ai-provider'
+import type { AiChatMessage, AiCompletionResult, AiImagePart, AiStreamEvent } from './ai-provider'
 import { providerErrorMessage } from './ai-provider'
 import { createAppError } from '../../../lib/error'
 import type { AiChatSend, AiCompletion } from '../../../dto/ai/chat'
@@ -53,6 +53,11 @@ type AiChatDeps = {
 
 const settleQuietly = (p: Promise<unknown>) => p.then(() => undefined).catch(() => undefined)
 
+const unwrapSettled = <T>(settled: PromiseSettledResult<T>) => {
+    if (settled.status === 'rejected') throw settled.reason
+    return settled.value
+}
+
 const assemblePrompts = (prompts: AiPrompt[]) => {
     const active = prompts.filter((p) => p.isActive).sort((a, b) => a.sortOrder - b.sortOrder)
     const systemText = active
@@ -79,12 +84,18 @@ export const createAiChatService = ({
 }: AiChatDeps) => {
     const prepareSend = async (userId: string, sessionId: string, input: AiChatSend) => {
         const session = await sessionService.getOwned(userId, sessionId)
-        const { row, client } = await connectionService.resolveClient(userId, session.provider)
+        const settled = await Promise.allSettled([
+            connectionService.resolveClient(userId, session.provider),
+            session.promptIds?.length ? promptService.resolveOwned(userId, session.promptIds) : Promise.resolve<AiPrompt[]>([]),
+            sessionService.listRecentMessages(sessionId, HISTORY_LIMIT),
+            input.attachmentIds?.length ? attachmentService.resolveImages(userId, input.attachmentIds) : Promise.resolve<AiImagePart[]>([]),
+        ])
+        const { row, client } = unwrapSettled(settled[0])
+        const prompts = unwrapSettled(settled[1])
+        const history = unwrapSettled(settled[2])
+        const images = unwrapSettled(settled[3])
 
-        const prompts = session.promptIds?.length ? await promptService.resolveOwned(userId, session.promptIds) : []
         const { systemText, seedMessages } = assemblePrompts(prompts)
-        const history = await sessionService.listRecentMessages(sessionId, HISTORY_LIMIT)
-        const images = input.attachmentIds?.length ? await attachmentService.resolveImages(userId, input.attachmentIds) : []
 
         const modelId = input.modelId ?? session.modelId
         const system = input.context ? mergeSystem(systemText, input.context) : systemText
@@ -97,8 +108,12 @@ export const createAiChatService = ({
     }
 
     const prepareCompletion = async (userId: string, input: AiCompletion) => {
-        const { row, client } = await connectionService.resolveClient(userId, input.provider)
-        const prompts = input.promptIds?.length ? await promptService.resolveOwned(userId, input.promptIds) : []
+        const settled = await Promise.allSettled([
+            connectionService.resolveClient(userId, input.provider),
+            input.promptIds?.length ? promptService.resolveOwned(userId, input.promptIds) : Promise.resolve<AiPrompt[]>([]),
+        ])
+        const { row, client } = unwrapSettled(settled[0])
+        const prompts = unwrapSettled(settled[1])
         const { systemText, seedMessages } = assemblePrompts(prompts)
         const systemFromInput = input.messages
             .filter((m) => m.role === 'system')
@@ -149,9 +164,13 @@ export const createAiChatService = ({
                 durationMs,
             },
         })
-        if (input.attachmentIds?.length) await settleQuietly(attachmentService.attachToMessage(userId, input.attachmentIds, pair.userMessageId))
-        await settleQuietly(sessionService.touchLastMessage(sessionId))
-        await settleQuietly(connectionService.touchUsed(rowId))
+        await Promise.all([
+            ...(input.attachmentIds?.length
+                ? [settleQuietly(attachmentService.attachToMessage(userId, input.attachmentIds, pair.userMessageId))]
+                : []),
+            settleQuietly(sessionService.touchLastMessage(sessionId)),
+            settleQuietly(connectionService.touchUsed(rowId)),
+        ])
 
         await logUsage({
             errorCode: 'AI_CHAT_COMPLETED',

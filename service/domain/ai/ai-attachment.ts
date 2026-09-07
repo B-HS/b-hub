@@ -87,13 +87,14 @@ export const createAiAttachmentService = ({ storage, db, generateId, getUserQuot
     const resolveImages = async (userId: string, ids: number[]): Promise<AiImagePart[]> => {
         if (ids.length === 0) return []
         const records = await getOwnedRecords(userId, ids)
-        const parts: AiImagePart[] = []
-        for (const record of records) {
-            const content = await storage.download(record.r2Key)
-            if (!content) throw createAppError('AI_ATTACHMENT_NOT_FOUND')
-            parts.push({ mimeType: record.mimeType, dataBase64: content.toString('base64') })
-        }
-        return parts
+        const downloaded = await Promise.allSettled(
+            records.map(async (record) => ({ mimeType: record.mimeType, content: await storage.download(record.r2Key) })),
+        )
+        return downloaded.map((settled) => {
+            if (settled.status === 'rejected') throw settled.reason
+            if (!settled.value.content) throw createAppError('AI_ATTACHMENT_NOT_FOUND')
+            return { mimeType: settled.value.mimeType, dataBase64: settled.value.content.toString('base64') }
+        })
     }
 
     const attachToMessage = async (userId: string, ids: number[], messageId: number) => {

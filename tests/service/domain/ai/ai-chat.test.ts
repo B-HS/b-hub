@@ -62,6 +62,29 @@ const defaultUpstream = () =>
 
 const flushPendingTasks = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+const BARRIER_FALLBACK_MS = 20
+
+const createBarrier = (expected: number) => {
+    const events: string[] = []
+    let startedCount = 0
+    let open = () => {}
+    const opened = new Promise<void>((resolve) => {
+        open = resolve
+        setTimeout(resolve, BARRIER_FALLBACK_MS)
+    })
+    const track =
+        <T>(name: string, value: T) =>
+        async () => {
+            events.push(`start:${name}`)
+            startedCount += 1
+            if (startedCount >= expected) open()
+            await opened
+            events.push(`end:${name}`)
+            return value
+        }
+    return { events, track }
+}
+
 const collect = async (events: AsyncIterable<AiChatStreamEvent>) => {
     const collected: AiChatStreamEvent[] = []
     for await (const event of events) collected.push(event)
@@ -382,6 +405,100 @@ describe('createAiChatService', () => {
             expect(logged.severity).toBe(40)
             expect(logged.errorCode).toBe('AI_COMPLETION_FAILED')
             expect(deps.connectionService.touchUsed).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('준비 단계 병렬화(P-20)', () => {
+        test('resolveClient·프롬프트·히스토리·첨부 이미지를 동시에 시작한다', async () => {
+            const deps = createDeps()
+            const barrier = createBarrier(4)
+            deps.connectionService.resolveClient = mock(barrier.track('resolveClient', { row: { id: 5 }, client: deps.client }) as never)
+            deps.promptService.resolveOwned = mock(barrier.track('resolveOwned', []) as never)
+            deps.sessionService.listRecentMessages = mock(barrier.track('listRecentMessages', []) as never)
+            deps.attachmentService.resolveImages = mock(barrier.track('resolveImages', []) as never)
+            const service = createAiChatService(deps as never)
+
+            await service.send('user-1', 'sess-1', { content: 'hello world', attachmentIds: [7] })
+
+            expect(barrier.events).toEqual([
+                'start:resolveClient',
+                'start:resolveOwned',
+                'start:listRecentMessages',
+                'start:resolveImages',
+                'end:resolveClient',
+                'end:resolveOwned',
+                'end:listRecentMessages',
+                'end:resolveImages',
+            ])
+        })
+
+        test('resolveClient 와 프롬프트가 함께 실패하면 기존과 같이 resolveClient 에러가 나온다', async () => {
+            const deps = createDeps()
+            deps.connectionService.resolveClient = mock((async () => {
+                throw createAppError('AI_PROVIDER_NOT_FOUND')
+            }) as never)
+            deps.promptService.resolveOwned = mock((async () => {
+                throw createAppError('AI_PROMPT_NOT_FOUND')
+            }) as never)
+            const service = createAiChatService(deps as never)
+
+            await expect(service.send('user-1', 'sess-1', { content: 'hello world' })).rejects.toMatchObject({
+                code: 'AI_PROVIDER_NOT_FOUND',
+            })
+            expect(deps.client.complete).not.toHaveBeenCalled()
+        })
+
+        test('첨부 조회가 실패하면 그대로 전파되고 프로바이더를 호출하지 않는다', async () => {
+            const deps = createDeps()
+            deps.attachmentService.resolveImages = mock((async () => {
+                throw createAppError('AI_ATTACHMENT_NOT_FOUND')
+            }) as never)
+            const service = createAiChatService(deps as never)
+
+            await expect(service.send('user-1', 'sess-1', { content: 'hello world', attachmentIds: [7] })).rejects.toMatchObject({
+                code: 'AI_ATTACHMENT_NOT_FOUND',
+            })
+            expect(deps.client.complete).not.toHaveBeenCalled()
+        })
+
+        test('completion 도 resolveClient 와 프롬프트를 동시에 시작한다', async () => {
+            const deps = createDeps()
+            const barrier = createBarrier(2)
+            deps.connectionService.resolveClient = mock(barrier.track('resolveClient', { row: { id: 5 }, client: deps.client }) as never)
+            deps.promptService.resolveOwned = mock(barrier.track('resolveOwned', []) as never)
+            const service = createAiChatService(deps as never)
+
+            const result = await service.complete('user-1', {
+                provider: 'anthropic',
+                modelId: 'claude-x',
+                messages: [{ role: 'user', content: 'ping' }],
+                promptIds: [1],
+            })
+
+            expect(barrier.events).toEqual(['start:resolveClient', 'start:resolveOwned', 'end:resolveClient', 'end:resolveOwned'])
+            expect(result.content).toBe('answer')
+        })
+
+        test('저장 후 attachToMessage·touchLastMessage·touchUsed 를 동시에 시작한다', async () => {
+            const deps = createDeps()
+            const barrier = createBarrier(3)
+            deps.attachmentService.attachToMessage = mock(barrier.track('attachToMessage', undefined) as never)
+            deps.sessionService.touchLastMessage = mock(barrier.track('touchLastMessage', undefined) as never)
+            deps.connectionService.touchUsed = mock(barrier.track('touchUsed', undefined) as never)
+            const service = createAiChatService(deps as never)
+
+            const result = await service.send('user-1', 'sess-1', { content: 'hello world', attachmentIds: [7] })
+
+            expect(barrier.events).toEqual([
+                'start:attachToMessage',
+                'start:touchLastMessage',
+                'start:touchUsed',
+                'end:attachToMessage',
+                'end:touchLastMessage',
+                'end:touchUsed',
+            ])
+            expect(result.id).toBe(100)
+            expect(deps.logUsage.mock.calls[0][0].errorCode).toBe('AI_CHAT_COMPLETED')
         })
     })
 

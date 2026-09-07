@@ -2,6 +2,9 @@ import { describe, expect, test, mock } from 'bun:test'
 import { createAiAttachmentService } from '../../../../service/domain/ai/ai-attachment'
 import type { AiAttachmentInsert } from '../../../../service/domain/ai/ai-attachment'
 import type { AiAttachment } from '../../../../db/schema'
+import { createAppError } from '../../../../lib/error'
+
+const BARRIER_FALLBACK_MS = 20
 
 const buildAttachment = (over: Partial<AiAttachment> = {}): AiAttachment => ({
     id: 1,
@@ -127,6 +130,58 @@ describe('createAiAttachmentService', () => {
 
             const result = await service.resolveImages('user-1', [1])
             expect(result).toEqual([{ mimeType: 'image/png', dataBase64: Buffer.from('imgdata').toString('base64') }])
+        })
+
+        test('여러 첨부의 R2 다운로드를 동시에 시작하고 입력 순서대로 반환한다', async () => {
+            const deps = createDeps()
+            deps.db.getByIds = mock(async (ids: number[]) => ids.map((id) => buildAttachment({ id, mimeType: `image/${id}`, r2Key: `key-${id}` })))
+            const events: string[] = []
+            let startedCount = 0
+            let open = () => {}
+            const opened = new Promise<void>((resolve) => {
+                open = resolve
+                setTimeout(resolve, BARRIER_FALLBACK_MS)
+            })
+            deps.storage.download = mock(async (key: string): Promise<Buffer | null> => {
+                events.push(`start:${key}`)
+                startedCount += 1
+                if (startedCount >= 3) open()
+                await opened
+                events.push(`end:${key}`)
+                return Buffer.from(key)
+            })
+            const service = createAiAttachmentService(deps)
+
+            const result = await service.resolveImages('user-1', [1, 2, 3])
+
+            expect(events).toEqual(['start:key-1', 'start:key-2', 'start:key-3', 'end:key-1', 'end:key-2', 'end:key-3'])
+            expect(result).toEqual([
+                { mimeType: 'image/1', dataBase64: Buffer.from('key-1').toString('base64') },
+                { mimeType: 'image/2', dataBase64: Buffer.from('key-2').toString('base64') },
+                { mimeType: 'image/3', dataBase64: Buffer.from('key-3').toString('base64') },
+            ])
+        })
+
+        test('두 번째 첨부만 null 이어도 AI_ATTACHMENT_NOT_FOUND를 throw한다', async () => {
+            const deps = createDeps()
+            deps.db.getByIds = mock(async (ids: number[]) => ids.map((id) => buildAttachment({ id, r2Key: `key-${id}` })))
+            deps.storage.download = mock(async (key: string): Promise<Buffer | null> => (key === 'key-2' ? null : Buffer.from(key)))
+            const service = createAiAttachmentService(deps)
+
+            await expect(service.resolveImages('user-1', [1, 2])).rejects.toMatchObject({ code: 'AI_ATTACHMENT_NOT_FOUND' })
+        })
+
+        test('앞선 첨부의 다운로드 실패가 뒤쪽 실패보다 먼저 전파된다', async () => {
+            const deps = createDeps()
+            deps.db.getByIds = mock(async (ids: number[]) => ids.map((id) => buildAttachment({ id, r2Key: `key-${id}` })))
+            deps.storage.download = mock(async (key: string): Promise<Buffer | null> => {
+                if (key === 'key-2') throw createAppError('AI_ATTACHMENT_NOT_FOUND', { detail: 'second' })
+                await new Promise((resolve) => setTimeout(resolve, BARRIER_FALLBACK_MS))
+                throw createAppError('AI_ATTACHMENT_NOT_FOUND', { detail: 'first' })
+            })
+            const service = createAiAttachmentService(deps)
+
+            await expect(service.resolveImages('user-1', [1, 2])).rejects.toMatchObject({ details: { detail: 'first' } })
         })
 
         test('타 유저 첨부는 AI_ATTACHMENT_NOT_FOUND를 throw한다', async () => {

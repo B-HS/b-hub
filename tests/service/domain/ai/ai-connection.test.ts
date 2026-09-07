@@ -40,7 +40,12 @@ const createMockDb = () => ({
     getById: mock(async (id: number) => buildProvider({ id })),
     listByUser: mock(async (_userId: string) => [buildProvider()]),
     insert: mock(async (_data: AiConnectionInsert) => ({ id: 1 })),
-    updateCredentials: mock(async (_id: number, _encrypted: string, _authType: string) => {}),
+    updateOnReconnect: mock(
+        async (
+            _id: number,
+            _data: { credentials: string; authType: string; status: string; statusDetail: string | null; displayName?: string | null },
+        ) => {},
+    ),
     updateStatus: mock(async (_id: number, _status: string, _detail: string | null) => {}),
     updateDisplayName: mock(async (_id: number, _displayName: string | null) => {}),
     touchUsed: mock(async (_id: number) => {}),
@@ -76,7 +81,7 @@ describe('createAiConnectionService', () => {
             expect(JSON.parse(crypto.decrypt(insertArg.credentials))).toEqual({ apiKey: 'sk-test' })
         })
 
-        test('기존 provider가 있으면 updateCredentials·updateStatus로 갱신하고 insert하지 않는다', async () => {
+        test('기존 provider가 있으면 UPDATE 한 번으로 자격증명·상태를 갱신하고 insert하지 않는다', async () => {
             const db = createMockDb()
             db.getByUserAndProvider = mock(async (_userId: string, _provider: string) => buildProvider({ id: 5 }))
             const client = createClient({ ok: true })
@@ -85,10 +90,31 @@ describe('createAiConnectionService', () => {
 
             await service.connect('user-1', { provider: 'anthropic', credentials: { apiKey: 'sk-test' } })
 
-            expect(db.updateCredentials).toHaveBeenCalled()
-            expect(db.updateCredentials.mock.calls[0][0]).toBe(5)
-            expect(db.updateStatus).toHaveBeenCalledWith(5, 'active', null)
+            expect(db.updateOnReconnect).toHaveBeenCalledTimes(1)
+            expect(db.updateOnReconnect.mock.calls[0][0]).toBe(5)
+            const patch = db.updateOnReconnect.mock.calls[0][1]
+            expect(patch.authType).toBe('apikey')
+            expect(patch.status).toBe('active')
+            expect(patch.statusDetail).toBe(null)
+            expect(JSON.parse(crypto.decrypt(patch.credentials))).toEqual({ apiKey: 'sk-test' })
+            expect('displayName' in patch).toBe(false)
+            expect(db.updateStatus).not.toHaveBeenCalled()
+            expect(db.updateDisplayName).not.toHaveBeenCalled()
             expect(db.insert).not.toHaveBeenCalled()
+        })
+
+        test('displayName을 함께 보내면 같은 UPDATE에 displayName이 포함된다', async () => {
+            const db = createMockDb()
+            db.getByUserAndProvider = mock(async (_userId: string, _provider: string) => buildProvider({ id: 5 }))
+            const client = createClient({ ok: true })
+            const factory = createFactory(client)
+            const service = createAiConnectionService({ db: db as never, crypto, factory: factory as never })
+
+            await service.connect('user-1', { provider: 'anthropic', credentials: { apiKey: 'sk-test' }, displayName: '내 클로드' })
+
+            expect(db.updateOnReconnect).toHaveBeenCalledTimes(1)
+            expect(db.updateOnReconnect.mock.calls[0][1].displayName).toBe('내 클로드')
+            expect(db.updateDisplayName).not.toHaveBeenCalled()
         })
 
         test('verify 실패({ok:false})면 AI_CREDENTIALS_INVALID을 throw한다', async () => {
@@ -191,7 +217,7 @@ describe('createAiConnectionService', () => {
             expect(factory.createFromStored).not.toHaveBeenCalled()
         })
 
-        test('codex access token 단독 재등록은 updateCredentials에 authType token을 함께 넘긴다', async () => {
+        test('codex access token 단독 재등록은 updateOnReconnect에 authType token을 함께 넘긴다', async () => {
             const db = createMockDb()
             db.getByUserAndProvider = mock(async (_userId: string, _provider: string) =>
                 buildProvider({ id: 7, provider: 'codex', authType: 'oauth' }),
@@ -202,9 +228,10 @@ describe('createAiConnectionService', () => {
 
             await service.connect('user-1', { provider: 'codex', credentials: { accessToken: 'at-opaque', accountId: 'acct-9' } })
 
-            expect(db.updateCredentials.mock.calls[0][0]).toBe(7)
-            expect(db.updateCredentials.mock.calls[0][2]).toBe('token')
-            expect(db.updateStatus).toHaveBeenCalledWith(7, 'active', null)
+            expect(db.updateOnReconnect.mock.calls[0][0]).toBe(7)
+            expect(db.updateOnReconnect.mock.calls[0][1].authType).toBe('token')
+            expect(db.updateOnReconnect.mock.calls[0][1].status).toBe('active')
+            expect(db.updateOnReconnect.mock.calls[0][1].statusDetail).toBe(null)
             expect(db.insert).not.toHaveBeenCalled()
         })
     })

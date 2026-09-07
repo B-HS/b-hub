@@ -92,6 +92,85 @@ const orderByColumnNames = (args: unknown[]) =>
         return column ? (column as { name: string }).name : null
     })
 
+type DeferredCaptures = { events: string[]; release: () => void }
+
+const createDeferredDb = (results: unknown[][]) => {
+    const queue = [...results]
+    const captures: DeferredCaptures = { events: [], release: () => {} }
+    const pending: (() => void)[] = []
+
+    const selectChain: Record<string, unknown> = {
+        from: () => selectChain,
+        where: () => selectChain,
+        orderBy: () => selectChain,
+        limit: () => selectChain,
+        offset: () => selectChain,
+        then: (resolve: (rows: unknown[]) => void) => {
+            const index = pending.length + captures.events.filter((event) => event.startsWith('resolve')).length
+            captures.events.push(`start:${index}`)
+            const rows = queue.shift() ?? []
+            pending.push(() => {
+                captures.events.push(`resolve:${index}`)
+                resolve(rows)
+            })
+        },
+    }
+
+    captures.release = () => {
+        const ready = pending.splice(0, pending.length)
+        ready.forEach((run) => run())
+    }
+
+    return { db: { select: () => selectChain }, captures }
+}
+
+const createDeferredComposed = (results: unknown[][]) => {
+    const { db, captures } = createDeferredDb(results)
+    const composed = composeAi({
+        db,
+        env: { AI_ENCRYPTION_KEY: ENCRYPTION_KEY },
+        storageService: { upload: mock(async () => {}), del: mock(async () => {}), getUrl: (key: string) => key, getObject: mock(async () => null) },
+        logEventService: { ingest: mock(async () => ({ id: 'log-1' })) },
+    } as never) as ReturnType<typeof composeAi> & Record<string, never>
+    return { composed, captures }
+}
+
+const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+describe('composeAi count/select 병렬화(P-01)', () => {
+    test('세션 목록은 count 와 select 를 동시에 시작하고 기존과 같은 rows·total 을 반환한다', async () => {
+        const sessionRow = buildSessionRow()
+        const { composed, captures } = createDeferredComposed([[{ total: 7 }], [sessionRow]])
+
+        const pending = composed.aiSessionService!.list('user-1', { page: 1, limit: PAGE_LIMIT })
+        await flushMicrotasks()
+        expect(captures.events).toEqual(['start:0', 'start:1'])
+
+        captures.release()
+        const result = await pending
+        expect(result.total).toBe(7)
+        expect(result.rows).toEqual([sessionRow])
+    })
+
+    test('메시지 목록은 소유 검증 뒤 count 와 select 를 동시에 시작한다', async () => {
+        const messageRow = { id: 3, sessionId: 'sess-1', role: 'user', content: '안녕', createdAt: new Date() }
+        const { composed, captures } = createDeferredComposed([[buildSessionRow()], [{ total: 2 }], [messageRow]])
+
+        const pending = composed.aiSessionService!.listMessages('user-1', 'sess-1', { page: 1, limit: PAGE_LIMIT })
+        await flushMicrotasks()
+        expect(captures.events).toEqual(['start:0'])
+
+        captures.release()
+        await flushMicrotasks()
+        expect(captures.events).toEqual(['start:0', 'resolve:0', 'start:1', 'start:2'])
+
+        captures.release()
+        const result = await pending
+        expect(result.total).toBe(2)
+        expect(result.rows).toEqual([messageRow])
+    })
+})
+
 describe('composeAi 메시지 정렬(R-18)', () => {
     test('세션 메시지 목록은 created_at 과 id 로 정렬한다', async () => {
         const { composed, captures } = createComposed([[buildSessionRow()], [{ total: 0 }], []])
