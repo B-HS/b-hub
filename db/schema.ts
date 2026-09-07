@@ -534,7 +534,10 @@ export const mailSyncLogs = mysqlTable(
         completedAt: timestamp('completed_at', { fsp: 3 }),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
     },
-    (table) => [index('idx_mail_sync_logs_account_created').on(table.accountId, table.createdAt)],
+    (table) => [
+        index('idx_mail_sync_logs_account').on(table.accountId),
+        index('idx_mail_sync_logs_account_created').on(table.accountId, table.createdAt),
+    ],
 )
 
 export const mailSyncSessions = mysqlTable(
@@ -777,7 +780,7 @@ export const calendarSubscription = mysqlTable(
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [unique('uq_calendar_subscription_user').on(table.userId)],
+    (table) => [index('idx_subscription_user').on(table.userId), unique('uq_calendar_subscription_user').on(table.userId)],
 )
 
 export type CalendarGroup = typeof calendarGroup.$inferSelect

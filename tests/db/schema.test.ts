@@ -87,14 +87,13 @@ describe('db/schema 중복 인덱스 제거 (P-02)', () => {
         ])
     })
 
-    test('calendar_subscription.user_id 는 unique 제약만 남고 같은 컬럼의 별도 index 는 없다', () => {
+    test('calendar_subscription.user_id 는 FK 라 단일 index 를 unique 와 함께 유지한다(drizzle push 가 생성보다 삭제를 먼저 실행)', () => {
         expect(uniqueConstraintNames(calendarSubscription)).toContain('uq_calendar_subscription_user')
-        expect(indexNames(calendarSubscription)).not.toContain('idx_subscription_user')
-        expect(indexColumns(calendarSubscription, 'idx_subscription_user')).toBeNull()
+        expect(indexColumns(calendarSubscription, 'idx_subscription_user')).toEqual(['user_id'])
     })
 
-    test('mail_sync_logs 의 단일 account 인덱스는 복합 인덱스의 접두라 제거된다', () => {
-        expect(indexNames(mailSyncLogs)).not.toContain('idx_mail_sync_logs_account')
+    test('mail_sync_logs.account_id 는 FK 라 단일 index 를 복합 인덱스와 함께 유지한다', () => {
+        expect(indexColumns(mailSyncLogs, 'idx_mail_sync_logs_account')).toEqual(['account_id'])
         expect(indexColumns(mailSyncLogs, 'idx_mail_sync_logs_account_created')).toEqual(['account_id', 'created_at'])
     })
 })
