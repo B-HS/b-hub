@@ -557,7 +557,7 @@ describe('createMailSyncService', () => {
             expect(deps.db.upsertAttachments).not.toHaveBeenCalled()
         })
 
-        test('upsert 가 id 를 돌려주지 못하면 첨부의 messageId 는 null 로 전달한다', async () => {
+        test('upsert 가 id 를 돌려주지 못한 메시지의 첨부는 저장 대상에서 제외한다(message_id NOT NULL)', async () => {
             const accountService = createMockAccountService()
             accountService._provider.fetchMessages = mock(() =>
                 Promise.resolve({
@@ -580,7 +580,31 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertAttachments).toHaveBeenCalledWith([expect.objectContaining({ messageId: null, filename: 'doc.pdf' })])
+            expect(deps.db.upsertAttachments).not.toHaveBeenCalled()
+        })
+
+        test('동기화 실패 메시지는 2000자로 절단해 로그에 기록하고 원래 오류 코드를 던진다', async () => {
+            const accountService = createMockAccountService()
+            const longMessage = 'x'.repeat(10_000)
+            accountService._provider.connect = mock(() => Promise.reject(new Error(longMessage)))
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+
+            await expect(service.syncAccount(1, 'user-1')).rejects.toMatchObject({ code: 'MAIL_PROVIDER_ERROR' })
+            const [, logUpdate] = deps.db.updateSyncLog.mock.calls[0] as unknown as [number, { errorMessage: string }]
+            expect(logUpdate.errorMessage).toHaveLength(2000)
+        })
+
+        test('실패 로그 기록 자체가 실패해도 원래 MAIL_PROVIDER_ERROR 를 그대로 던진다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.connect = mock(() => Promise.reject(new Error('Connection failed')))
+            const deps = createDeps({ accountService, db: { updateSyncLog: mock(() => Promise.reject(new Error('log write failed'))) } })
+            const service = createMailSyncService(deps)
+
+            await expect(service.syncAccount(1, 'user-1')).rejects.toMatchObject({
+                code: 'MAIL_PROVIDER_ERROR',
+                details: { message: 'Connection failed' },
+            })
         })
 
         test('원격 폴더 id 는 255자로 절단해 upsert 한다', async () => {

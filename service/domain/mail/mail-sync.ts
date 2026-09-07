@@ -115,6 +115,7 @@ const REMOTE_FOLDER_ID_MAX_LENGTH = 255
 const ATTACHMENT_FILENAME_MAX_LENGTH = 255
 const ATTACHMENT_MIME_TYPE_MAX_LENGTH = 100
 const ATTACHMENT_CONTENT_ID_MAX_LENGTH = 255
+const SYNC_ERROR_MESSAGE_MAX_LENGTH = 2000
 
 const truncate = (value: string | null | undefined, maxLength: number) => (value == null ? null : value.slice(0, maxLength))
 
@@ -164,9 +165,16 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             if (result?.isNew) added++
             else updated++
 
+            const messageId = result?.id ?? null
+            if (messageId === null) {
+                if (msg.attachments.length > 0)
+                    captureException(createAppError('INTERNAL_ERROR', { detail: 'mail upsert returned no id', remoteMessageId: msg.id }))
+                continue
+            }
+
             for (const att of msg.attachments) {
                 attachments.push({
-                    messageId: result?.id ?? null,
+                    messageId,
                     remoteAttachmentId: att.id,
                     filename: truncate(att.filename, ATTACHMENT_FILENAME_MAX_LENGTH),
                     mimeType: truncate(att.mimeType, ATTACHMENT_MIME_TYPE_MAX_LENGTH),
@@ -297,16 +305,19 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 return { added: totalAdded, updated: totalUpdated, deleted: totalDeleted, durationMs }
             } catch (error) {
                 const durationMs = Date.now() - startTime
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                const errorMessage = (error instanceof Error ? error.message : 'Unknown error').slice(0, SYNC_ERROR_MESSAGE_MAX_LENGTH)
 
-                await deps.db.updateSyncLog(syncLog.id, {
-                    status: 'error',
-                    durationMs,
-                    errorMessage,
-                    completedAt: new Date(),
-                })
-
-                await deps.accountService.updateSyncStatus(accountId, 'error')
+                try {
+                    await deps.db.updateSyncLog(syncLog.id, {
+                        status: 'error',
+                        durationMs,
+                        errorMessage,
+                        completedAt: new Date(),
+                    })
+                    await deps.accountService.updateSyncStatus(accountId, 'error')
+                } catch (logError) {
+                    captureException(logError)
+                }
                 throw createAppError('MAIL_PROVIDER_ERROR', { message: maskProviderError(errorMessage) })
             } finally {
                 await provider.disconnect().catch(captureException)
