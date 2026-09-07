@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, like, lte, not, or, sql } from 'drizzle-orm'
 import type { Database } from '../../db'
 import * as s from '../../db/schema'
 import { captureException } from '../../lib/sentry'
@@ -36,35 +36,55 @@ const parseStorageTiers = (storageTiers: string | null) => new Set((storageTiers
 export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Dashboard counters ────────────────────────────────────────────
     counts: async () => {
-        const [u] = await db.select({ c: sql<number>`count(*)` }).from(s.user)
-        const [posts] = await db.select({ c: sql<number>`count(*)` }).from(s.posts)
-        const [comments] = await db.select({ c: sql<number>`count(*)` }).from(s.comments)
-        const [msgs] = await db.select({ c: sql<number>`count(*)` }).from(s.messages)
-        const [mailAcc] = await db.select({ c: sql<number>`count(*)` }).from(s.mailAccounts)
-        const [spotifyAcc] = await db.select({ c: sql<number>`count(*)` }).from(s.spotifyAccounts)
-        const [resumes] = await db.select({ c: sql<number>`count(*)` }).from(s.resumes)
-        const [events] = await db.select({ c: sql<number>`count(*)` }).from(s.calendarEvent)
-        const [drive] = await db.select({ c: sql<number>`count(*)` }).from(s.cloudAssets)
-        const [tokens] = await db.select({ c: sql<number>`count(*)` }).from(s.apiToken)
-        const [sessions] = await db.select({ c: sql<number>`count(*)` }).from(s.session)
-        const [requests24h] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.apiRequestLog)
-            .where(sql`created_at > date_sub(now(), interval 1 day)`)
-        const [errors24h] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.apiRequestLog)
-            .where(sql`status_code >= 400 and created_at > date_sub(now(), interval 1 day)`)
-        const [storageBytes] = await db.select({ b: sql<number>`coalesce(sum(size_bytes), 0)` }).from(s.cloudAssets)
-        const [weatherLogs] = await db.select({ c: sql<number>`count(*)` }).from(s.weatherApiLog)
-        const [logEvents24h] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.logEvents)
-            .where(sql`created_at > date_sub(now(), interval 1 day)`)
-        const [logErrors24h] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.logEvents)
-            .where(sql`severity >= 40 and created_at > date_sub(now(), interval 1 day)`)
+        const [
+            [u],
+            [posts],
+            [comments],
+            [msgs],
+            [mailAcc],
+            [spotifyAcc],
+            [resumes],
+            [events],
+            [drive],
+            [tokens],
+            [sessions],
+            [requests24h],
+            [errors24h],
+            [storageBytes],
+            [weatherLogs],
+            [logEvents24h],
+            [logErrors24h],
+        ] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.user),
+            db.select({ c: sql<number>`count(*)` }).from(s.posts),
+            db.select({ c: sql<number>`count(*)` }).from(s.comments),
+            db.select({ c: sql<number>`count(*)` }).from(s.messages),
+            db.select({ c: sql<number>`count(*)` }).from(s.mailAccounts),
+            db.select({ c: sql<number>`count(*)` }).from(s.spotifyAccounts),
+            db.select({ c: sql<number>`count(*)` }).from(s.resumes),
+            db.select({ c: sql<number>`count(*)` }).from(s.calendarEvent),
+            db.select({ c: sql<number>`count(*)` }).from(s.cloudAssets),
+            db.select({ c: sql<number>`count(*)` }).from(s.apiToken),
+            db.select({ c: sql<number>`count(*)` }).from(s.session),
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.apiRequestLog)
+                .where(sql`created_at > date_sub(now(), interval 1 day)`),
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.apiRequestLog)
+                .where(sql`status_code >= 400 and created_at > date_sub(now(), interval 1 day)`),
+            db.select({ b: sql<number>`coalesce(sum(size_bytes), 0)` }).from(s.cloudAssets),
+            db.select({ c: sql<number>`count(*)` }).from(s.weatherApiLog),
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.logEvents)
+                .where(sql`created_at > date_sub(now(), interval 1 day)`),
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.logEvents)
+                .where(sql`severity >= 40 and created_at > date_sub(now(), interval 1 day)`),
+        ])
         return {
             users: Number(u?.c ?? 0),
             posts: Number(posts?.c ?? 0),
@@ -136,26 +156,28 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.banned === 'y') conds.push(eq(s.user.banned, true))
         if (params.banned === 'n') conds.push(or(eq(s.user.banned, false), sql`${s.user.banned} is null`))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.user)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.user.id,
-                email: s.user.email,
-                name: s.user.name,
-                role: s.user.role,
-                banned: s.user.banned,
-                createdAt: s.user.createdAt,
-                timezone: s.user.timezone,
-                storageQuotaBytes: s.user.storageQuotaBytes,
-            })
-            .from(s.user)
-            .where(where)
-            .orderBy(desc(s.user.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.user)
+                .where(where),
+            db
+                .select({
+                    id: s.user.id,
+                    email: s.user.email,
+                    name: s.user.name,
+                    role: s.user.role,
+                    banned: s.user.banned,
+                    createdAt: s.user.createdAt,
+                    timezone: s.user.timezone,
+                    storageQuotaBytes: s.user.storageQuotaBytes,
+                })
+                .from(s.user)
+                .where(where)
+                .orderBy(desc(s.user.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -223,27 +245,29 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listSessions: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? like(s.user.email, likeContains(params.q)) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.session)
-            .innerJoin(s.user, eq(s.user.id, s.session.userId))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.session.id,
-                userId: s.session.userId,
-                userEmail: s.user.email,
-                ipAddress: s.session.ipAddress,
-                userAgent: s.session.userAgent,
-                createdAt: s.session.createdAt,
-                expiresAt: s.session.expiresAt,
-            })
-            .from(s.session)
-            .innerJoin(s.user, eq(s.user.id, s.session.userId))
-            .where(where)
-            .orderBy(desc(s.session.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.session)
+                .innerJoin(s.user, eq(s.user.id, s.session.userId))
+                .where(where),
+            db
+                .select({
+                    id: s.session.id,
+                    userId: s.session.userId,
+                    userEmail: s.user.email,
+                    ipAddress: s.session.ipAddress,
+                    userAgent: s.session.userAgent,
+                    createdAt: s.session.createdAt,
+                    expiresAt: s.session.expiresAt,
+                })
+                .from(s.session)
+                .innerJoin(s.user, eq(s.user.id, s.session.userId))
+                .where(where)
+                .orderBy(desc(s.session.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -251,28 +275,30 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listApiTokens: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.apiToken.name, likeContains(params.q))) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.apiToken)
-            .innerJoin(s.user, eq(s.user.id, s.apiToken.userId))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.apiToken.id,
-                token: s.apiToken.token,
-                name: s.apiToken.name,
-                userId: s.apiToken.userId,
-                userEmail: s.user.email,
-                expiresAt: s.apiToken.expiresAt,
-                lastUsedAt: s.apiToken.lastUsedAt,
-                createdAt: s.apiToken.createdAt,
-            })
-            .from(s.apiToken)
-            .innerJoin(s.user, eq(s.user.id, s.apiToken.userId))
-            .where(where)
-            .orderBy(desc(s.apiToken.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.apiToken)
+                .innerJoin(s.user, eq(s.user.id, s.apiToken.userId))
+                .where(where),
+            db
+                .select({
+                    id: s.apiToken.id,
+                    token: s.apiToken.token,
+                    name: s.apiToken.name,
+                    userId: s.apiToken.userId,
+                    userEmail: s.user.email,
+                    expiresAt: s.apiToken.expiresAt,
+                    lastUsedAt: s.apiToken.lastUsedAt,
+                    createdAt: s.apiToken.createdAt,
+                })
+                .from(s.apiToken)
+                .innerJoin(s.user, eq(s.user.id, s.apiToken.userId))
+                .where(where)
+                .orderBy(desc(s.apiToken.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -289,11 +315,13 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.from) conds.push(gte(s.apiRequestLog.createdAt, params.from))
         if (params.to) conds.push(lte(s.apiRequestLog.createdAt, params.to))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.apiRequestLog)
-            .where(where)
-        const rows = await db.select().from(s.apiRequestLog).where(where).orderBy(desc(s.apiRequestLog.createdAt)).limit(params.size).offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.apiRequestLog)
+                .where(where),
+            db.select().from(s.apiRequestLog).where(where).orderBy(desc(s.apiRequestLog.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -320,11 +348,13 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.from) conds.push(gte(s.logEvents.createdAt, params.from))
         if (params.to) conds.push(lte(s.logEvents.createdAt, params.to))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.logEvents)
-            .where(where)
-        const rows = await db.select().from(s.logEvents).where(where).orderBy(desc(s.logEvents.createdAt)).limit(params.size).offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.logEvents)
+                .where(where),
+            db.select().from(s.logEvents).where(where).orderBy(desc(s.logEvents.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -374,40 +404,39 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.notice === 'y') conds.push(eq(s.posts.isNotice, true))
         if (params.notice === 'n') conds.push(eq(s.posts.isNotice, false))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.posts)
-            .where(where)
-        const rows = await db
-            .select({
-                postId: s.posts.postId,
-                title: s.posts.title,
-                categoryId: s.posts.categoryId,
-                categoryName: s.categories.category,
-                createdAt: s.posts.createdAt,
-                updatedAt: s.posts.updatedAt,
-                views: s.posts.views,
-                isPublished: s.posts.isPublished,
-                isHide: s.posts.isHide,
-                isNotice: s.posts.isNotice,
-                isComment: s.posts.isComment,
-            })
-            .from(s.posts)
-            .leftJoin(s.categories, eq(s.categories.categoryId, s.posts.categoryId))
-            .where(where)
-            .orderBy(desc(s.posts.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.posts)
+                .where(where),
+            db
+                .select({
+                    postId: s.posts.postId,
+                    title: s.posts.title,
+                    categoryId: s.posts.categoryId,
+                    categoryName: s.categories.category,
+                    createdAt: s.posts.createdAt,
+                    updatedAt: s.posts.updatedAt,
+                    views: s.posts.views,
+                    isPublished: s.posts.isPublished,
+                    isHide: s.posts.isHide,
+                    isNotice: s.posts.isNotice,
+                    isComment: s.posts.isComment,
+                })
+                .from(s.posts)
+                .leftJoin(s.categories, eq(s.categories.categoryId, s.posts.categoryId))
+                .where(where)
+                .orderBy(desc(s.posts.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     togglePostFlag: async (postId: number, flag: 'isPublished' | 'isHide' | 'isNotice' | 'isComment') => {
-        const [row] = await db.select().from(s.posts).where(eq(s.posts.postId, postId)).limit(1)
-        if (!row) return
-        const value = !row[flag]
         await db
             .update(s.posts)
-            .set({ [flag]: value, updatedAt: new Date() })
+            .set({ [flag]: not(s.posts[flag]), updatedAt: new Date() })
             .where(eq(s.posts.postId, postId))
     },
 
@@ -427,35 +456,38 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.hidden === 'y') conds.push(eq(s.comments.isHide, true))
         if (params.hidden === 'n') conds.push(eq(s.comments.isHide, false))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.comments)
-            .where(where)
-        const rows = await db
-            .select({
-                commentId: s.comments.commentId,
-                postId: s.comments.postId,
-                postTitle: s.posts.title,
-                userId: s.comments.userId,
-                userEmail: s.user.email,
-                comment: s.comments.comment,
-                createdAt: s.comments.createdAt,
-                isHide: s.comments.isHide,
-            })
-            .from(s.comments)
-            .leftJoin(s.posts, eq(s.posts.postId, s.comments.postId))
-            .leftJoin(s.user, eq(s.user.id, s.comments.userId))
-            .where(where)
-            .orderBy(desc(s.comments.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.comments)
+                .where(where),
+            db
+                .select({
+                    commentId: s.comments.commentId,
+                    postId: s.comments.postId,
+                    postTitle: s.posts.title,
+                    userId: s.comments.userId,
+                    userEmail: s.user.email,
+                    comment: s.comments.comment,
+                    createdAt: s.comments.createdAt,
+                    isHide: s.comments.isHide,
+                })
+                .from(s.comments)
+                .leftJoin(s.posts, eq(s.posts.postId, s.comments.postId))
+                .leftJoin(s.user, eq(s.user.id, s.comments.userId))
+                .where(where)
+                .orderBy(desc(s.comments.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     toggleCommentHide: async (id: number) => {
-        const [row] = await db.select().from(s.comments).where(eq(s.comments.commentId, id)).limit(1)
-        if (!row) return
-        await db.update(s.comments).set({ isHide: !row.isHide, updatedAt: new Date() }).where(eq(s.comments.commentId, id))
+        await db
+            .update(s.comments)
+            .set({ isHide: not(s.comments.isHide), updatedAt: new Date() })
+            .where(eq(s.comments.commentId, id))
     },
 
     deleteComment: async (id: number) => {
@@ -470,9 +502,10 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     },
 
     toggleCategoryHide: async (id: number) => {
-        const [row] = await db.select().from(s.categories).where(eq(s.categories.categoryId, id)).limit(1)
-        if (!row) return
-        await db.update(s.categories).set({ isHide: !row.isHide }).where(eq(s.categories.categoryId, id))
+        await db
+            .update(s.categories)
+            .set({ isHide: not(s.categories.isHide) })
+            .where(eq(s.categories.categoryId, id))
     },
 
     listTags: async () => db.select().from(s.tags).orderBy(s.tags.tag),
@@ -490,29 +523,31 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listImageAssets: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? like(s.imageAssets.r2Key, likeContains(params.q)) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.imageAssets)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.imageAssets.id,
-                r2Key: s.imageAssets.r2Key,
-                bucket: s.imageAssets.bucket,
-                mimeType: s.imageAssets.mimeType,
-                sizeBytes: s.imageAssets.sizeBytes,
-                width: s.imageAssets.width,
-                height: s.imageAssets.height,
-                uploadedBy: s.imageAssets.uploadedBy,
-                uploadedByEmail: s.user.email,
-                createdAt: s.imageAssets.createdAt,
-            })
-            .from(s.imageAssets)
-            .leftJoin(s.user, eq(s.user.id, s.imageAssets.uploadedBy))
-            .where(where)
-            .orderBy(desc(s.imageAssets.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.imageAssets)
+                .where(where),
+            db
+                .select({
+                    id: s.imageAssets.id,
+                    r2Key: s.imageAssets.r2Key,
+                    bucket: s.imageAssets.bucket,
+                    mimeType: s.imageAssets.mimeType,
+                    sizeBytes: s.imageAssets.sizeBytes,
+                    width: s.imageAssets.width,
+                    height: s.imageAssets.height,
+                    uploadedBy: s.imageAssets.uploadedBy,
+                    uploadedByEmail: s.user.email,
+                    createdAt: s.imageAssets.createdAt,
+                })
+                .from(s.imageAssets)
+                .leftJoin(s.user, eq(s.user.id, s.imageAssets.uploadedBy))
+                .where(where)
+                .orderBy(desc(s.imageAssets.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -530,29 +565,31 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.userId) conds.push(eq(s.messages.userId, params.userId))
         if (params.includeDeleted !== 'y') conds.push(sql`${s.messages.deletedAt} is null`)
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.messages)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.messages.id,
-                userId: s.messages.userId,
-                userEmail: s.user.email,
-                body: s.messages.body,
-                replyToId: s.messages.replyToId,
-                retweetOfId: s.messages.retweetOfId,
-                createdAt: s.messages.createdAt,
-                deletedAt: s.messages.deletedAt,
-                likesCount: sql<number>`(select count(*) from ${s.messageLikes} where ${s.messageLikes.messageId} = ${s.messages.id})`,
-                bookmarksCount: sql<number>`(select count(*) from ${s.messageBookmarks} where ${s.messageBookmarks.messageId} = ${s.messages.id})`,
-            })
-            .from(s.messages)
-            .leftJoin(s.user, eq(s.user.id, s.messages.userId))
-            .where(where)
-            .orderBy(desc(s.messages.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.messages)
+                .where(where),
+            db
+                .select({
+                    id: s.messages.id,
+                    userId: s.messages.userId,
+                    userEmail: s.user.email,
+                    body: s.messages.body,
+                    replyToId: s.messages.replyToId,
+                    retweetOfId: s.messages.retweetOfId,
+                    createdAt: s.messages.createdAt,
+                    deletedAt: s.messages.deletedAt,
+                    likesCount: sql<number>`(select count(*) from ${s.messageLikes} where ${s.messageLikes.messageId} = ${s.messages.id})`,
+                    bookmarksCount: sql<number>`(select count(*) from ${s.messageBookmarks} where ${s.messageBookmarks.messageId} = ${s.messages.id})`,
+                })
+                .from(s.messages)
+                .leftJoin(s.user, eq(s.user.id, s.messages.userId))
+                .where(where)
+                .orderBy(desc(s.messages.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -614,8 +651,10 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
 
     listFollows: async (params: { page: number; size: number }) => {
         const offset = (params.page - 1) * params.size
-        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.follows)
-        const rows = await db.select().from(s.follows).orderBy(desc(s.follows.createdAt)).limit(params.size).offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.follows),
+            db.select().from(s.follows).orderBy(desc(s.follows.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -623,29 +662,31 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listWeatherKeys: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.weatherApiKey.name, likeContains(params.q))) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.weatherApiKey)
-            .innerJoin(s.user, eq(s.user.id, s.weatherApiKey.userId))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.weatherApiKey.id,
-                userId: s.weatherApiKey.userId,
-                userEmail: s.user.email,
-                name: s.weatherApiKey.name,
-                token: s.weatherApiKey.token,
-                dailyLimit: s.weatherApiKey.dailyLimit,
-                expiresAt: s.weatherApiKey.expiresAt,
-                lastUsedAt: s.weatherApiKey.lastUsedAt,
-                createdAt: s.weatherApiKey.createdAt,
-            })
-            .from(s.weatherApiKey)
-            .innerJoin(s.user, eq(s.user.id, s.weatherApiKey.userId))
-            .where(where)
-            .orderBy(desc(s.weatherApiKey.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.weatherApiKey)
+                .innerJoin(s.user, eq(s.user.id, s.weatherApiKey.userId))
+                .where(where),
+            db
+                .select({
+                    id: s.weatherApiKey.id,
+                    userId: s.weatherApiKey.userId,
+                    userEmail: s.user.email,
+                    name: s.weatherApiKey.name,
+                    token: s.weatherApiKey.token,
+                    dailyLimit: s.weatherApiKey.dailyLimit,
+                    expiresAt: s.weatherApiKey.expiresAt,
+                    lastUsedAt: s.weatherApiKey.lastUsedAt,
+                    createdAt: s.weatherApiKey.createdAt,
+                })
+                .from(s.weatherApiKey)
+                .innerJoin(s.user, eq(s.user.id, s.weatherApiKey.userId))
+                .where(where)
+                .orderBy(desc(s.weatherApiKey.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -662,18 +703,22 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.from) conds.push(gte(s.weatherApiLog.createdAt, params.from))
         if (params.to) conds.push(lte(s.weatherApiLog.createdAt, params.to))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.weatherApiLog)
-            .where(where)
-        const rows = await db.select().from(s.weatherApiLog).where(where).orderBy(desc(s.weatherApiLog.createdAt)).limit(params.size).offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.weatherApiLog)
+                .where(where),
+            db.select().from(s.weatherApiLog).where(where).orderBy(desc(s.weatherApiLog.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     weatherCacheSummary: async () => {
-        const [current] = await db.select({ c: sql<number>`count(*)` }).from(s.weatherCurrent)
-        const [ultra] = await db.select({ c: sql<number>`count(*)` }).from(s.weatherUltra)
-        const [short] = await db.select({ c: sql<number>`count(*)` }).from(s.weatherShort)
+        const [[current], [ultra], [short]] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.weatherCurrent),
+            db.select({ c: sql<number>`count(*)` }).from(s.weatherUltra),
+            db.select({ c: sql<number>`count(*)` }).from(s.weatherShort),
+        ])
         return {
             current: Number(current?.c ?? 0),
             ultra: Number(ultra?.c ?? 0),
@@ -705,36 +750,39 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listMailAccounts: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.mailAccounts.email, likeContains(params.q))) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.mailAccounts)
-            .innerJoin(s.user, eq(s.user.id, s.mailAccounts.userId))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.mailAccounts.id,
-                userId: s.mailAccounts.userId,
-                userEmail: s.user.email,
-                provider: s.mailAccounts.provider,
-                email: s.mailAccounts.email,
-                isActive: s.mailAccounts.isActive,
-                lastSyncAt: s.mailAccounts.lastSyncAt,
-                lastSyncStatus: s.mailAccounts.lastSyncStatus,
-                createdAt: s.mailAccounts.createdAt,
-            })
-            .from(s.mailAccounts)
-            .innerJoin(s.user, eq(s.user.id, s.mailAccounts.userId))
-            .where(where)
-            .orderBy(desc(s.mailAccounts.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.mailAccounts)
+                .innerJoin(s.user, eq(s.user.id, s.mailAccounts.userId))
+                .where(where),
+            db
+                .select({
+                    id: s.mailAccounts.id,
+                    userId: s.mailAccounts.userId,
+                    userEmail: s.user.email,
+                    provider: s.mailAccounts.provider,
+                    email: s.mailAccounts.email,
+                    isActive: s.mailAccounts.isActive,
+                    lastSyncAt: s.mailAccounts.lastSyncAt,
+                    lastSyncStatus: s.mailAccounts.lastSyncStatus,
+                    createdAt: s.mailAccounts.createdAt,
+                })
+                .from(s.mailAccounts)
+                .innerJoin(s.user, eq(s.user.id, s.mailAccounts.userId))
+                .where(where)
+                .orderBy(desc(s.mailAccounts.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     toggleMailAccount: async (id: number) => {
-        const [row] = await db.select().from(s.mailAccounts).where(eq(s.mailAccounts.id, id)).limit(1)
-        if (!row) return
-        await db.update(s.mailAccounts).set({ isActive: !row.isActive }).where(eq(s.mailAccounts.id, id))
+        await db
+            .update(s.mailAccounts)
+            .set({ isActive: not(s.mailAccounts.isActive) })
+            .where(eq(s.mailAccounts.id, id))
     },
 
     listMailSyncLogs: async (params: { page: number; size: number; accountId?: number; status?: string }) => {
@@ -743,28 +791,26 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.accountId) conds.push(eq(s.mailSyncLogs.accountId, params.accountId))
         if (params.status) conds.push(eq(s.mailSyncLogs.status, params.status))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.mailSyncLogs)
-            .where(where)
-        const rows = await db.select().from(s.mailSyncLogs).where(where).orderBy(desc(s.mailSyncLogs.createdAt)).limit(params.size).offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.mailSyncLogs)
+                .where(where),
+            db.select().from(s.mailSyncLogs).where(where).orderBy(desc(s.mailSyncLogs.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     listMailSyncSessions: async (params: { page: number; size: number; status?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.status ? eq(s.mailSyncSessions.status, params.status) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.mailSyncSessions)
-            .where(where)
-        const rows = await db
-            .select()
-            .from(s.mailSyncSessions)
-            .where(where)
-            .orderBy(desc(s.mailSyncSessions.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.mailSyncSessions)
+                .where(where),
+            db.select().from(s.mailSyncSessions).where(where).orderBy(desc(s.mailSyncSessions.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -787,55 +833,59 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.hasAttachments === 'y') conds.push(eq(s.mailMessages.hasAttachments, true))
         if (params.hasAttachments === 'n') conds.push(eq(s.mailMessages.hasAttachments, false))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.mailMessages)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.mailMessages.id,
-                accountId: s.mailMessages.accountId,
-                folderId: s.mailMessages.folderId,
-                subject: s.mailMessages.subject,
-                fromAddress: s.mailMessages.fromAddress,
-                isRead: s.mailMessages.isRead,
-                hasAttachments: s.mailMessages.hasAttachments,
-                receivedAt: s.mailMessages.receivedAt,
-                sentAt: s.mailMessages.sentAt,
-            })
-            .from(s.mailMessages)
-            .where(where)
-            .orderBy(desc(s.mailMessages.receivedAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.mailMessages)
+                .where(where),
+            db
+                .select({
+                    id: s.mailMessages.id,
+                    accountId: s.mailMessages.accountId,
+                    folderId: s.mailMessages.folderId,
+                    subject: s.mailMessages.subject,
+                    fromAddress: s.mailMessages.fromAddress,
+                    isRead: s.mailMessages.isRead,
+                    hasAttachments: s.mailMessages.hasAttachments,
+                    receivedAt: s.mailMessages.receivedAt,
+                    sentAt: s.mailMessages.sentAt,
+                })
+                .from(s.mailMessages)
+                .where(where)
+                .orderBy(desc(s.mailMessages.receivedAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     listMailUploads: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? like(s.mailUploads.filename, likeContains(params.q)) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.mailUploads)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.mailUploads.id,
-                userId: s.mailUploads.userId,
-                userEmail: s.user.email,
-                filename: s.mailUploads.filename,
-                mimeType: s.mailUploads.mimeType,
-                sizeBytes: s.mailUploads.sizeBytes,
-                r2Key: s.mailUploads.r2Key,
-                isInline: s.mailUploads.isInline,
-                createdAt: s.mailUploads.createdAt,
-            })
-            .from(s.mailUploads)
-            .leftJoin(s.user, eq(s.user.id, s.mailUploads.userId))
-            .where(where)
-            .orderBy(desc(s.mailUploads.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.mailUploads)
+                .where(where),
+            db
+                .select({
+                    id: s.mailUploads.id,
+                    userId: s.mailUploads.userId,
+                    userEmail: s.user.email,
+                    filename: s.mailUploads.filename,
+                    mimeType: s.mailUploads.mimeType,
+                    sizeBytes: s.mailUploads.sizeBytes,
+                    r2Key: s.mailUploads.r2Key,
+                    isInline: s.mailUploads.isInline,
+                    createdAt: s.mailUploads.createdAt,
+                })
+                .from(s.mailUploads)
+                .leftJoin(s.user, eq(s.user.id, s.mailUploads.userId))
+                .where(where)
+                .orderBy(desc(s.mailUploads.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -849,53 +899,57 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     listSpotifyAccounts: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? or(like(s.user.email, likeContains(params.q)), like(s.spotifyAccounts.email, likeContains(params.q))) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.spotifyAccounts)
-            .innerJoin(s.user, eq(s.user.id, s.spotifyAccounts.userId))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.spotifyAccounts.id,
-                userId: s.spotifyAccounts.userId,
-                userEmail: s.user.email,
-                spotifyUserId: s.spotifyAccounts.spotifyUserId,
-                displayName: s.spotifyAccounts.displayName,
-                email: s.spotifyAccounts.email,
-                isActive: s.spotifyAccounts.isActive,
-                createdAt: s.spotifyAccounts.createdAt,
-            })
-            .from(s.spotifyAccounts)
-            .innerJoin(s.user, eq(s.user.id, s.spotifyAccounts.userId))
-            .where(where)
-            .orderBy(desc(s.spotifyAccounts.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.spotifyAccounts)
+                .innerJoin(s.user, eq(s.user.id, s.spotifyAccounts.userId))
+                .where(where),
+            db
+                .select({
+                    id: s.spotifyAccounts.id,
+                    userId: s.spotifyAccounts.userId,
+                    userEmail: s.user.email,
+                    spotifyUserId: s.spotifyAccounts.spotifyUserId,
+                    displayName: s.spotifyAccounts.displayName,
+                    email: s.spotifyAccounts.email,
+                    isActive: s.spotifyAccounts.isActive,
+                    createdAt: s.spotifyAccounts.createdAt,
+                })
+                .from(s.spotifyAccounts)
+                .innerJoin(s.user, eq(s.user.id, s.spotifyAccounts.userId))
+                .where(where)
+                .orderBy(desc(s.spotifyAccounts.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     listSpotifyKeys: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? like(s.spotifyApiKeys.name, likeContains(params.q)) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.spotifyApiKeys)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.spotifyApiKeys.id,
-                userId: s.spotifyApiKeys.userId,
-                spotifyAccountId: s.spotifyApiKeys.spotifyAccountId,
-                name: s.spotifyApiKeys.name,
-                expiresAt: s.spotifyApiKeys.expiresAt,
-                lastUsedAt: s.spotifyApiKeys.lastUsedAt,
-                createdAt: s.spotifyApiKeys.createdAt,
-            })
-            .from(s.spotifyApiKeys)
-            .where(where)
-            .orderBy(desc(s.spotifyApiKeys.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.spotifyApiKeys)
+                .where(where),
+            db
+                .select({
+                    id: s.spotifyApiKeys.id,
+                    userId: s.spotifyApiKeys.userId,
+                    spotifyAccountId: s.spotifyApiKeys.spotifyAccountId,
+                    name: s.spotifyApiKeys.name,
+                    expiresAt: s.spotifyApiKeys.expiresAt,
+                    lastUsedAt: s.spotifyApiKeys.lastUsedAt,
+                    createdAt: s.spotifyApiKeys.createdAt,
+                })
+                .from(s.spotifyApiKeys)
+                .where(where)
+                .orderBy(desc(s.spotifyApiKeys.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -905,42 +959,47 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
 
     listSpotifyWidgetTokens: async (params: { page: number; size: number }) => {
         const offset = (params.page - 1) * params.size
-        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.spotifyWidgetTokens)
-        const rows = await db.select().from(s.spotifyWidgetTokens).orderBy(desc(s.spotifyWidgetTokens.createdAt)).limit(params.size).offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.spotifyWidgetTokens),
+            db.select().from(s.spotifyWidgetTokens).orderBy(desc(s.spotifyWidgetTokens.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     toggleSpotifyWidgetToken: async (id: number) => {
-        const [row] = await db.select().from(s.spotifyWidgetTokens).where(eq(s.spotifyWidgetTokens.id, id)).limit(1)
-        if (!row) return
-        await db.update(s.spotifyWidgetTokens).set({ isActive: !row.isActive }).where(eq(s.spotifyWidgetTokens.id, id))
+        await db
+            .update(s.spotifyWidgetTokens)
+            .set({ isActive: not(s.spotifyWidgetTokens.isActive) })
+            .where(eq(s.spotifyWidgetTokens.id, id))
     },
 
     // ── Resume ────────────────────────────────────────────────────────
     listResumes: async (params: { page: number; size: number; q?: string }) => {
         const offset = (params.page - 1) * params.size
         const where = params.q ? like(s.resumes.title, likeContains(params.q)) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.resumes)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.resumes.id,
-                userId: s.resumes.userId,
-                userEmail: s.user.email,
-                type: s.resumes.type,
-                title: s.resumes.title,
-                isPublic: s.resumes.isPublic,
-                createdAt: s.resumes.createdAt,
-                updatedAt: s.resumes.updatedAt,
-            })
-            .from(s.resumes)
-            .leftJoin(s.user, eq(s.user.id, s.resumes.userId))
-            .where(where)
-            .orderBy(desc(s.resumes.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.resumes)
+                .where(where),
+            db
+                .select({
+                    id: s.resumes.id,
+                    userId: s.resumes.userId,
+                    userEmail: s.user.email,
+                    type: s.resumes.type,
+                    title: s.resumes.title,
+                    isPublic: s.resumes.isPublic,
+                    createdAt: s.resumes.createdAt,
+                    updatedAt: s.resumes.updatedAt,
+                })
+                .from(s.resumes)
+                .leftJoin(s.user, eq(s.user.id, s.resumes.userId))
+                .where(where)
+                .orderBy(desc(s.resumes.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -950,9 +1009,10 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     },
 
     toggleResumeVisibility: async (id: number) => {
-        const [row] = await db.select().from(s.resumes).where(eq(s.resumes.id, id)).limit(1)
-        if (!row) return
-        await db.update(s.resumes).set({ isPublic: !row.isPublic }).where(eq(s.resumes.id, id))
+        await db
+            .update(s.resumes)
+            .set({ isPublic: not(s.resumes.isPublic) })
+            .where(eq(s.resumes.id, id))
     },
 
     deleteResume: async (id: number) => {
@@ -962,23 +1022,25 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
     // ── Calendar ──────────────────────────────────────────────────────
     listCalendarGroups: async (params: { page: number; size: number }) => {
         const offset = (params.page - 1) * params.size
-        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.calendarGroup)
-        const rows = await db
-            .select({
-                id: s.calendarGroup.id,
-                userId: s.calendarGroup.userId,
-                userEmail: s.user.email,
-                name: s.calendarGroup.name,
-                color: s.calendarGroup.color,
-                sortOrder: s.calendarGroup.sortOrder,
-                isVisible: s.calendarGroup.isVisible,
-                createdAt: s.calendarGroup.createdAt,
-            })
-            .from(s.calendarGroup)
-            .leftJoin(s.user, eq(s.user.id, s.calendarGroup.userId))
-            .orderBy(desc(s.calendarGroup.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.calendarGroup),
+            db
+                .select({
+                    id: s.calendarGroup.id,
+                    userId: s.calendarGroup.userId,
+                    userEmail: s.user.email,
+                    name: s.calendarGroup.name,
+                    color: s.calendarGroup.color,
+                    sortOrder: s.calendarGroup.sortOrder,
+                    isVisible: s.calendarGroup.isVisible,
+                    createdAt: s.calendarGroup.createdAt,
+                })
+                .from(s.calendarGroup)
+                .leftJoin(s.user, eq(s.user.id, s.calendarGroup.userId))
+                .orderBy(desc(s.calendarGroup.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -990,53 +1052,57 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.from) conds.push(gte(s.calendarEvent.dtstart, params.from))
         if (params.to) conds.push(lte(s.calendarEvent.dtstart, params.to))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.calendarEvent)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.calendarEvent.id,
-                userId: s.calendarEvent.userId,
-                userEmail: s.user.email,
-                summary: s.calendarEvent.summary,
-                dtstart: s.calendarEvent.dtstart,
-                dtend: s.calendarEvent.dtend,
-                status: s.calendarEvent.status,
-                groupId: s.calendarEvent.groupId,
-                groupName: s.calendarGroup.name,
-                isAllDay: s.calendarEvent.isAllDay,
-            })
-            .from(s.calendarEvent)
-            .leftJoin(s.user, eq(s.user.id, s.calendarEvent.userId))
-            .leftJoin(s.calendarGroup, eq(s.calendarGroup.id, s.calendarEvent.groupId))
-            .where(where)
-            .orderBy(desc(s.calendarEvent.dtstart))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.calendarEvent)
+                .where(where),
+            db
+                .select({
+                    id: s.calendarEvent.id,
+                    userId: s.calendarEvent.userId,
+                    userEmail: s.user.email,
+                    summary: s.calendarEvent.summary,
+                    dtstart: s.calendarEvent.dtstart,
+                    dtend: s.calendarEvent.dtend,
+                    status: s.calendarEvent.status,
+                    groupId: s.calendarEvent.groupId,
+                    groupName: s.calendarGroup.name,
+                    isAllDay: s.calendarEvent.isAllDay,
+                })
+                .from(s.calendarEvent)
+                .leftJoin(s.user, eq(s.user.id, s.calendarEvent.userId))
+                .leftJoin(s.calendarGroup, eq(s.calendarGroup.id, s.calendarEvent.groupId))
+                .where(where)
+                .orderBy(desc(s.calendarEvent.dtstart))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     listCalendarSubscriptions: async (params: { page: number; size: number }) => {
         const offset = (params.page - 1) * params.size
-        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.calendarSubscription)
-        const rows = await db
-            .select({
-                id: s.calendarSubscription.id,
-                userId: s.calendarSubscription.userId,
-                userEmail: s.user.email,
-                token: s.calendarSubscription.token,
-                name: s.calendarSubscription.name,
-                isActive: s.calendarSubscription.isActive,
-                lastAccessedAt: s.calendarSubscription.lastAccessedAt,
-                ctag: s.calendarSubscription.ctag,
-                createdAt: s.calendarSubscription.createdAt,
-            })
-            .from(s.calendarSubscription)
-            .leftJoin(s.user, eq(s.user.id, s.calendarSubscription.userId))
-            .orderBy(desc(s.calendarSubscription.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.calendarSubscription),
+            db
+                .select({
+                    id: s.calendarSubscription.id,
+                    userId: s.calendarSubscription.userId,
+                    userEmail: s.user.email,
+                    token: s.calendarSubscription.token,
+                    name: s.calendarSubscription.name,
+                    isActive: s.calendarSubscription.isActive,
+                    lastAccessedAt: s.calendarSubscription.lastAccessedAt,
+                    ctag: s.calendarSubscription.ctag,
+                    createdAt: s.calendarSubscription.createdAt,
+                })
+                .from(s.calendarSubscription)
+                .leftJoin(s.user, eq(s.user.id, s.calendarSubscription.userId))
+                .orderBy(desc(s.calendarSubscription.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -1046,21 +1112,23 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
 
     listDeletedCalendarEvents: async (params: { page: number; size: number }) => {
         const offset = (params.page - 1) * params.size
-        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.deletedCalendarEvent)
-        const rows = await db
-            .select({
-                id: s.deletedCalendarEvent.id,
-                userId: s.deletedCalendarEvent.userId,
-                userEmail: s.user.email,
-                uid: s.deletedCalendarEvent.uid,
-                deletedAt: s.deletedCalendarEvent.deletedAt,
-                syncToken: s.deletedCalendarEvent.syncToken,
-            })
-            .from(s.deletedCalendarEvent)
-            .leftJoin(s.user, eq(s.user.id, s.deletedCalendarEvent.userId))
-            .orderBy(desc(s.deletedCalendarEvent.deletedAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.deletedCalendarEvent),
+            db
+                .select({
+                    id: s.deletedCalendarEvent.id,
+                    userId: s.deletedCalendarEvent.userId,
+                    userEmail: s.user.email,
+                    uid: s.deletedCalendarEvent.uid,
+                    deletedAt: s.deletedCalendarEvent.deletedAt,
+                    syncToken: s.deletedCalendarEvent.syncToken,
+                })
+                .from(s.deletedCalendarEvent)
+                .leftJoin(s.user, eq(s.user.id, s.deletedCalendarEvent.userId))
+                .orderBy(desc(s.deletedCalendarEvent.deletedAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -1073,30 +1141,32 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.status) conds.push(eq(s.cloudAssets.uploadStatus, params.status))
         if (params.userId) conds.push(eq(s.cloudAssets.userId, params.userId))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.cloudAssets)
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.cloudAssets.id,
-                userId: s.cloudAssets.userId,
-                userEmail: s.user.email,
-                originalName: s.cloudAssets.originalName,
-                mimeType: s.cloudAssets.mimeType,
-                sizeBytes: s.cloudAssets.sizeBytes,
-                storageTiers: s.cloudAssets.storageTiers,
-                uploadStatus: s.cloudAssets.uploadStatus,
-                accessCount: s.cloudAssets.accessCount,
-                lastViewedAt: s.cloudAssets.lastViewedAt,
-                createdAt: s.cloudAssets.createdAt,
-            })
-            .from(s.cloudAssets)
-            .leftJoin(s.user, eq(s.user.id, s.cloudAssets.userId))
-            .where(where)
-            .orderBy(desc(s.cloudAssets.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.cloudAssets)
+                .where(where),
+            db
+                .select({
+                    id: s.cloudAssets.id,
+                    userId: s.cloudAssets.userId,
+                    userEmail: s.user.email,
+                    originalName: s.cloudAssets.originalName,
+                    mimeType: s.cloudAssets.mimeType,
+                    sizeBytes: s.cloudAssets.sizeBytes,
+                    storageTiers: s.cloudAssets.storageTiers,
+                    uploadStatus: s.cloudAssets.uploadStatus,
+                    accessCount: s.cloudAssets.accessCount,
+                    lastViewedAt: s.cloudAssets.lastViewedAt,
+                    createdAt: s.cloudAssets.createdAt,
+                })
+                .from(s.cloudAssets)
+                .leftJoin(s.user, eq(s.user.id, s.cloudAssets.userId))
+                .where(where)
+                .orderBy(desc(s.cloudAssets.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -1117,38 +1187,36 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
 
     listDriveFolders: async (params: { page: number; size: number }) => {
         const offset = (params.page - 1) * params.size
-        const [{ c }] = await db.select({ c: sql<number>`count(*)` }).from(s.driveFolders)
-        const rows = await db
-            .select({
-                id: s.driveFolders.id,
-                userId: s.driveFolders.userId,
-                userEmail: s.user.email,
-                parentId: s.driveFolders.parentId,
-                name: s.driveFolders.name,
-                createdAt: s.driveFolders.createdAt,
-            })
-            .from(s.driveFolders)
-            .leftJoin(s.user, eq(s.user.id, s.driveFolders.userId))
-            .orderBy(desc(s.driveFolders.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db.select({ c: sql<number>`count(*)` }).from(s.driveFolders),
+            db
+                .select({
+                    id: s.driveFolders.id,
+                    userId: s.driveFolders.userId,
+                    userEmail: s.user.email,
+                    parentId: s.driveFolders.parentId,
+                    name: s.driveFolders.name,
+                    createdAt: s.driveFolders.createdAt,
+                })
+                .from(s.driveFolders)
+                .leftJoin(s.user, eq(s.user.id, s.driveFolders.userId))
+                .orderBy(desc(s.driveFolders.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
     listLifecycleLogs: async (params: { page: number; size: number; assetId?: number }) => {
         const offset = (params.page - 1) * params.size
         const where = params.assetId ? eq(s.storageLifecycleLogs.assetId, params.assetId) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.storageLifecycleLogs)
-            .where(where)
-        const rows = await db
-            .select()
-            .from(s.storageLifecycleLogs)
-            .where(where)
-            .orderBy(desc(s.storageLifecycleLogs.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.storageLifecycleLogs)
+                .where(where),
+            db.select().from(s.storageLifecycleLogs).where(where).orderBy(desc(s.storageLifecycleLogs.createdAt)).limit(params.size).offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -1160,32 +1228,34 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.provider) conds.push(eq(s.aiProviders.provider, params.provider))
         if (params.status) conds.push(eq(s.aiProviders.status, params.status))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.aiProviders)
-            .leftJoin(s.user, eq(s.aiProviders.userId, s.user.id))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.aiProviders.id,
-                userId: s.aiProviders.userId,
-                userEmail: s.user.email,
-                provider: s.aiProviders.provider,
-                authType: s.aiProviders.authType,
-                status: s.aiProviders.status,
-                statusDetail: s.aiProviders.statusDetail,
-                displayName: s.aiProviders.displayName,
-                lastUsedAt: s.aiProviders.lastUsedAt,
-                lastRefreshedAt: s.aiProviders.lastRefreshedAt,
-                modelsFetchedAt: s.aiProviders.modelsFetchedAt,
-                createdAt: s.aiProviders.createdAt,
-            })
-            .from(s.aiProviders)
-            .leftJoin(s.user, eq(s.aiProviders.userId, s.user.id))
-            .where(where)
-            .orderBy(desc(s.aiProviders.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.aiProviders)
+                .leftJoin(s.user, eq(s.aiProviders.userId, s.user.id))
+                .where(where),
+            db
+                .select({
+                    id: s.aiProviders.id,
+                    userId: s.aiProviders.userId,
+                    userEmail: s.user.email,
+                    provider: s.aiProviders.provider,
+                    authType: s.aiProviders.authType,
+                    status: s.aiProviders.status,
+                    statusDetail: s.aiProviders.statusDetail,
+                    displayName: s.aiProviders.displayName,
+                    lastUsedAt: s.aiProviders.lastUsedAt,
+                    lastRefreshedAt: s.aiProviders.lastRefreshedAt,
+                    modelsFetchedAt: s.aiProviders.modelsFetchedAt,
+                    createdAt: s.aiProviders.createdAt,
+                })
+                .from(s.aiProviders)
+                .leftJoin(s.user, eq(s.aiProviders.userId, s.user.id))
+                .where(where)
+                .orderBy(desc(s.aiProviders.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -1204,29 +1274,31 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.q) conds.push(like(s.user.email, likeContains(params.q)))
         if (params.provider) conds.push(eq(s.aiSessions.provider, params.provider))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.aiSessions)
-            .leftJoin(s.user, eq(s.aiSessions.userId, s.user.id))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.aiSessions.id,
-                userId: s.aiSessions.userId,
-                userEmail: s.user.email,
-                provider: s.aiSessions.provider,
-                modelId: s.aiSessions.modelId,
-                title: s.aiSessions.title,
-                featureKey: s.aiSessions.featureKey,
-                lastMessageAt: s.aiSessions.lastMessageAt,
-                createdAt: s.aiSessions.createdAt,
-            })
-            .from(s.aiSessions)
-            .leftJoin(s.user, eq(s.aiSessions.userId, s.user.id))
-            .where(where)
-            .orderBy(desc(s.aiSessions.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.aiSessions)
+                .leftJoin(s.user, eq(s.aiSessions.userId, s.user.id))
+                .where(where),
+            db
+                .select({
+                    id: s.aiSessions.id,
+                    userId: s.aiSessions.userId,
+                    userEmail: s.user.email,
+                    provider: s.aiSessions.provider,
+                    modelId: s.aiSessions.modelId,
+                    title: s.aiSessions.title,
+                    featureKey: s.aiSessions.featureKey,
+                    lastMessageAt: s.aiSessions.lastMessageAt,
+                    createdAt: s.aiSessions.createdAt,
+                })
+                .from(s.aiSessions)
+                .leftJoin(s.user, eq(s.aiSessions.userId, s.user.id))
+                .where(where)
+                .orderBy(desc(s.aiSessions.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 
@@ -1237,29 +1309,31 @@ export const createAdminDb = (db: Database, storage?: AdminStorage) => ({
         if (params.q) conds.push(or(like(s.user.email, likeContains(params.q)), like(s.aiPrompts.name, likeContains(params.q))))
         if (params.stage) conds.push(eq(s.aiPrompts.stage, params.stage))
         const where = conds.length ? and(...conds) : undefined
-        const [{ c }] = await db
-            .select({ c: sql<number>`count(*)` })
-            .from(s.aiPrompts)
-            .leftJoin(s.user, eq(s.aiPrompts.userId, s.user.id))
-            .where(where)
-        const rows = await db
-            .select({
-                id: s.aiPrompts.id,
-                userId: s.aiPrompts.userId,
-                userEmail: s.user.email,
-                name: s.aiPrompts.name,
-                stage: s.aiPrompts.stage,
-                featureKey: s.aiPrompts.featureKey,
-                sortOrder: s.aiPrompts.sortOrder,
-                isActive: s.aiPrompts.isActive,
-                createdAt: s.aiPrompts.createdAt,
-            })
-            .from(s.aiPrompts)
-            .leftJoin(s.user, eq(s.aiPrompts.userId, s.user.id))
-            .where(where)
-            .orderBy(desc(s.aiPrompts.createdAt))
-            .limit(params.size)
-            .offset(offset)
+        const [[{ c }], rows] = await Promise.all([
+            db
+                .select({ c: sql<number>`count(*)` })
+                .from(s.aiPrompts)
+                .leftJoin(s.user, eq(s.aiPrompts.userId, s.user.id))
+                .where(where),
+            db
+                .select({
+                    id: s.aiPrompts.id,
+                    userId: s.aiPrompts.userId,
+                    userEmail: s.user.email,
+                    name: s.aiPrompts.name,
+                    stage: s.aiPrompts.stage,
+                    featureKey: s.aiPrompts.featureKey,
+                    sortOrder: s.aiPrompts.sortOrder,
+                    isActive: s.aiPrompts.isActive,
+                    createdAt: s.aiPrompts.createdAt,
+                })
+                .from(s.aiPrompts)
+                .leftJoin(s.user, eq(s.aiPrompts.userId, s.user.id))
+                .where(where)
+                .orderBy(desc(s.aiPrompts.createdAt))
+                .limit(params.size)
+                .offset(offset),
+        ])
         return { rows, total: Number(c ?? 0) }
     },
 })
