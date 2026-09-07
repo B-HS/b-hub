@@ -123,35 +123,43 @@ export const apiRequestLog = mysqlTable(
     (table) => [index('idx_request_log_user').on(table.userId), index('idx_request_log_created').on(table.createdAt)],
 )
 
-export const posts = mysqlTable('posts', {
-    postId: int('postId').autoincrement().primaryKey().notNull(),
-    categoryId: int('categoryId')
-        .notNull()
-        .references(() => categories.categoryId),
-    title: varchar('title', { length: 255 }).notNull(),
-    description: text('description').notNull(),
-    updatedAt: datetime('updated_at').notNull(),
-    createdAt: datetime('created_at').notNull(),
-    views: int('views').default(0).notNull(),
-    isPublished: boolean('isPublished').default(false).notNull(),
-    isHide: boolean('isHide').default(false).notNull(),
-    isNotice: boolean('isNotice').default(false).notNull(),
-    isComment: boolean('isComment').default(true).notNull(),
-})
+export const posts = mysqlTable(
+    'posts',
+    {
+        postId: int('postId').autoincrement().primaryKey().notNull(),
+        categoryId: int('categoryId')
+            .notNull()
+            .references(() => categories.categoryId),
+        title: varchar('title', { length: 255 }).notNull(),
+        description: text('description').notNull(),
+        updatedAt: datetime('updated_at').notNull(),
+        createdAt: datetime('created_at').notNull(),
+        views: int('views').default(0).notNull(),
+        isPublished: boolean('isPublished').default(false).notNull(),
+        isHide: boolean('isHide').default(false).notNull(),
+        isNotice: boolean('isNotice').default(false).notNull(),
+        isComment: boolean('isComment').default(true).notNull(),
+    },
+    (table) => [index('idx_posts_published_hide_created').on(table.isPublished, table.isHide, table.createdAt)],
+)
 
-export const comments = mysqlTable('comments', {
-    commentId: int('commentId').autoincrement().primaryKey().notNull(),
-    postId: int('postId')
-        .notNull()
-        .references(() => posts.postId),
-    userId: varchar('userId', { length: 36 })
-        .notNull()
-        .references(() => user.id, { onDelete: 'cascade' }),
-    comment: text('comment').notNull(),
-    updatedAt: datetime('updated_at').notNull(),
-    createdAt: datetime('created_at').notNull(),
-    isHide: boolean('isHide').default(false).notNull(),
-})
+export const comments = mysqlTable(
+    'comments',
+    {
+        commentId: int('commentId').autoincrement().primaryKey().notNull(),
+        postId: int('postId')
+            .notNull()
+            .references(() => posts.postId),
+        userId: varchar('userId', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        comment: text('comment').notNull(),
+        updatedAt: datetime('updated_at').notNull(),
+        createdAt: datetime('created_at').notNull(),
+        isHide: boolean('isHide').default(false).notNull(),
+    },
+    (table) => [index('idx_comments_post_created').on(table.postId, table.createdAt)],
+)
 
 export const tags = mysqlTable('tags', {
     tagId: int('tagId').autoincrement().primaryKey().notNull(),
@@ -193,34 +201,42 @@ export const images = mysqlTable('images', {
     updatedAt: datetime('updated_at').notNull(),
 })
 
-export const imageAssets = mysqlTable('image_assets', {
-    id: varchar('id', { length: 36 }).primaryKey().notNull(),
-    r2Key: varchar('r2_key', { length: 255 }).notNull().unique(),
-    bucket: varchar('bucket', { length: 100 }).notNull(),
-    mimeType: varchar('mime_type', { length: 100 }).notNull(),
-    sizeBytes: int('size_bytes').notNull(),
-    width: int('width'),
-    height: int('height'),
-    checksum: varchar('checksum', { length: 64 }),
-    uploadedBy: varchar('uploaded_by', { length: 36 }).references(() => user.id, {
-        onDelete: 'set null',
-    }),
-    createdAt: datetime('created_at').notNull(),
-    updatedAt: datetime('updated_at').notNull(),
-})
+export const imageAssets = mysqlTable(
+    'image_assets',
+    {
+        id: varchar('id', { length: 36 }).primaryKey().notNull(),
+        r2Key: varchar('r2_key', { length: 255 }).notNull().unique(),
+        bucket: varchar('bucket', { length: 100 }).notNull(),
+        mimeType: varchar('mime_type', { length: 100 }).notNull(),
+        sizeBytes: int('size_bytes').notNull(),
+        width: int('width'),
+        height: int('height'),
+        checksum: varchar('checksum', { length: 64 }),
+        uploadedBy: varchar('uploaded_by', { length: 36 }).references(() => user.id, {
+            onDelete: 'set null',
+        }),
+        createdAt: datetime('created_at').notNull(),
+        updatedAt: datetime('updated_at').notNull(),
+    },
+    (table) => [index('idx_image_assets_created').on(table.createdAt)],
+)
 
-export const messages = mysqlTable('messages', {
-    id: varchar('id', { length: 36 }).primaryKey().notNull(),
-    userId: varchar('userId', { length: 36 })
-        .notNull()
-        .references(() => user.id, { onDelete: 'cascade' }),
-    body: text('body').notNull(),
-    replyToId: varchar('replyToId', { length: 36 }),
-    retweetOfId: varchar('retweetOfId', { length: 36 }),
-    createdAt: datetime('created_at').notNull(),
-    updatedAt: datetime('updated_at').notNull(),
-    deletedAt: datetime('deleted_at'),
-})
+export const messages = mysqlTable(
+    'messages',
+    {
+        id: varchar('id', { length: 36 }).primaryKey().notNull(),
+        userId: varchar('userId', { length: 36 })
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        body: text('body').notNull(),
+        replyToId: varchar('replyToId', { length: 36 }),
+        retweetOfId: varchar('retweetOfId', { length: 36 }),
+        createdAt: datetime('created_at').notNull(),
+        updatedAt: datetime('updated_at').notNull(),
+        deletedAt: datetime('deleted_at'),
+    },
+    (table) => [index('idx_messages_user_deleted_created').on(table.userId, table.deletedAt, table.createdAt)],
+)
 
 export const messageImages = mysqlTable(
     'message_images',
@@ -363,7 +379,11 @@ export const weatherApiLog = mysqlTable(
         errorCode: varchar('error_code', { length: 50 }),
         createdAt: timestamp('created_at').defaultNow().notNull(),
     },
-    (table) => [index('idx_weather_api_log_user').on(table.userId), index('idx_weather_api_log_key_created').on(table.keyId, table.createdAt)],
+    (table) => [
+        index('idx_weather_api_log_user').on(table.userId),
+        index('idx_weather_api_log_key_created').on(table.keyId, table.createdAt),
+        index('idx_weather_api_log_created').on(table.createdAt),
+    ],
 )
 
 export const mailAccounts = mysqlTable(
@@ -514,7 +534,7 @@ export const mailSyncLogs = mysqlTable(
         completedAt: timestamp('completed_at', { fsp: 3 }),
         createdAt: timestamp('created_at', { fsp: 3 }).defaultNow().notNull(),
     },
-    (table) => [index('idx_mail_sync_logs_account').on(table.accountId)],
+    (table) => [index('idx_mail_sync_logs_account_created').on(table.accountId, table.createdAt)],
 )
 
 export const mailSyncSessions = mysqlTable(
@@ -637,7 +657,7 @@ export const resumes = mysqlTable(
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [index('idx_resumes_user').on(table.userId)],
+    (table) => [index('idx_resumes_user').on(table.userId), index('idx_resumes_type_updated').on(table.type, table.updatedAt)],
 )
 
 export type Resume = typeof resumes.$inferSelect
@@ -720,7 +740,6 @@ export const calendarEvent = mysqlTable(
     (table) => [
         index('idx_calendar_event_user').on(table.userId),
         index('idx_calendar_event_user_dtstart').on(table.userId, table.dtstart),
-        index('idx_calendar_event_uid').on(table.uid),
         index('idx_calendar_event_group').on(table.groupId),
     ],
 )
@@ -758,12 +777,7 @@ export const calendarSubscription = mysqlTable(
             .$onUpdate(() => new Date())
             .notNull(),
     },
-    (table) => [
-        index('idx_subscription_token').on(table.token),
-        index('idx_subscription_ics_token').on(table.icsToken),
-        index('idx_subscription_user').on(table.userId),
-        unique('uq_calendar_subscription_user').on(table.userId),
-    ],
+    (table) => [unique('uq_calendar_subscription_user').on(table.userId)],
 )
 
 export type CalendarGroup = typeof calendarGroup.$inferSelect
@@ -884,6 +898,7 @@ export const logEvents = mysqlTable(
         index('idx_log_events_device_created').on(table.deviceId, table.createdAt),
         index('idx_log_events_code_resolved').on(table.errorCode, table.resolvedAt),
         index('idx_log_events_severity_created').on(table.severity, table.createdAt),
+        index('idx_log_events_created').on(table.createdAt),
     ],
 )
 
