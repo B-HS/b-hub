@@ -7,16 +7,19 @@ type ComposeMailArgs = Parameters<typeof composeMail>[0]
 
 const EXISTING_MESSAGE_ID = 42
 
-const withoutLimitParam = (params: unknown[]) => params.slice(0, -1)
+const IDENTITY_SELECT_PREFIX = 'select `id`, `remote_message_id` from `mail_messages`'
 
-const createRecordingCompose = (options: { hasExistingRow?: boolean; accountScopeRowIds?: number[] } = {}) => {
+const createRecordingCompose = (options: { existingRows?: [number, string][]; insertedRows?: [number, string][] } = {}) => {
     const queries: { sql: string; params: unknown[] }[] = []
+    let identitySelectCount = 0
     const db = drizzle(
         async (sql, params) => {
             queries.push({ sql, params })
             if (!sql.startsWith('select')) return { rows: [{ insertId: EXISTING_MESSAGE_ID, affectedRows: 1 }] }
-            if (options.hasExistingRow && sql.startsWith('select `id` from `mail_messages`')) return { rows: [[EXISTING_MESSAGE_ID]] }
-            if (options.accountScopeRowIds && sql.includes('order by')) return { rows: options.accountScopeRowIds.map((id) => [id]) }
+            if (sql.startsWith(IDENTITY_SELECT_PREFIX)) {
+                identitySelectCount += 1
+                return { rows: identitySelectCount === 1 ? (options.existingRows ?? []) : (options.insertedRows ?? []) }
+            }
             return { rows: [] }
         },
         { schema, mode: 'default' },
@@ -31,11 +34,8 @@ const createRecordingCompose = (options: { hasExistingRow?: boolean; accountScop
     return { composed, queries }
 }
 
-const upsertPayload = (identityScope: 'account' | 'folder') => ({
-    accountId: 1,
-    folderId: 7,
-    identityScope,
-    remoteMessageId: 'remote-1',
+const messagePayload = (remoteMessageId = 'remote-1') => ({
+    remoteMessageId,
     messageIdHeader: null,
     threadId: null,
     inReplyTo: null,
@@ -55,6 +55,13 @@ const upsertPayload = (identityScope: 'account' | 'folder') => ({
     sentAt: null,
     receivedAt: null,
     uid: 100,
+})
+
+const upsertPayload = (identityScope: 'account' | 'folder', remoteMessageIds = ['remote-1']) => ({
+    accountId: 1,
+    folderId: 7,
+    identityScope,
+    messages: remoteMessageIds.map((remoteMessageId) => messagePayload(remoteMessageId)),
 })
 
 const createDuplicateInsertCompose = () => {
@@ -88,29 +95,44 @@ describe('composeMail mailAccountDb.insert', () => {
     })
 })
 
-describe('composeMail mailSyncDb.upsertMessage', () => {
+describe('composeMail mailSyncDb.upsertMessages', () => {
     test('account 범위는 folderId 없이 (accountId, remoteMessageId) 로 기존 행을 찾는다', async () => {
         const { composed, queries } = createRecordingCompose()
-        await composed.mailSyncDb.upsertMessage(upsertPayload('account'))
+        await composed.mailSyncDb.upsertMessages(upsertPayload('account'))
 
-        const identityQuery = queries.find((q) => q.sql.startsWith('select `id` from `mail_messages`'))
+        const identityQuery = queries.find((q) => q.sql.startsWith(IDENTITY_SELECT_PREFIX))
         expect(identityQuery).toBeDefined()
         expect(identityQuery?.sql).not.toContain('`folder_id`')
-        expect(withoutLimitParam(identityQuery?.params ?? [])).toEqual([1, 'remote-1'])
+        expect(identityQuery?.params).toEqual([1, 'remote-1'])
     })
 
     test('folder 범위는 (accountId, folderId, remoteMessageId) 로 기존 행을 찾는다', async () => {
         const { composed, queries } = createRecordingCompose()
-        await composed.mailSyncDb.upsertMessage(upsertPayload('folder'))
+        await composed.mailSyncDb.upsertMessages(upsertPayload('folder'))
 
-        const identityQuery = queries.find((q) => q.sql.startsWith('select `id` from `mail_messages`'))
+        const identityQuery = queries.find((q) => q.sql.startsWith(IDENTITY_SELECT_PREFIX))
         expect(identityQuery?.sql).toContain('`folder_id`')
-        expect(withoutLimitParam(identityQuery?.params ?? [])).toEqual([1, 7, 'remote-1'])
+        expect(identityQuery?.params).toEqual([1, 7, 'remote-1'])
+    })
+
+    test('메시지 수와 무관하게 identity 조회는 remoteMessageId in (...) 한 번이다', async () => {
+        const { composed, queries } = createRecordingCompose({ existingRows: [[EXISTING_MESSAGE_ID, 'remote-2']] })
+        const results = await composed.mailSyncDb.upsertMessages(upsertPayload('folder', ['remote-1', 'remote-2', 'remote-3']))
+
+        const identityQueries = queries.filter((q) => q.sql.startsWith(IDENTITY_SELECT_PREFIX))
+        expect(identityQueries).toHaveLength(2)
+        expect(identityQueries[0].sql).toContain('`remote_message_id` in (?, ?, ?)')
+        expect(identityQueries[0].params).toEqual([1, 7, 'remote-1', 'remote-2', 'remote-3'])
+        expect(identityQueries[1].params).toEqual([1, 7, 'remote-1', 'remote-3'])
+        expect(queries.filter((q) => q.sql.startsWith('insert into `mail_messages`'))).toHaveLength(2)
+        expect(queries.filter((q) => q.sql.startsWith('update `mail_messages`'))).toHaveLength(1)
+        expect(results.map((r) => r.isNew)).toEqual([true, false, true])
+        expect(results[1].id).toBe(EXISTING_MESSAGE_ID)
     })
 
     test('account 범위에서 기존 행이 있으면 INSERT 대신 UPDATE 하되 folderId 와 uid 는 건드리지 않는다', async () => {
-        const { composed, queries } = createRecordingCompose({ hasExistingRow: true })
-        const result = await composed.mailSyncDb.upsertMessage(upsertPayload('account'))
+        const { composed, queries } = createRecordingCompose({ existingRows: [[EXISTING_MESSAGE_ID, 'remote-1']] })
+        const [result] = await composed.mailSyncDb.upsertMessages(upsertPayload('account'))
 
         expect(queries.some((q) => q.sql.startsWith('insert into `mail_messages`'))).toBe(false)
         const updateQuery = queries.find((q) => q.sql.startsWith('update `mail_messages`'))
@@ -119,11 +141,12 @@ describe('composeMail mailSyncDb.upsertMessage', () => {
         expect(updateQuery?.sql).not.toContain('`uid` = ?')
         expect(updateQuery?.params.at(-1)).toBe(EXISTING_MESSAGE_ID)
         expect(result.isNew).toBe(false)
+        expect(result.id).toBe(EXISTING_MESSAGE_ID)
     })
 
     test('account 범위 INSERT 의 on duplicate key update 에도 folderId 와 uid 가 없다', async () => {
         const { composed, queries } = createRecordingCompose()
-        await composed.mailSyncDb.upsertMessage(upsertPayload('account'))
+        await composed.mailSyncDb.upsertMessages(upsertPayload('account'))
 
         const insertQuery = queries.find((q) => q.sql.startsWith('insert into `mail_messages`'))
         const duplicateClause = insertQuery?.sql.slice(insertQuery.sql.indexOf('on duplicate key update'))
@@ -132,20 +155,26 @@ describe('composeMail mailSyncDb.upsertMessage', () => {
         expect(duplicateClause).not.toContain('`uid`')
     })
 
-    test('account 범위에서 동시 INSERT 로 행이 여러 개 생기면 가장 오래된 행만 남기고 지운다', async () => {
-        const { composed, queries } = createRecordingCompose({ accountScopeRowIds: [11, 12, 13] })
-        const result = await composed.mailSyncDb.upsertMessage(upsertPayload('account'))
+    test('account 범위에서 동시 INSERT 로 행이 여러 개 생기면 가장 오래된 행만 남기고 한 번에 지운다', async () => {
+        const { composed, queries } = createRecordingCompose({
+            insertedRows: [
+                [11, 'remote-1'],
+                [12, 'remote-1'],
+                [13, 'remote-1'],
+            ],
+        })
+        const [result] = await composed.mailSyncDb.upsertMessages(upsertPayload('account'))
 
-        const deleteQuery = queries.find((q) => q.sql.startsWith('delete from `mail_messages`'))
-        expect(deleteQuery).toBeDefined()
-        expect(deleteQuery?.sql).toContain('`id` in (?, ?)')
-        expect(deleteQuery?.params).toEqual([12, 13])
+        const deleteQueries = queries.filter((q) => q.sql.startsWith('delete from `mail_messages`'))
+        expect(deleteQueries).toHaveLength(1)
+        expect(deleteQueries[0].sql).toContain('`id` in (?, ?)')
+        expect(deleteQueries[0].params).toEqual([12, 13])
         expect(result.id).toBe(11)
     })
 
     test('folder 범위에서 기존 행이 없으면 INSERT 를 실행한다', async () => {
-        const { composed, queries } = createRecordingCompose()
-        const result = await composed.mailSyncDb.upsertMessage(upsertPayload('folder'))
+        const { composed, queries } = createRecordingCompose({ insertedRows: [[EXISTING_MESSAGE_ID, 'remote-1']] })
+        const [result] = await composed.mailSyncDb.upsertMessages(upsertPayload('folder'))
 
         const insertQuery = queries.find((q) => q.sql.startsWith('insert into `mail_messages`'))
         expect(insertQuery).toBeDefined()
@@ -153,13 +182,141 @@ describe('composeMail mailSyncDb.upsertMessage', () => {
         expect(insertQuery?.sql).not.toContain('`identity_scope`')
         expect(queries.some((q) => q.sql.startsWith('update `mail_messages`'))).toBe(false)
         expect(result.isNew).toBe(true)
+        expect(result.id).toBe(EXISTING_MESSAGE_ID)
     })
 
     test('folder 범위에서는 중복 정리 DELETE 를 하지 않는다', async () => {
-        const { composed, queries } = createRecordingCompose()
-        await composed.mailSyncDb.upsertMessage(upsertPayload('folder'))
+        const { composed, queries } = createRecordingCompose({
+            insertedRows: [
+                [11, 'remote-1'],
+                [12, 'remote-1'],
+            ],
+        })
+        await composed.mailSyncDb.upsertMessages(upsertPayload('folder'))
 
         expect(queries.some((q) => q.sql.startsWith('delete from `mail_messages`'))).toBe(false)
+    })
+
+    test('INSERT 에는 accountId 와 folderId 가 값으로 들어간다', async () => {
+        const { composed, queries } = createRecordingCompose()
+        await composed.mailSyncDb.upsertMessages(upsertPayload('folder'))
+
+        const insertQuery = queries.find((q) => q.sql.startsWith('insert into `mail_messages`'))
+        expect(insertQuery?.params.slice(0, 3)).toEqual([1, 7, 'remote-1'])
+    })
+
+    test('한 배치에 같은 remoteMessageId 가 두 번 오면 INSERT 는 한 번만 하고 나머지는 갱신한다', async () => {
+        const { composed, queries } = createRecordingCompose({ insertedRows: [[EXISTING_MESSAGE_ID, 'remote-1']] })
+        const results = await composed.mailSyncDb.upsertMessages(upsertPayload('folder', ['remote-1', 'remote-1']))
+
+        expect(queries.filter((q) => q.sql.startsWith('insert into `mail_messages`'))).toHaveLength(1)
+        const updateQueries = queries.filter((q) => q.sql.startsWith('update `mail_messages`'))
+        expect(updateQueries).toHaveLength(1)
+        expect(updateQueries[0].params.at(-1)).toBe(EXISTING_MESSAGE_ID)
+        expect(results.map((r) => r.isNew)).toEqual([true, false])
+        expect(results.map((r) => r.id)).toEqual([EXISTING_MESSAGE_ID, EXISTING_MESSAGE_ID])
+    })
+
+    test('행을 찾지 못하면 id 를 null 로 돌려준다', async () => {
+        const { composed } = createRecordingCompose()
+        const [result] = await composed.mailSyncDb.upsertMessages(upsertPayload('folder'))
+
+        expect(result.id).toBeNull()
+        expect(result.isNew).toBe(true)
+    })
+
+    test('빈 목록이면 아무 쿼리도 실행하지 않는다', async () => {
+        const { composed, queries } = createRecordingCompose()
+        const results = await composed.mailSyncDb.upsertMessages(upsertPayload('folder', []))
+
+        expect(results).toEqual([])
+        expect(queries).toHaveLength(0)
+    })
+})
+
+describe('composeMail mailSyncDb.upsertAttachments', () => {
+    test('여러 첨부를 INSERT 한 번으로 upsert 하고 충돌 시 행별 값으로 갱신한다', async () => {
+        const { composed, queries } = createRecordingCompose()
+        await composed.mailSyncDb.upsertAttachments([
+            {
+                messageId: 1,
+                remoteAttachmentId: 'att-1',
+                filename: 'a.pdf',
+                mimeType: 'application/pdf',
+                sizeBytes: 10,
+                contentId: null,
+                isInline: false,
+            },
+            { messageId: 1, remoteAttachmentId: 'att-2', filename: 'b.png', mimeType: 'image/png', sizeBytes: 20, contentId: 'cid', isInline: true },
+        ])
+
+        const insertQueries = queries.filter((q) => q.sql.startsWith('insert into `mail_attachments`'))
+        expect(insertQueries).toHaveLength(1)
+        expect(insertQueries[0].sql).toContain('on duplicate key update')
+        expect(insertQueries[0].sql).toContain('`filename` = values(`filename`)')
+        expect(insertQueries[0].sql).toContain('`is_inline` = values(`is_inline`)')
+        expect(insertQueries[0].sql).not.toContain('`message_id` = values(')
+        expect(insertQueries[0].params).toEqual([
+            1,
+            'att-1',
+            'a.pdf',
+            'application/pdf',
+            10,
+            null,
+            false,
+            1,
+            'att-2',
+            'b.png',
+            'image/png',
+            20,
+            'cid',
+            true,
+        ])
+        expect(queries.some((q) => q.sql.startsWith('select'))).toBe(false)
+    })
+
+    test('빈 목록이면 아무 쿼리도 실행하지 않는다', async () => {
+        const { composed, queries } = createRecordingCompose()
+        await composed.mailSyncDb.upsertAttachments([])
+
+        expect(queries).toHaveLength(0)
+    })
+})
+
+describe('composeMail mailSyncDb.countsByFolder', () => {
+    test('메시지 수와 안읽음 수를 한 번의 쿼리로 집계한다', async () => {
+        const queries: { sql: string; params: unknown[] }[] = []
+        const db = drizzle(
+            async (sql, params) => {
+                queries.push({ sql, params })
+                return { rows: [[10, '3']] }
+            },
+            { schema, mode: 'default' },
+        ) as unknown as ComposeMailArgs['db']
+        const composed = composeMail({
+            db,
+            env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+            storageService: {} as unknown as ComposeMailArgs['storageService'],
+        })
+
+        const counts = await composed.mailSyncDb.countsByFolder(7)
+
+        expect(queries).toHaveLength(1)
+        expect(queries[0].sql).toContain('COUNT(*)')
+        expect(queries[0].sql).toContain('SUM(CASE WHEN')
+        expect(queries[0].params).toEqual([7])
+        expect(counts).toEqual({ messageCount: 10, unreadCount: 3 })
+    })
+
+    test('행이 없으면 0 으로 집계한다', async () => {
+        const db = drizzle(async () => ({ rows: [[0, null]] }), { schema, mode: 'default' }) as unknown as ComposeMailArgs['db']
+        const composed = composeMail({
+            db,
+            env: { MAIL_ENCRYPTION_KEY: 'test-encryption-key' } as unknown as ComposeMailArgs['env'],
+            storageService: {} as unknown as ComposeMailArgs['storageService'],
+        })
+
+        expect(await composed.mailSyncDb.countsByFolder(7)).toEqual({ messageCount: 0, unreadCount: 0 })
     })
 })
 

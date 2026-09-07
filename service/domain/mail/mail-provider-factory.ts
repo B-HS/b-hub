@@ -35,7 +35,10 @@ const IMAP_PRESETS: Record<string, ImapPreset> = {
 
 type MailProviderFactoryDeps = {
     crypto: MailCrypto
-    getOAuthToken: (accountId: string, userId: string) => Promise<{ accessToken: string; refreshToken?: string } | null>
+    getOAuthToken: (
+        accountId: string,
+        userId: string,
+    ) => Promise<{ accessToken: string; refreshToken?: string; accessTokenExpiresAt?: Date | null } | null>
     refreshOAuthToken: (betterAuthAccountId: string, refreshToken: string, userId: string) => Promise<string>
 }
 

@@ -63,8 +63,7 @@ const createMockDb = () => ({
             { address: 'bob@test.com', name: '' },
         ]),
     ),
-    countMessagesByFolder: mock(() => Promise.resolve(10)),
-    countUnreadByFolder: mock(() => Promise.resolve(3)),
+    countsByFolder: mock(() => Promise.resolve({ messageCount: 10, unreadCount: 3 })),
     updateFolderCounts: mock(() => Promise.resolve()),
     getFolderById: mock((id: number) => Promise.resolve({ id, accountId: 1, remoteFolderId: 'INBOX' })),
 })
@@ -305,8 +304,7 @@ describe('createMailMessageService', () => {
         test('markRead 후 폴더 unread 카운트가 감소한다', async () => {
             const deps = createDeps({
                 db: {
-                    countUnreadByFolder: mock(() => Promise.resolve(2)),
-                    countMessagesByFolder: mock(() => Promise.resolve(10)),
+                    countsByFolder: mock(() => Promise.resolve({ messageCount: 10, unreadCount: 2 })),
                 } as never,
             })
             const service = createMailMessageService(deps)
@@ -709,6 +707,71 @@ describe('createMailMessageService', () => {
 
             expect(accountService._provider.disconnect).toHaveBeenCalled()
             expect(deps.db.deleteMessages).toHaveBeenCalledWith([1])
+        })
+    })
+
+    describe('플래그 원격 반영 시 프로바이더 재사용', () => {
+        const twoFolderInfos = [
+            { messageId: 1, accountId: 1, remoteMessageId: 'r-1', folderId: 1 },
+            { messageId: 2, accountId: 1, remoteMessageId: 'r-2', folderId: 2 },
+        ]
+
+        test('같은 계정의 여러 폴더를 연결 한 번으로 처리한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: { getAccountIdsByMessageIds: mock(() => Promise.resolve(twoFolderInfos)) } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.markRead('user-1', [1, 2])
+
+            expect(accountService.getProvider).toHaveBeenCalledTimes(1)
+            expect(accountService._provider.connect).toHaveBeenCalledTimes(1)
+            expect(accountService._provider.disconnect).toHaveBeenCalledTimes(1)
+            expect(accountService._provider.markRead).toHaveBeenCalledTimes(2)
+            expect(accountService._provider.markRead).toHaveBeenNthCalledWith(1, ['r-1'], 'INBOX')
+            expect(accountService._provider.markRead).toHaveBeenNthCalledWith(2, ['r-2'], 'INBOX')
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1, 2], { isRead: true })
+        })
+
+        test('한 폴더의 원격 반영이 실패해도 나머지 폴더는 계속 처리한다', async () => {
+            const accountService = createMockAccountService()
+            let markReadCalls = 0
+            accountService._provider.markRead = mock(() => {
+                markReadCalls += 1
+                return markReadCalls === 1 ? Promise.reject(new Error('IMAP fail')) : Promise.resolve()
+            })
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: { getAccountIdsByMessageIds: mock(() => Promise.resolve(twoFolderInfos)) } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.markRead('user-1', [1, 2])
+
+            expect(markReadCalls).toBe(2)
+            expect(accountService._provider.disconnect).toHaveBeenCalledTimes(1)
+            expect(deps.db.updateFlags).toHaveBeenCalledWith([1, 2], { isRead: true })
+        })
+
+        test('계정이 다르면 계정마다 연결한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService: accountService as never,
+                db: {
+                    getAccountIdsByMessageIds: mock(() =>
+                        Promise.resolve([
+                            { messageId: 1, accountId: 1, remoteMessageId: 'r-1', folderId: 1 },
+                            { messageId: 2, accountId: 2, remoteMessageId: 'r-2', folderId: 1 },
+                        ]),
+                    ),
+                } as never,
+            })
+            const service = createMailMessageService(deps)
+            await service.markRead('user-1', [1, 2])
+
+            expect(accountService.getProvider).toHaveBeenCalledTimes(2)
+            expect(accountService._provider.connect).toHaveBeenCalledTimes(2)
+            expect(accountService._provider.disconnect).toHaveBeenCalledTimes(2)
         })
     })
 

@@ -52,8 +52,7 @@ type MailMessageDb = {
         folderId?: number
     }) => Promise<{ id: number; remoteMessageId: string; folderId: number }[]>
     getSenderList: (params: { userId: string; accountId?: number; limit: number }) => Promise<{ address: string; name: string }[]>
-    countMessagesByFolder: (folderId: number) => Promise<number>
-    countUnreadByFolder: (folderId: number) => Promise<number>
+    countsByFolder: (folderId: number) => Promise<{ messageCount: number; unreadCount: number }>
     updateFolderCounts: (folderId: number, messageCount: number, unreadCount: number) => Promise<void>
     getFolderById: (id: number) => Promise<{ id: number; accountId: number; remoteFolderId: string } | null>
 }
@@ -84,6 +83,21 @@ const groupByAccountFolder = (infos: MailMessageInfo[]) => {
         grouped.set(key, group)
     }
     return [...grouped.values()]
+}
+
+const groupByAccount = (infos: MailMessageInfo[]) => {
+    const grouped = new Map<number, Map<number, MailMessageInfo[]>>()
+    for (const info of infos) {
+        const folderGroups = grouped.get(info.accountId) ?? new Map<number, MailMessageInfo[]>()
+        const group = folderGroups.get(info.folderId) ?? []
+        group.push(info)
+        folderGroups.set(info.folderId, group)
+        grouped.set(info.accountId, folderGroups)
+    }
+    return [...grouped.entries()].map(([accountId, folderGroups]) => ({
+        accountId,
+        folderGroups: [...folderGroups.entries()].map(([folderId, infos]) => ({ folderId, infos })),
+    }))
 }
 
 const matchAttachmentRef = (refs: ProviderAttachment[], attachment: MailAttachment): ProviderAttachment | null => {
@@ -162,16 +176,22 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
     }
 
     const syncFlagActionToProvider = async (userId: string, msgInfos: MailMessageInfo[], action: FlagAction) => {
-        for (const { accountId, folderId, infos } of groupByAccountFolder(msgInfos)) {
+        for (const { accountId, folderGroups } of groupByAccount(msgInfos)) {
             try {
                 const { provider } = await deps.accountService.getProvider(accountId, userId)
-                const folder = await deps.db.getFolderById(folderId)
                 await provider.connect()
                 try {
-                    await provider[action](
-                        infos.map((info) => info.remoteMessageId),
-                        folder?.remoteFolderId,
-                    )
+                    for (const { folderId, infos } of folderGroups) {
+                        try {
+                            const folder = await deps.db.getFolderById(folderId)
+                            await provider[action](
+                                infos.map((info) => info.remoteMessageId),
+                                folder?.remoteFolderId,
+                            )
+                        } catch (error) {
+                            captureException(error)
+                        }
+                    }
                 } finally {
                     await provider.disconnect().catch(captureException)
                 }
@@ -203,8 +223,8 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
             const affectedFolderIds = [...new Set(msgInfos.map((m) => m.folderId))]
             await Promise.all(
                 affectedFolderIds.map(async (fid) => {
-                    const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(fid), deps.db.countUnreadByFolder(fid)])
-                    await deps.db.updateFolderCounts(fid, msgCount, unreadCount)
+                    const counts = await deps.db.countsByFolder(fid)
+                    await deps.db.updateFolderCounts(fid, counts.messageCount, counts.unreadCount)
                 }),
             )
         }
@@ -260,8 +280,8 @@ export const createMailMessageService = (deps: MailMessageServiceDeps) => {
 
         await Promise.all(
             [...grouped.keys()].map(async (fid) => {
-                const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(fid), deps.db.countUnreadByFolder(fid)])
-                await deps.db.updateFolderCounts(fid, msgCount, unreadCount)
+                const counts = await deps.db.countsByFolder(fid)
+                await deps.db.updateFolderCounts(fid, counts.messageCount, counts.unreadCount)
             }),
         )
 

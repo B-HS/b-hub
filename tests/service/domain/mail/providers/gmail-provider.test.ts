@@ -680,6 +680,100 @@ describe('401 토큰 리프레시', () => {
     })
 })
 
+describe('만료 임박 토큰 선제 갱신', () => {
+    const MINUTE_MS = 60 * 1000
+
+    test('만료가 5분 이내면 401 을 기다리지 않고 먼저 갱신한다', async () => {
+        setFetchResponse('/profile', { emailAddress: 'test@gmail.com' })
+        const deps = {
+            ...createDeps(),
+            getOAuthToken: mock(() =>
+                Promise.resolve({ accessToken: 'access-tok', refreshToken: 'refresh-tok', accessTokenExpiresAt: new Date(Date.now() + MINUTE_MS) }),
+            ),
+        }
+        const provider = createGmailProvider(deps)
+        const result = await provider.testConnection()
+
+        expect(result.success).toBe(true)
+        expect(deps.refreshOAuthToken).toHaveBeenCalledTimes(1)
+        expect(deps.refreshOAuthToken).toHaveBeenCalledWith('ba-1', 'refresh-tok')
+        expect(fetchCalls.filter((c) => c.url.includes('/profile'))).toHaveLength(1)
+        expect(fetchCalls[0].options.headers).toMatchObject({ Authorization: 'Bearer new-access-tok' })
+    })
+
+    test('만료가 넉넉히 남았으면 갱신하지 않는다', async () => {
+        setFetchResponse('/profile', { emailAddress: 'test@gmail.com' })
+        const deps = {
+            ...createDeps(),
+            getOAuthToken: mock(() =>
+                Promise.resolve({
+                    accessToken: 'access-tok',
+                    refreshToken: 'refresh-tok',
+                    accessTokenExpiresAt: new Date(Date.now() + 30 * MINUTE_MS),
+                }),
+            ),
+        }
+        const provider = createGmailProvider(deps)
+        await provider.testConnection()
+
+        expect(deps.refreshOAuthToken).not.toHaveBeenCalled()
+        expect(fetchCalls[0].options.headers).toMatchObject({ Authorization: 'Bearer access-tok' })
+    })
+
+    test('만료 시각이 없으면 기존 401 후 갱신 경로를 유지한다', async () => {
+        let callCount = 0
+        globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+            const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+            fetchCalls.push({ url, options: init ?? {} })
+            if (url.includes('/profile')) {
+                callCount++
+                if (callCount === 1) return mockResponse({ error: 'Unauthorized' }, 401)
+                return mockResponse({ emailAddress: 'test@gmail.com' }, 200)
+            }
+            return mockResponse({}, 200)
+        }) as typeof fetch
+
+        const deps = createDeps()
+        const provider = createGmailProvider(deps)
+        const result = await provider.testConnection()
+
+        expect(result.success).toBe(true)
+        expect(callCount).toBe(2)
+        expect(deps.refreshOAuthToken).toHaveBeenCalledTimes(1)
+    })
+
+    test('선제 갱신이 실패하면 기존 토큰으로 요청을 계속한다', async () => {
+        setFetchResponse('/profile', { emailAddress: 'test@gmail.com' })
+        const deps = {
+            ...createDeps(),
+            getOAuthToken: mock(() =>
+                Promise.resolve({ accessToken: 'access-tok', refreshToken: 'refresh-tok', accessTokenExpiresAt: new Date(Date.now() + MINUTE_MS) }),
+            ),
+            refreshOAuthToken: mock(() => Promise.reject(new Error('refresh endpoint down'))),
+        }
+        const provider = createGmailProvider(deps)
+        const result = await provider.testConnection()
+
+        expect(result.success).toBe(true)
+        expect(fetchCalls[0].options.headers).toMatchObject({ Authorization: 'Bearer access-tok' })
+    })
+
+    test('선제 갱신은 요청마다 반복하지 않는다', async () => {
+        setFetchResponse('/profile', { emailAddress: 'test@gmail.com' })
+        const deps = {
+            ...createDeps(),
+            getOAuthToken: mock(() =>
+                Promise.resolve({ accessToken: 'access-tok', refreshToken: 'refresh-tok', accessTokenExpiresAt: new Date(Date.now() + MINUTE_MS) }),
+            ),
+        }
+        const provider = createGmailProvider(deps)
+        await provider.testConnection()
+        await provider.testConnection()
+
+        expect(deps.refreshOAuthToken).toHaveBeenCalledTimes(1)
+    })
+})
+
 describe('429 exponential backoff', () => {
     test('429 시 재시도한다', async () => {
         let callCount = 0

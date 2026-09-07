@@ -15,11 +15,12 @@ import { sanitizeHeaderValue, encodeMimeWord, formatMailAddress, htmlToPlainText
 type GmailProviderDeps = {
     email: string
     betterAuthAccountId: string
-    getOAuthToken: (accountId: string) => Promise<{ accessToken: string; refreshToken?: string } | null>
+    getOAuthToken: (accountId: string) => Promise<{ accessToken: string; refreshToken?: string; accessTokenExpiresAt?: Date | null } | null>
     refreshOAuthToken: (betterAuthAccountId: string, refreshToken: string) => Promise<string>
 }
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
+const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000
 
 const toValidDate = (value: string | number) => {
     const date = new Date(value)
@@ -37,15 +38,52 @@ const LABEL_TYPE_MAP: Record<string, ProviderFolder['type']> = {
 export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
     let accessToken: string | null = null
     let refreshToken: string | null = null
+    let accessTokenExpiresAt: Date | null = null
     let refreshPromise: Promise<string> | null = null
 
+    const refreshAccessToken = (currentRefreshToken: string) => {
+        if (!refreshPromise) {
+            refreshPromise = deps
+                .refreshOAuthToken(deps.betterAuthAccountId, currentRefreshToken)
+                .then((newToken) => {
+                    accessToken = newToken
+                    accessTokenExpiresAt = null
+                    refreshPromise = null
+                    return newToken
+                })
+                .catch((err) => {
+                    accessToken = null
+                    refreshToken = null
+                    accessTokenExpiresAt = null
+                    refreshPromise = null
+                    throw err
+                })
+        }
+        return refreshPromise
+    }
+
     const getToken = async (): Promise<string> => {
-        if (accessToken) return accessToken
-        const tokens = await deps.getOAuthToken(deps.betterAuthAccountId)
-        if (!tokens) throw new Error('OAuth token not found')
-        accessToken = tokens.accessToken
-        refreshToken = tokens.refreshToken ?? null
-        return accessToken
+        if (!accessToken) {
+            const tokens = await deps.getOAuthToken(deps.betterAuthAccountId)
+            if (!tokens) throw new Error('OAuth token not found')
+            accessToken = tokens.accessToken
+            refreshToken = tokens.refreshToken ?? null
+            accessTokenExpiresAt = tokens.accessTokenExpiresAt ?? null
+        }
+
+        if (!refreshToken || !accessTokenExpiresAt) return accessToken
+        if (accessTokenExpiresAt.getTime() - Date.now() > TOKEN_REFRESH_MARGIN_MS) return accessToken
+
+        const previousToken = accessToken
+        const previousRefreshToken = refreshToken
+        try {
+            return await refreshAccessToken(previousRefreshToken)
+        } catch {
+            accessToken = previousToken
+            refreshToken = previousRefreshToken
+            accessTokenExpiresAt = null
+            return previousToken
+        }
     }
 
     const gmailFetch = async (path: string, options: RequestInit = {}, retries = 3): Promise<Response> => {
@@ -56,22 +94,7 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
         })
 
         if (res.status === 401 && refreshToken) {
-            if (!refreshPromise) {
-                refreshPromise = deps
-                    .refreshOAuthToken(deps.betterAuthAccountId, refreshToken)
-                    .then((newToken) => {
-                        accessToken = newToken
-                        refreshPromise = null
-                        return newToken
-                    })
-                    .catch((err) => {
-                        accessToken = null
-                        refreshToken = null
-                        refreshPromise = null
-                        throw err
-                    })
-            }
-            token = await refreshPromise
+            token = await refreshAccessToken(refreshToken)
             res = await fetch(`${GMAIL_API}${path}`, {
                 ...options,
                 headers: { Authorization: `Bearer ${token}`, ...options.headers },
@@ -152,6 +175,7 @@ export const createGmailProvider = (deps: GmailProviderDeps): MailProvider => {
         async disconnect() {
             accessToken = null
             refreshToken = null
+            accessTokenExpiresAt = null
         },
 
         async testConnection() {

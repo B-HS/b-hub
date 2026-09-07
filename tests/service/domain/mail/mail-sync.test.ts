@@ -75,9 +75,11 @@ const createMockDb = () => ({
     getFolderById: mock(() => Promise.resolve(mockFolder())),
     updateFolderCounts: mock(() => Promise.resolve()),
     updateFolderSyncCursor: mock(() => Promise.resolve()),
-    upsertMessage: mock(() => Promise.resolve({ id: 1, isNew: true })),
+    upsertMessages: mock((params: { messages: { remoteMessageId: string }[] }) =>
+        Promise.resolve(params.messages.map((_, index) => ({ id: index + 1, isNew: true }))),
+    ),
     deleteMessagesByRemoteIds: mock(() => Promise.resolve()),
-    upsertAttachment: mock(() => Promise.resolve({ id: 1 })),
+    upsertAttachments: mock(() => Promise.resolve()),
     createSyncLog: mock(() => Promise.resolve(mockSyncLog())),
     updateSyncLog: mock(() => Promise.resolve()),
     getLatestSyncLog: mock(() => Promise.resolve(mockSyncLog({ status: 'success', completedAt: new Date() }))),
@@ -86,8 +88,7 @@ const createMockDb = () => ({
     getActiveSession: mock(() => Promise.resolve(null)),
     createSession: mock(() => Promise.resolve(mockSession())),
     updateSession: mock(() => Promise.resolve()),
-    countMessagesByFolder: mock(() => Promise.resolve(10)),
-    countUnreadByFolder: mock(() => Promise.resolve(2)),
+    countsByFolder: mock(() => Promise.resolve({ messageCount: 10, unreadCount: 2 })),
 })
 
 const mockProvider = () => ({
@@ -162,14 +163,12 @@ describe('createMailSyncService', () => {
 
         test('새 메시지와 업데이트를 구분하여 카운트한다', async () => {
             const accountService = createMockAccountService()
-            let callCount = 0
             const deps = createDeps({
                 accountService,
                 db: {
-                    upsertMessage: mock(() => {
-                        callCount++
-                        return Promise.resolve({ id: callCount, isNew: callCount === 1 })
-                    }),
+                    upsertMessages: mock((params: { messages: { remoteMessageId: string }[] }) =>
+                        Promise.resolve(params.messages.map((_, index) => ({ id: index + 1, isNew: index === 0 }))),
+                    ),
                 },
             })
             const service = createMailSyncService(deps)
@@ -235,7 +234,12 @@ describe('createMailSyncService', () => {
                 identityScope: 'folder',
                 remoteIds: ['del-1', 'del-3'],
             })
-            expect(deps.db.upsertMessage).toHaveBeenCalledTimes(2)
+            expect(deps.db.upsertMessages).toHaveBeenCalledTimes(1)
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    messages: [expect.objectContaining({ remoteMessageId: 'new-1' }), expect.objectContaining({ remoteMessageId: 'new-2' })],
+                }),
+            )
         })
 
         test('첨부파일이 있는 메시지를 처리한다', async () => {
@@ -258,9 +262,11 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertAttachment).toHaveBeenCalledTimes(2)
-            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(expect.objectContaining({ filename: 'doc.pdf', isInline: false }))
-            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(expect.objectContaining({ filename: 'img.png', isInline: true }))
+            expect(deps.db.upsertAttachments).toHaveBeenCalledTimes(1)
+            expect(deps.db.upsertAttachments).toHaveBeenCalledWith([
+                expect.objectContaining({ messageId: 1, filename: 'doc.pdf', isInline: false }),
+                expect.objectContaining({ messageId: 1, filename: 'img.png', isInline: true }),
+            ])
         })
 
         test('삭제를 folderId 스코프로 위임한다', async () => {
@@ -296,7 +302,13 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ accountId: 1, folderId: 7, remoteMessageId: 'msg-1' }))
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    accountId: 1,
+                    folderId: 7,
+                    messages: expect.arrayContaining([expect.objectContaining({ remoteMessageId: 'msg-1' })]),
+                }),
+            )
         })
 
         test('__local_ 접두 폴더는 동기화 대상에서 제외한다', async () => {
@@ -462,7 +474,12 @@ describe('createMailSyncService', () => {
 
             await expect(service.syncAccount(1, 'user-1')).rejects.toMatchObject({ code: 'MAIL_PROVIDER_ERROR' })
             expect(accountService._provider.fetchMessages).toHaveBeenCalledTimes(2)
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ folderId: 2, remoteMessageId: 'ok-1' }))
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    folderId: 2,
+                    messages: expect.arrayContaining([expect.objectContaining({ remoteMessageId: 'ok-1' })]),
+                }),
+            )
             expect(deps.db.updateSyncLog).toHaveBeenCalledWith(1, expect.objectContaining({ status: 'error', errorMessage: 'folder failed' }))
         })
 
@@ -496,12 +513,74 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(
-                expect.objectContaining({ messageIdHeader: 'a'.repeat(500), inReplyTo: 'a'.repeat(500) }),
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    messages: [expect.objectContaining({ messageIdHeader: 'a'.repeat(500), inReplyTo: 'a'.repeat(500) })],
+                }),
             )
-            expect(deps.db.upsertAttachment).toHaveBeenCalledWith(
+            expect(deps.db.upsertAttachments).toHaveBeenCalledWith([
                 expect.objectContaining({ filename: 'f'.repeat(255), mimeType: 'm'.repeat(100), contentId: 'c'.repeat(255) }),
-            )
+            ])
+        })
+
+        test('폴더 카운트를 한 번의 집계 쿼리로 조회해 반영한다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({
+                accountService,
+                db: { countsByFolder: mock(() => Promise.resolve({ messageCount: 12, unreadCount: 4 })) },
+            })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.countsByFolder).toHaveBeenCalledTimes(1)
+            expect(deps.db.countsByFolder).toHaveBeenCalledWith(1)
+            expect(deps.db.updateFolderCounts).toHaveBeenCalledWith(1, 12, 4)
+        })
+
+        test('메시지가 없으면 upsert 를 호출하지 않는다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.fetchMessages = mock(() => Promise.resolve({ messages: [], deletedIds: [], newSyncCursor: 'cursor' }))
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.upsertMessages).not.toHaveBeenCalled()
+            expect(deps.db.upsertAttachments).not.toHaveBeenCalled()
+        })
+
+        test('첨부가 없으면 첨부 배치 upsert 를 호출하지 않는다', async () => {
+            const accountService = createMockAccountService()
+            const deps = createDeps({ accountService })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.upsertAttachments).not.toHaveBeenCalled()
+        })
+
+        test('upsert 가 id 를 돌려주지 못하면 첨부의 messageId 는 null 로 전달한다', async () => {
+            const accountService = createMockAccountService()
+            accountService._provider.fetchMessages = mock(() =>
+                Promise.resolve({
+                    messages: [
+                        {
+                            ...mockMessage('msg-no-id'),
+                            attachments: [
+                                { id: 'att-1', filename: 'doc.pdf', mimeType: 'application/pdf', sizeBytes: 1, contentId: null, isInline: false },
+                            ],
+                        },
+                    ],
+                    deletedIds: [],
+                    newSyncCursor: 'cursor',
+                }),
+            ) as never
+            const deps = createDeps({
+                accountService,
+                db: { upsertMessages: mock(() => Promise.resolve([{ id: null, isNew: true }])) },
+            })
+            const service = createMailSyncService(deps)
+            await service.syncAccount(1, 'user-1')
+
+            expect(deps.db.upsertAttachments).toHaveBeenCalledWith([expect.objectContaining({ messageId: null, filename: 'doc.pdf' })])
         })
 
         test('원격 폴더 id 는 255자로 절단해 upsert 한다', async () => {
@@ -801,7 +880,7 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'account' }))
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'account' }))
         })
 
         test('imap 계정은 폴더 범위 식별자로 upsert 한다', async () => {
@@ -810,7 +889,7 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'folder' }))
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'folder' }))
         })
 
         test('gmail 외 provider 는 모두 폴더 범위 식별자를 쓴다', async () => {
@@ -819,7 +898,7 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncAccount(1, 'user-1')
 
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'folder' }))
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'folder' }))
         })
 
         test('gmail 계정의 삭제는 계정 범위로 위임한다', async () => {
@@ -849,7 +928,7 @@ describe('createMailSyncService', () => {
             const service = createMailSyncService(deps)
             await service.syncHistorical(1, 'user-1', {})
 
-            expect(deps.db.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'account' }))
+            expect(deps.db.upsertMessages).toHaveBeenCalledWith(expect.objectContaining({ identityScope: 'account' }))
         })
     })
 })

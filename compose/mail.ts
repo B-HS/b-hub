@@ -36,12 +36,20 @@ export const composeMail = ({ db, env, storageService, rateLimitStore }: Compose
         crypto: mailCrypto,
         getOAuthToken: async (betterAuthAccountId: string, userId: string) => {
             const [acc] = await db
-                .select({ accessToken: schema.account.accessToken, refreshToken: schema.account.refreshToken })
+                .select({
+                    accessToken: schema.account.accessToken,
+                    refreshToken: schema.account.refreshToken,
+                    accessTokenExpiresAt: schema.account.accessTokenExpiresAt,
+                })
                 .from(schema.account)
                 .where(and(eq(schema.account.id, betterAuthAccountId), eq(schema.account.userId, userId)))
                 .limit(1)
             if (!acc?.accessToken) return null
-            return { accessToken: acc.accessToken, refreshToken: acc.refreshToken ?? undefined }
+            return {
+                accessToken: acc.accessToken,
+                refreshToken: acc.refreshToken ?? undefined,
+                accessTokenExpiresAt: acc.accessTokenExpiresAt ?? null,
+            }
         },
         refreshOAuthToken: async (betterAuthAccountId: string, refreshToken: string, userId: string) => {
             const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -225,66 +233,99 @@ export const composeMail = ({ db, env, storageService, rateLimitStore }: Compose
             await db.update(schema.mailFolders).set({ syncCursor: cursor }).where(eq(schema.mailFolders.id, folderId))
         },
 
-        upsertMessage: async (data: Record<string, unknown>) => {
-            const { identityScope, ...insertData } = data
-            const isAccountScope = identityScope === 'account'
-            const messageIdentity = isAccountScope
-                ? and(
-                      eq(schema.mailMessages.accountId, data.accountId as number),
-                      eq(schema.mailMessages.remoteMessageId, data.remoteMessageId as string),
-                  )
-                : and(
-                      eq(schema.mailMessages.accountId, data.accountId as number),
-                      eq(schema.mailMessages.folderId, data.folderId as number),
-                      eq(schema.mailMessages.remoteMessageId, data.remoteMessageId as string),
-                  )
-            const [existing] = await db.select({ id: schema.mailMessages.id }).from(schema.mailMessages).where(messageIdentity).limit(1)
-            const isNew = !existing
+        upsertMessages: async (params: {
+            accountId: number
+            folderId: number
+            identityScope: 'account' | 'folder'
+            messages: Record<string, unknown>[]
+        }) => {
+            if (params.messages.length === 0) return []
 
-            const mutableFields = {
-                subject: data.subject,
-                bodyHtml: data.bodyHtml,
-                bodyText: data.bodyText,
-                snippet: data.snippet,
-                isRead: data.isRead,
-                isStarred: data.isStarred,
-                isDraft: data.isDraft,
-                hasAttachments: data.hasAttachments,
-                threadId: data.threadId,
-                messageIdHeader: data.messageIdHeader,
-                inReplyTo: data.inReplyTo,
-                referencesHeader: data.referencesHeader,
+            const isAccountScope = params.identityScope === 'account'
+            const messageIdentity = (remoteMessageIds: string[]) => {
+                const conditions = [eq(schema.mailMessages.accountId, params.accountId)]
+                if (!isAccountScope) conditions.push(eq(schema.mailMessages.folderId, params.folderId))
+                conditions.push(inArray(schema.mailMessages.remoteMessageId, remoteMessageIds))
+                return and(...conditions)
+            }
+            const identityColumns = { id: schema.mailMessages.id, remoteMessageId: schema.mailMessages.remoteMessageId }
+            const mutableFields = (message: Record<string, unknown>) => ({
+                subject: message.subject,
+                bodyHtml: message.bodyHtml,
+                bodyText: message.bodyText,
+                snippet: message.snippet,
+                isRead: message.isRead,
+                isStarred: message.isStarred,
+                isDraft: message.isDraft,
+                hasAttachments: message.hasAttachments,
+                threadId: message.threadId,
+                messageIdHeader: message.messageIdHeader,
+                inReplyTo: message.inReplyTo,
+                referencesHeader: message.referencesHeader,
+            })
+
+            const existingRows = await db
+                .select(identityColumns)
+                .from(schema.mailMessages)
+                .where(messageIdentity(params.messages.map((message) => message.remoteMessageId as string)))
+                .orderBy(schema.mailMessages.id)
+
+            const existingIdByRemoteId = new Map<string, number>()
+            for (const row of existingRows) {
+                if (!existingIdByRemoteId.has(row.remoteMessageId)) existingIdByRemoteId.set(row.remoteMessageId, row.id)
             }
 
-            if (existing) {
+            const insertedRemoteIdSet = new Set<string>()
+            const plans = params.messages.map((message) => {
+                const remoteMessageId = message.remoteMessageId as string
+                const existingId = existingIdByRemoteId.get(remoteMessageId)
+                const isNew = existingId === undefined && !insertedRemoteIdSet.has(remoteMessageId)
+                if (isNew) insertedRemoteIdSet.add(remoteMessageId)
+                return { message, remoteMessageId, existingId, isNew }
+            })
+            const insertedRemoteIds = [...insertedRemoteIdSet]
+
+            for (const plan of plans) {
+                if (!plan.isNew) continue
+                await db
+                    .insert(schema.mailMessages)
+                    .values({ accountId: params.accountId, folderId: params.folderId, ...plan.message } as never)
+                    .onDuplicateKeyUpdate({ set: mutableFields(plan.message) as never })
+            }
+
+            const insertedRows =
+                insertedRemoteIds.length > 0
+                    ? await db
+                          .select(identityColumns)
+                          .from(schema.mailMessages)
+                          .where(messageIdentity(insertedRemoteIds))
+                          .orderBy(schema.mailMessages.id)
+                    : []
+
+            const insertedIdByRemoteId = new Map<string, number>()
+            const duplicateIds: number[] = []
+            for (const row of insertedRows) {
+                if (insertedIdByRemoteId.has(row.remoteMessageId)) duplicateIds.push(row.id)
+                else insertedIdByRemoteId.set(row.remoteMessageId, row.id)
+            }
+
+            if (isAccountScope && duplicateIds.length > 0) {
+                await db.delete(schema.mailMessages).where(inArray(schema.mailMessages.id, duplicateIds))
+            }
+
+            const resolveId = (plan: (typeof plans)[number]) => plan.existingId ?? insertedIdByRemoteId.get(plan.remoteMessageId) ?? null
+
+            for (const plan of plans) {
+                if (plan.isNew) continue
+                const targetId = resolveId(plan)
+                if (targetId === null) continue
                 await db
                     .update(schema.mailMessages)
-                    .set(mutableFields as never)
-                    .where(eq(schema.mailMessages.id, existing.id))
-                const [updatedMsg] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, existing.id)).limit(1)
-                return { ...updatedMsg, isNew }
+                    .set(mutableFields(plan.message) as never)
+                    .where(eq(schema.mailMessages.id, targetId))
             }
 
-            await db
-                .insert(schema.mailMessages)
-                .values(insertData as never)
-                .onDuplicateKeyUpdate({ set: mutableFields as never })
-
-            if (!isAccountScope) {
-                const [msg] = await db.select().from(schema.mailMessages).where(messageIdentity).limit(1)
-                return { ...msg, isNew }
-            }
-
-            const [msg, ...duplicates] = await db.select().from(schema.mailMessages).where(messageIdentity).orderBy(schema.mailMessages.id)
-            if (duplicates.length > 0) {
-                await db.delete(schema.mailMessages).where(
-                    inArray(
-                        schema.mailMessages.id,
-                        duplicates.map((row) => row.id),
-                    ),
-                )
-            }
-            return { ...msg, isNew }
+            return plans.map((plan) => ({ id: resolveId(plan), isNew: plan.isNew }))
         },
         deleteMessagesByRemoteIds: async (params: {
             accountId: number
@@ -299,23 +340,20 @@ export const composeMail = ({ db, env, storageService, rateLimitStore }: Compose
             await db.delete(schema.mailMessages).where(and(...conditions))
         },
 
-        upsertAttachment: async (data: Record<string, unknown>) => {
-            const { messageId, remoteAttachmentId, ...updateFields } = data
+        upsertAttachments: async (items: Record<string, unknown>[]) => {
+            if (items.length === 0) return
             await db
                 .insert(schema.mailAttachments)
-                .values(data as never)
-                .onDuplicateKeyUpdate({ set: updateFields as never })
-            const [att] = await db
-                .select()
-                .from(schema.mailAttachments)
-                .where(
-                    and(
-                        eq(schema.mailAttachments.messageId, messageId as number),
-                        eq(schema.mailAttachments.remoteAttachmentId, remoteAttachmentId as string),
-                    ),
-                )
-                .limit(1)
-            return att
+                .values(items as never)
+                .onDuplicateKeyUpdate({
+                    set: {
+                        filename: sql.raw('values(`filename`)'),
+                        mimeType: sql.raw('values(`mime_type`)'),
+                        sizeBytes: sql.raw('values(`size_bytes`)'),
+                        contentId: sql.raw('values(`content_id`)'),
+                        isInline: sql.raw('values(`is_inline`)'),
+                    },
+                })
         },
 
         createSyncLog: async (data: { accountId: number; syncType: string; status: string; folderId: number | null; startedAt: Date }) => {
@@ -410,6 +448,16 @@ export const composeMail = ({ db, env, storageService, rateLimitStore }: Compose
                 .from(schema.mailMessages)
                 .where(and(eq(schema.mailMessages.folderId, folderId), eq(schema.mailMessages.isRead, false)))
             return result?.count ?? 0
+        },
+        countsByFolder: async (folderId: number) => {
+            const [result] = await db
+                .select({
+                    messageCount: sql<number>`COUNT(*)`,
+                    unreadCount: sql<number>`SUM(CASE WHEN ${schema.mailMessages.isRead} = 0 THEN 1 ELSE 0 END)`,
+                })
+                .from(schema.mailMessages)
+                .where(eq(schema.mailMessages.folderId, folderId))
+            return { messageCount: Number(result?.messageCount ?? 0), unreadCount: Number(result?.unreadCount ?? 0) }
         },
     }
 
@@ -772,8 +820,7 @@ export const composeMail = ({ db, env, storageService, rateLimitStore }: Compose
             }
             return [...senderMap.entries()].map(([address, name]) => ({ address, name }))
         },
-        countMessagesByFolder: mailSyncDb.countMessagesByFolder,
-        countUnreadByFolder: mailSyncDb.countUnreadByFolder,
+        countsByFolder: mailSyncDb.countsByFolder,
         updateFolderCounts: mailSyncDb.updateFolderCounts,
         getFolderById: mailSyncDb.getFolderById,
     }

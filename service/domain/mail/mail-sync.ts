@@ -1,4 +1,4 @@
-import type { MailSyncLog, MailSyncSession, MailFolder, MailMessage, MailAttachment } from '../../../db/schema'
+import type { MailSyncLog, MailSyncSession, MailFolder } from '../../../db/schema'
 import type { MailAccountService } from './mail-account'
 import type { MailProvider, ProviderMessage } from './mail-provider'
 import { createAppError } from '../../../lib/error'
@@ -21,31 +21,33 @@ type MailSyncDb = {
     updateFolderCounts: (folderId: number, messageCount: number, unreadCount: number) => Promise<void>
     updateFolderSyncCursor: (folderId: number, cursor: string | null) => Promise<void>
 
-    upsertMessage: (data: {
+    upsertMessages: (params: {
         accountId: number
         folderId: number
         identityScope: 'account' | 'folder'
-        remoteMessageId: string
-        messageIdHeader: string | null
-        threadId: string | null
-        inReplyTo: string | null
-        referencesHeader: string | null
-        fromAddress: { name: string; address: string } | null
-        toAddresses: { name: string; address: string }[]
-        ccAddresses: { name: string; address: string }[]
-        bccAddresses: { name: string; address: string }[]
-        subject: string | null
-        bodyHtml: string | null
-        bodyText: string | null
-        snippet: string | null
-        isRead: boolean
-        isStarred: boolean
-        isDraft: boolean
-        hasAttachments: boolean
-        sentAt: Date | null
-        receivedAt: Date | null
-        uid: number | null
-    }) => Promise<MailMessage & { isNew: boolean }>
+        messages: {
+            remoteMessageId: string
+            messageIdHeader: string | null
+            threadId: string | null
+            inReplyTo: string | null
+            referencesHeader: string | null
+            fromAddress: { name: string; address: string } | null
+            toAddresses: { name: string; address: string }[]
+            ccAddresses: { name: string; address: string }[]
+            bccAddresses: { name: string; address: string }[]
+            subject: string | null
+            bodyHtml: string | null
+            bodyText: string | null
+            snippet: string | null
+            isRead: boolean
+            isStarred: boolean
+            isDraft: boolean
+            hasAttachments: boolean
+            sentAt: Date | null
+            receivedAt: Date | null
+            uid: number | null
+        }[]
+    }) => Promise<{ id: number | null; isNew: boolean }[]>
     deleteMessagesByRemoteIds: (params: {
         accountId: number
         folderId: number
@@ -53,15 +55,17 @@ type MailSyncDb = {
         remoteIds: string[]
     }) => Promise<void>
 
-    upsertAttachment: (data: {
-        messageId: number
-        remoteAttachmentId: string | null
-        filename: string | null
-        mimeType: string | null
-        sizeBytes: number | null
-        contentId: string | null
-        isInline: boolean
-    }) => Promise<MailAttachment>
+    upsertAttachments: (
+        items: {
+            messageId: number | null
+            remoteAttachmentId: string | null
+            filename: string | null
+            mimeType: string | null
+            sizeBytes: number | null
+            contentId: string | null
+            isInline: boolean
+        }[],
+    ) => Promise<void>
 
     createSyncLog: (data: { accountId: number; syncType: string; status: string; folderId: number | null; startedAt: Date }) => Promise<MailSyncLog>
     updateSyncLog: (
@@ -95,8 +99,7 @@ type MailSyncDb = {
         data: { status?: string; syncedCount?: number; cursor?: string; totalEstimate?: number; lastBatchAt?: Date; completedAt?: Date },
     ) => Promise<void>
 
-    countMessagesByFolder: (folderId: number) => Promise<number>
-    countUnreadByFolder: (folderId: number) => Promise<number>
+    countsByFolder: (folderId: number) => Promise<{ messageCount: number; unreadCount: number }>
 }
 
 type MailSyncServiceDeps = {
@@ -116,23 +119,19 @@ const ATTACHMENT_CONTENT_ID_MAX_LENGTH = 255
 const truncate = (value: string | null | undefined, maxLength: number) => (value == null ? null : value.slice(0, maxLength))
 
 export const createMailSyncService = (deps: MailSyncServiceDeps) => {
-    const yieldEventLoop = () => new Promise<void>((r) => setTimeout(r, 0))
-
     const upsertMessagesFromProvider = async (
         accountId: number,
         folderId: number,
         messages: ProviderMessage[],
         identityScope: 'account' | 'folder',
     ): Promise<{ added: number; updated: number }> => {
-        let added = 0
-        let updated = 0
+        if (messages.length === 0) return { added: 0, updated: 0 }
 
-        for (let i = 0; i < messages.length; i++) {
-            const msg = messages[i]
-            const dbMsg = await deps.db.upsertMessage({
-                accountId,
-                folderId,
-                identityScope,
+        const results = await deps.db.upsertMessages({
+            accountId,
+            folderId,
+            identityScope,
+            messages: messages.map((msg) => ({
                 remoteMessageId: msg.id,
                 messageIdHeader: truncate(msg.messageIdHeader, MESSAGE_HEADER_MAX_LENGTH),
                 threadId: msg.threadId ?? null,
@@ -153,14 +152,21 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 sentAt: msg.sentAt,
                 receivedAt: msg.receivedAt,
                 uid: msg.uid ?? null,
-            })
+            })),
+        })
 
-            if (dbMsg.isNew) added++
+        let added = 0
+        let updated = 0
+        const attachments: Parameters<MailSyncDb['upsertAttachments']>[0] = []
+
+        for (const [index, msg] of messages.entries()) {
+            const result = results[index]
+            if (result?.isNew) added++
             else updated++
 
             for (const att of msg.attachments) {
-                await deps.db.upsertAttachment({
-                    messageId: dbMsg.id,
+                attachments.push({
+                    messageId: result?.id ?? null,
                     remoteAttachmentId: att.id,
                     filename: truncate(att.filename, ATTACHMENT_FILENAME_MAX_LENGTH),
                     mimeType: truncate(att.mimeType, ATTACHMENT_MIME_TYPE_MAX_LENGTH),
@@ -169,9 +175,9 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                     isInline: att.isInline,
                 })
             }
-
-            if (i % 10 === 9) await yieldEventLoop()
         }
+
+        if (attachments.length > 0) await deps.db.upsertAttachments(attachments)
 
         return { added, updated }
     }
@@ -195,8 +201,8 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
             await deps.db.updateFolderSyncCursor(folder.id, result.newSyncCursor)
         }
 
-        const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(folder.id), deps.db.countUnreadByFolder(folder.id)])
-        await deps.db.updateFolderCounts(folder.id, msgCount, unreadCount)
+        const counts = await deps.db.countsByFolder(folder.id)
+        await deps.db.updateFolderCounts(folder.id, counts.messageCount, counts.unreadCount)
 
         return { added, updated, deleted: result.deletedIds.length }
     }
@@ -398,8 +404,8 @@ export const createMailSyncService = (deps: MailSyncServiceDeps) => {
                 ...(result.newSyncCursor ? {} : { completedAt: new Date() }),
             })
 
-            const [msgCount, unreadCount] = await Promise.all([deps.db.countMessagesByFolder(folder.id), deps.db.countUnreadByFolder(folder.id)])
-            await deps.db.updateFolderCounts(folder.id, msgCount, unreadCount)
+            const counts = await deps.db.countsByFolder(folder.id)
+            await deps.db.updateFolderCounts(folder.id, counts.messageCount, counts.unreadCount)
 
             return {
                 synced: added,
