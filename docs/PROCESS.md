@@ -32,6 +32,17 @@
 - [x] i. 검증 — 배치마다 `bunx tsc --noEmit` 0 · `bun test` 통과(1차 2864 → 2차 3011 → 3차 3198 → 4차 3427) · 소비자별 독립 회귀 리뷰(3차 7·4차 7). 배포 전·후 실동작 확인은 사용자 수행: [quality-assurance/2026-09-07-audit-deploy-verification.md](./quality-assurance/2026-09-07-audit-deploy-verification.md)
 - [x] j. 배포(2026-09-07) — 프로덕션 `db:push` 완료(1차 실행은 `ER_DROP_INDEX_FK` 로 중단돼 FK 인덱스 2종을 스키마에 유지 후 재실행, `No changes detected` 확인) → 스택 4개를 dev 에 fast-forward 병합·푸시(`d226fc7`) → Vercel 프로덕션 자동 배포 완료(11:52 UTC, `/api/logs/purge` 401 로 반영 확인). 무인증 스모크 통과(health·blog 필드 순서·badge `CDN-Cache-Control`+rate limit 헤더·admin 가드 303·GET 로그아웃 302+쿠키 무효화·metrics/weather 401 정책). Docker 재배포 완료(upload-server `~/server/b-hub/deploy/upload-server` 에서 `--build`, caldav-proxy 는 `~/server/caldav-proxy` 사본 갱신 후 `~/server` 프로젝트에서 `--build`). 소비자 확인(사용자, 2026-09-07): bblog·RESUME·mail·Calendar·Storage 정상, weather/ESP32·dashboard·Spotify 위젯·/manage 는 추후. 통합 패치로그: [history/2026-09-07-audit-patch-log.md](./history/2026-09-07-audit-patch-log.md). 남은 사용자 작업: 체크리스트 4절(하루 관측), `.env.production.local` 삭제
 - 후속 결정 대기: P-03 지연 import(preview 검증 후), P-10·P-11(IMAP/Gmail 호출 축소), Rirekisyo K-1/K-2, A-6~A-10 보류 유지, GitHub Dependabot high 1건(dev 푸시 시 알림, 별도 확인)
+
+## 진행 중 — 배포 후 이슈 (2026-09-07 21시대 KST)
+
+> 사용자 보고: Gmail 동기화 실패(연결 테스트는 성공), weather 웹 3개 예보 전부 실패. mail 클라이언트 콘솔의 sandbox iframe 스크립트 차단 메시지는 의도된 보안 동작(조치 불필요).
+
+- [x] a. 원인 구조 파악 — `/admin/logs` 에 `INTERNAL_ERROR "Failed query: update mail_sync_logs set status, duration_ms …"`. 동기화 본문 실패 후 catch 경로가 원문(쿼리·파라미터 포함, 64KB 초과 추정)을 `error_message`(text) 에 쓰다 실패해 원인이 가려짐. weather 는 `WEATHER_KMA_API_ERROR` 가 수 초 안에 8건 → 타임아웃이 아니라 즉시 거부(KMA 는 키 오류를 HTTP 403 으로 응답, 감사 이전 코드도 4xx 는 실패). 로그에는 사유가 남지 않았음(AppError 는 `errorDetail` 미설정)
+- [x] b. 수정 1 `04a8ce3` fix(mail) — 실패 메시지 2000자 절단, 로그 기록 실패가 원인을 덮지 않게 try/catch, 첨부 `message_id` null 방지(NOT NULL). 배포됨
+- [x] c. 수정 2 `48268a8` fix(logs) — `describeAppError` 로 AppError 의 `details.detail`/`message` 를 오류 로그 설명에 기록(`/admin/logs` 에서 KMA HTTP 상태·메일 원문 확인 가능). 배포됨
+- [x] d. 원인 확정 — 재시도 로그 `MAIL_PROVIDER_ERROR (Failed query: delete from mail_messages where (account_id = ? and remote_message_id in …)`. 1차 unique 변경으로 Gmail 계정 단위 조회·삭제의 `(account_id, remote_message_id)` 인덱스 경로가 사라져 전체 스캔 + lock wait. weather 는 KMA `HTTP 401`(= 빈 serviceKey 응답, 실측) → 사용자 결정으로 보류
+- [x] e. 수정 3 `fe0fab8` fix(mail) — `idx_mail_messages_account_remote` 복원(**db:push 필요**) + `describeThrownError` 로 cause 기록. 배포됨. 기록: [bug/2026-09-07-mail-sync-account-remote-index.md](./bug/2026-09-07-mail-sync-account-remote-index.md)
+- [x] f. 프로덕션 `db:push`(`idx_mail_messages_account_remote` 추가) 후 사용자 확인: **Gmail 동기화 정상**(2026-09-07). docs(bug·db-schema·deploy·mail) 반영·커밋. weather KMA 401 은 사용자 결정으로 보류
 - 부수: `.claude/settings.json`(gitignored)에 읽기 전용 허용 목록 추가(사용자 요청 "자잘한 조회는 권한 안 묻기")
 - 부수: `tests/route/index.test.ts` 가 `DATABASE_URL` 없는 환경에서 실패(`route/index.ts:101` 의 `getEnv()` 의존). 수정 대상에 포함
 
