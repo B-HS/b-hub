@@ -1,4 +1,4 @@
-import { eq, and, gte, sql } from 'drizzle-orm'
+import { eq, and, getTableColumns, gte, sql } from 'drizzle-orm'
 import { weatherApiKey, weatherApiLog } from '../../../db/schema'
 import { generateToken, hashToken } from '../../../lib/token-utils'
 import type { Database } from '../../../db/index'
@@ -8,6 +8,9 @@ const WEATHER_LOG_ENDPOINT_MAX_LENGTH = 50
 const WEATHER_LOG_IP_MAX_LENGTH = 45
 const WEATHER_LOG_USER_AGENT_MAX_LENGTH = 512
 const WEATHER_LOG_ERROR_CODE_MAX_LENGTH = 50
+const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000
+const RECENT_USAGE_HANDOFF_TTL_MS = 5 * 1000
+const MAX_RECENT_USAGE_HANDOFFS = 100
 
 type WeatherApiKeyDeps = {
     db: Database
@@ -21,6 +24,26 @@ const normalizeIp = (ip?: string) => {
 }
 
 export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
+    const recentUsageHandoffs = new Map<number, { count: number; expiresAtMs: number }>()
+
+    const rememberRecentUsage = (keyId: number, value: unknown) => {
+        const count = Number(value)
+        if (!Number.isFinite(count)) return
+        if (recentUsageHandoffs.size >= MAX_RECENT_USAGE_HANDOFFS) {
+            const oldest = recentUsageHandoffs.keys().next().value
+            if (oldest !== undefined) recentUsageHandoffs.delete(oldest)
+        }
+        recentUsageHandoffs.set(keyId, { count, expiresAtMs: Date.now() + RECENT_USAGE_HANDOFF_TTL_MS })
+    }
+
+    const takeRecentUsage = (keyId: number) => {
+        const entry = recentUsageHandoffs.get(keyId)
+        if (!entry) return null
+        recentUsageHandoffs.delete(keyId)
+        if (entry.expiresAtMs <= Date.now()) return null
+        return entry.count
+    }
+
     const create = async (userId: string, name?: string) => {
         const token = generateToken()
         const tokenHash = hashToken(token)
@@ -34,13 +57,26 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
 
     const validate = async (token: string) => {
         const tokenHash = hashToken(token)
-        const results = await deps.db.select().from(weatherApiKey).where(eq(weatherApiKey.token, tokenHash)).limit(1)
+        const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS)
+
+        const recentUsageQuery = deps.db
+            .select({ count: sql<number>`COUNT(*)` })
+            .from(weatherApiLog)
+            .where(and(eq(weatherApiLog.keyId, weatherApiKey.id), gte(weatherApiLog.createdAt, windowStart)))
+
+        const results = await deps.db
+            .select({ ...getTableColumns(weatherApiKey), recentUsage: sql<number>`(${recentUsageQuery})` })
+            .from(weatherApiKey)
+            .where(eq(weatherApiKey.token, tokenHash))
+            .limit(1)
 
         if (results.length === 0) return null
 
-        const record = results[0]
+        const { recentUsage, ...record } = results[0]
 
         if (record.expiresAt && record.expiresAt < new Date()) return null
+
+        rememberRecentUsage(record.id, recentUsage)
 
         try {
             await deps.db.update(weatherApiKey).set({ lastUsedAt: new Date() }).where(eq(weatherApiKey.id, record.id))
@@ -52,7 +88,10 @@ export const createWeatherApiKeyService = (deps: WeatherApiKeyDeps) => {
     }
 
     const checkRateLimit = async (keyId: number, dailyLimit: number) => {
-        const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        const handedOff = takeRecentUsage(keyId)
+        if (handedOff !== null) return handedOff < dailyLimit
+
+        const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS)
         const [result] = await deps.db
             .select({ count: sql<number>`COUNT(*)` })
             .from(weatherApiLog)

@@ -80,6 +80,48 @@ describe('GET /locations/', () => {
     })
 })
 
+describe('GET /locations/ 조건부 요청', () => {
+    test('ETag 와 Cache-Control 을 함께 내려준다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/locations', { headers: HEADERS })
+
+        expect(res.status).toBe(200)
+        expect(res.headers.get('ETag')).toMatch(/^"[0-9a-f]{32}"$/)
+        expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600')
+    })
+
+    test('If-None-Match 가 일치하면 304 를 빈 본문으로 반환한다', async () => {
+        const { app } = createApp()
+        const first = await app.request('/locations', { headers: HEADERS })
+        const etag = first.headers.get('ETag')!
+
+        const res = await app.request('/locations', { headers: { ...HEADERS, 'If-None-Match': etag } })
+
+        expect(res.status).toBe(304)
+        expect(res.headers.get('ETag')).toBe(etag)
+        expect(await res.text()).toBe('')
+    })
+
+    test('If-None-Match 가 다르면 200 과 동일한 본문을 반환한다', async () => {
+        const { app } = createApp()
+        const first = await app.request('/locations', { headers: HEADERS })
+        const firstBody = await first.text()
+
+        const res = await app.request('/locations', { headers: { ...HEADERS, 'If-None-Match': '"stale-etag"' } })
+
+        expect(res.status).toBe(200)
+        expect(await res.text()).toBe(firstBody)
+    })
+
+    test('200 응답 본문은 successResponse 직렬화와 바이트 단위로 같다', async () => {
+        const { app } = createApp()
+        const res = await app.request('/locations', { headers: HEADERS })
+
+        expect(res.headers.get('Content-Type')).toBe('application/json')
+        expect(await res.text()).toBe(JSON.stringify({ success: true, data: mockLocations }))
+    })
+})
+
 describe('GET /locations/convert', () => {
     test('lat/lon을 격자로 변환한다', async () => {
         const { app } = createApp()
@@ -161,9 +203,12 @@ const createRealKeyServiceDb = () => {
     }
     const values = mock((_row: Record<string, unknown>) => Promise.resolve())
     const db = {
-        select: (columns?: unknown) => ({
+        select: () => ({
             from: () => ({
-                where: () => (columns ? Promise.resolve([{ count: 0 }]) : { limit: () => Promise.resolve([record]) }),
+                where: () => ({
+                    limit: () => Promise.resolve([record]),
+                    then: (resolve: (v: unknown) => void) => Promise.resolve([{ count: 0 }]).then(resolve),
+                }),
             }),
         }),
         update: () => ({ set: () => ({ where: () => ({ catch: () => {} }) }) }),

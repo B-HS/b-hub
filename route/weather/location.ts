@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Hono } from 'hono'
 import { describeRoute, resolver } from 'hono-openapi'
 import { z } from 'zod'
@@ -16,8 +17,13 @@ type LocationRouteDeps = {
     weatherApiKeyService: WeatherApiKeyService
 }
 
+const LOCATIONS_CACHE_CONTROL = 'private, max-age=3600'
+const ETAG_HASH_LENGTH = 32
+const NOT_MODIFIED_STATUS = 304
+
 export const createLocationRoute = (deps: LocationRouteDeps) => {
     const route = new Hono()
+    let locationsEtag: string | null = null
 
     route.use('*', requireWeatherKey({ weatherApiKeyService: deps.weatherApiKeyService }))
 
@@ -44,6 +50,12 @@ export const createLocationRoute = (deps: LocationRouteDeps) => {
         }),
         withErrorHandling(async (c) => {
             const locations = deps.locationService.getAll()
+            locationsEtag ??= `"${createHash('sha256').update(JSON.stringify(locations)).digest('hex').slice(0, ETAG_HASH_LENGTH)}"`
+
+            c.header('ETag', locationsEtag)
+            c.header('Cache-Control', LOCATIONS_CACHE_CONTROL)
+            if (c.req.header('If-None-Match') === locationsEtag) return c.body(null, NOT_MODIFIED_STATUS)
+
             return c.json(successResponse(locations))
         }),
     )

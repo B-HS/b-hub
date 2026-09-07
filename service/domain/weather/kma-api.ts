@@ -12,23 +12,25 @@ const HTTP_CLIENT_ERROR_MIN = 400
 const HTTP_CLIENT_ERROR_MAX = 499
 const KMA_RESULT_CODE_NO_DATA = '03'
 
-const getNextNcstTtl = () => {
-    const now = new Date()
-    const next = new Date(now)
-    next.setMinutes(10, 0, 0)
-    if (now.getMinutes() >= 10) next.setHours(next.getHours() + 1)
-    return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
-}
-
-const getNextFcstTtl = () => {
-    const now = new Date()
-    const next = new Date(now)
-    next.setMinutes(45, 0, 0)
-    if (now.getMinutes() >= 45) next.setHours(next.getHours() + 1)
-    return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
-}
-
+const NCST_BASE_SWITCH_MINUTE = 40
+const FCST_BASE_SWITCH_MINUTE = 45
+const VILAGE_BASE_SWITCH_MINUTE = 10
+const FCST_BASE_MINUTE_OF_HOUR = 30
 const VILAGE_BASE_HOURS = [2, 5, 8, 11, 14, 17, 20, 23]
+const FIRST_VILAGE_BASE_HOUR = VILAGE_BASE_HOURS[0]
+const LAST_VILAGE_BASE_HOUR = VILAGE_BASE_HOURS[VILAGE_BASE_HOURS.length - 1]
+
+const getNextTtlAtMinute = (switchMinute: number) => {
+    const now = new Date()
+    const next = new Date(now)
+    next.setMinutes(switchMinute, 0, 0)
+    if (now.getMinutes() >= switchMinute) next.setHours(next.getHours() + 1)
+    return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
+}
+
+const getNextNcstTtl = () => getNextTtlAtMinute(NCST_BASE_SWITCH_MINUTE)
+
+const getNextFcstTtl = () => getNextTtlAtMinute(FCST_BASE_SWITCH_MINUTE)
 
 const getNextVilageTtl = () => {
     const now = new Date()
@@ -36,17 +38,16 @@ const getNextVilageTtl = () => {
     const m = now.getMinutes()
 
     for (const bt of VILAGE_BASE_HOURS) {
-        const provideMin = 10
-        if (h < bt || (h === bt && m < provideMin)) {
+        if (h < bt || (h === bt && m < VILAGE_BASE_SWITCH_MINUTE)) {
             const next = new Date(now)
-            next.setHours(bt, provideMin, 0, 0)
+            next.setHours(bt, VILAGE_BASE_SWITCH_MINUTE, 0, 0)
             return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
         }
     }
 
     const next = new Date(now)
     next.setDate(next.getDate() + 1)
-    next.setHours(2, 10, 0, 0)
+    next.setHours(FIRST_VILAGE_BASE_HOUR, VILAGE_BASE_SWITCH_MINUTE, 0, 0)
     return Math.max(next.getTime() - now.getTime(), MIN_CACHE_TTL)
 }
 
@@ -97,30 +98,29 @@ export const getKmaBaseDateTime = (type: 'ncst' | 'fcst' | 'vilage', nowMs = Dat
     const minutes = now.getUTCMinutes()
 
     if (type === 'ncst') {
-        if (minutes < 40) {
+        if (minutes < NCST_BASE_SWITCH_MINUTE) {
             now.setUTCHours(now.getUTCHours() - 1)
         }
         now.setUTCMinutes(0)
     } else if (type === 'fcst') {
-        if (minutes < 45) {
+        if (minutes < FCST_BASE_SWITCH_MINUTE) {
             now.setUTCHours(now.getUTCHours() - 1)
         }
-        now.setUTCMinutes(30)
+        now.setUTCMinutes(FCST_BASE_MINUTE_OF_HOUR)
     } else {
-        const baseTimes = [2, 5, 8, 11, 14, 17, 20, 23]
         const currentHour = now.getUTCHours()
         const currentMinutes = now.getUTCMinutes()
 
-        let baseTime = baseTimes[0]
-        for (const bt of baseTimes) {
-            if (currentHour > bt || (currentHour === bt && currentMinutes >= 10)) {
+        let baseTime = FIRST_VILAGE_BASE_HOUR
+        for (const bt of VILAGE_BASE_HOURS) {
+            if (currentHour > bt || (currentHour === bt && currentMinutes >= VILAGE_BASE_SWITCH_MINUTE)) {
                 baseTime = bt
             }
         }
 
-        if (currentHour < 2 || (currentHour === 2 && currentMinutes < 10)) {
+        if (currentHour < FIRST_VILAGE_BASE_HOUR || (currentHour === FIRST_VILAGE_BASE_HOUR && currentMinutes < VILAGE_BASE_SWITCH_MINUTE)) {
             now.setUTCDate(now.getUTCDate() - 1)
-            baseTime = 23
+            baseTime = LAST_VILAGE_BASE_HOUR
         }
 
         now.setUTCHours(baseTime)

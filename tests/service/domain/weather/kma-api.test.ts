@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from 'bun:test'
+import { describe, expect, test, mock, setSystemTime } from 'bun:test'
 
 const cacheSetCalls: { key: string; ttlSeconds: number }[] = []
 
@@ -328,6 +328,42 @@ describe('createKmaApiService 상류 보호', () => {
         expect(a.success).toBe(true)
         expect(b.success).toBe(true)
         expect(fetchFn).toHaveBeenCalledTimes(1)
+    })
+})
+
+const SECONDS_PER_MINUTE = 60
+const NCST_BASE_SWITCH_MINUTE = 40
+const FCST_BASE_SWITCH_MINUTE = 45
+
+describe('createKmaApiService 캐시 TTL 과 base time 경계', () => {
+    const runAtFrozenHour = async (call: (service: ReturnType<typeof createKmaApiService>) => Promise<unknown>) => {
+        cacheSetCalls.length = 0
+        setSystemTime(new Date('2025-01-01T15:00:00.000Z'))
+        try {
+            const fetchFn = createMockFetch(createMockKmaResponse([{ baseDate: '20250102', baseTime: '0000', category: 'T1H', nx: 60, ny: 127 }]))
+            await call(createKmaApiService({ apiKey: 'test-key', fetchFn }))
+            return cacheSetCalls[0]
+        } finally {
+            setSystemTime()
+        }
+    }
+
+    test('ncst 캐시는 base time 이 바뀌는 40분까지 유지된다', async () => {
+        const cached = await runAtFrozenHour((service) => service.getUltraSrtNcst(60, 127))
+        expect(cached.ttlSeconds).toBe(NCST_BASE_SWITCH_MINUTE * SECONDS_PER_MINUTE)
+    })
+
+    test('fcst 캐시는 base time 이 바뀌는 45분까지 유지된다', async () => {
+        const cached = await runAtFrozenHour((service) => service.getUltraSrtFcst(60, 127))
+        expect(cached.ttlSeconds).toBe(FCST_BASE_SWITCH_MINUTE * SECONDS_PER_MINUTE)
+    })
+
+    test('ncst TTL 이 지나면 base time 이 실제로 바뀐다', async () => {
+        const cached = await runAtFrozenHour((service) => service.getUltraSrtNcst(60, 127))
+        const reference = Date.parse('2025-01-01T15:00:00.000Z')
+        const ttlMs = cached.ttlSeconds * 1000
+        expect(getKmaBaseDateTime('ncst', reference + ttlMs - 1000)).toEqual(getKmaBaseDateTime('ncst', reference))
+        expect(getKmaBaseDateTime('ncst', reference + ttlMs)).not.toEqual(getKmaBaseDateTime('ncst', reference))
     })
 })
 

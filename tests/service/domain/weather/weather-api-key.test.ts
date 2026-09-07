@@ -1,4 +1,5 @@
 import { describe, expect, test, mock } from 'bun:test'
+import { createAppError } from '../../../../lib/error'
 import { createWeatherApiKeyService } from '../../../../service/domain/weather/weather-api-key'
 
 const createMockDb = (overrides: { selectResult?: unknown[]; countResult?: number } = {}) => {
@@ -11,17 +12,12 @@ const createMockDb = (overrides: { selectResult?: unknown[]; countResult?: numbe
         insert: mock(() => ({
             values: mock(() => Promise.resolve()),
         })),
-        select: mock((...args: unknown[]) => ({
+        select: mock(() => ({
             from: mock(() => ({
-                where: mock(() => {
-                    if (args.length > 0) {
-                        return Promise.resolve([{ count: countResult }])
-                    }
-                    return {
-                        limit: mock(() => Promise.resolve(selectResult)),
-                        then: (resolve: (v: unknown) => void) => Promise.resolve(selectResult).then(resolve),
-                    }
-                }),
+                where: mock(() => ({
+                    limit: mock(() => Promise.resolve(selectResult)),
+                    then: (resolve: (v: unknown) => void) => Promise.resolve([{ count: countResult }]).then(resolve),
+                })),
             })),
         })),
         update: mock(() => ({
@@ -230,7 +226,7 @@ describe('createWeatherApiKeyService.validate 사용시각 갱신', () => {
     test('lastUsedAt 갱신이 실패해도 키 검증은 성공한다', async () => {
         const service = createWeatherApiKeyService({
             db: createValidateDb(async () => {
-                throw new Error('db down')
+                throw createAppError('INTERNAL_ERROR')
             }) as never,
         })
 
